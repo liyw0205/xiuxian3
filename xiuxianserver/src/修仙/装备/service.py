@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..common import CoreService, hint, money, parse_name_level, split_words, to_int
+from ..common import CoreService, fixed_equipment_label, hint, money, parse_name_level, split_words, to_int
 from ..constants import EQUIPMENT_SLOTS, FIXED_EQUIPMENT_SLOT_FACTORS
 from ..rules import equipment_upgrade_cost
 from ..sql import db
@@ -27,7 +27,7 @@ class EquipmentService(CoreService):
             (client_id,),
         )
         bonuses = self.equipment_bonuses(client_id)
-        lines = [f"{row['slot']}：{row['level']}级，孔位 {row['hole_count']}/{MAX_HOLES}" for row in rows]
+        lines = [f"{fixed_equipment_label(row)}：{row['level']}级，孔位 {row['hole_count']}/{MAX_HOLES}" for row in rows]
         lines.append(
             f"当前总生存加成：血气+{int(bonuses['max_hp_bonus'])} "
             f"精神+{int(bonuses['max_mp_bonus'])} 防御+{int(bonuses['defense_bonus'])}"
@@ -60,7 +60,7 @@ class EquipmentService(CoreService):
                 (client_id, slot),
             )
         self.recalc_player(client_id)
-        return f"{slot} 升级成功，当前 {level + 1} 级。"
+        return f"{fixed_equipment_label(row) if row else slot} 升级成功，当前 {level + 1} 级。"
 
     def holes(self, client_id: str, slot: str) -> str:
         """查看固定装备孔位。"""
@@ -84,7 +84,7 @@ class EquipmentService(CoreService):
             (client_id, slot),
         )
         used = {row["hole_no"]: f"{row['name']} {row['level']}级" for row in rows}
-        lines = [f"☆{slot}孔位☆ {hole_count}/{MAX_HOLES}"]
+        lines = [f"☆{fixed_equipment_label(equipment) if equipment else slot}孔位☆ {hole_count}/{MAX_HOLES}"]
         for index in range(1, MAX_HOLES + 1):
             if index > hole_count:
                 lines.append(f"{index}：未开孔")
@@ -120,7 +120,8 @@ class EquipmentService(CoreService):
                 """,
                 (client_id, slot),
             )
-        return f"开孔成功：{slot} 当前孔位 {hole_count + 1}/{MAX_HOLES}。"
+        equipment = self._equipment_row(client_id, slot)
+        return f"开孔成功：{fixed_equipment_label(equipment) if equipment else slot} 当前孔位 {hole_count + 1}/{MAX_HOLES}。"
 
     def inlay(self, client_id: str, message: str) -> str:
         """镶嵌固定装备。"""
@@ -176,7 +177,8 @@ class EquipmentService(CoreService):
                 (client_id, slot, hole_no, item["equipment_item_id"], gem_level),
             )
         self.recalc_player(client_id)
-        return f"镶嵌成功：{slot} {hole_no}号孔 -> {item['name']} {gem_level}级。"
+        equipment = self._equipment_row(client_id, slot)
+        return f"镶嵌成功：{fixed_equipment_label(equipment) if equipment else slot} {hole_no}号孔 -> {item['name']} {gem_level}级。"
 
     def remove_inlay(self, client_id: str, message: str) -> str:
         """拆卸宝石。"""

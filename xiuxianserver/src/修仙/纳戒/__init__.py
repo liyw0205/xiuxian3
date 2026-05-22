@@ -7,14 +7,14 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from .service import service
 
 
-@WsMessageHandler.handler(cmd=("查看纳戒", "纳戒查看"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("查看纳戒", "纳戒查看", "纳戒"), priority=100, block=True)
 async def ws_ring_list(client_id: str, message: str) -> None:
     """查看纳戒。"""
 
     await ws_manager.send(service.list_items(client_id), client_id)
 
 
-@WsMessageHandler.handler(cmd=("查看装备库", "装备库查看"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("查看装备库", "装备库查看", "装备库"), priority=100, block=True)
 async def ws_ring_info(client_id: str, message: str) -> None:
     """查看装备库物品。"""
 

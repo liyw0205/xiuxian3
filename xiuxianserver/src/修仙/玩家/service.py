@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..common import CoreService, business_day, dt, format_effect, hint, money, now, timedelta, ts
+from ..common import CoreService, business_day, dt, format_effect, hint, money, now, timedelta, ts, weapon_label_name
 from ..constants import NEWBIE_GIFT_STONES, REST_MINUTES
 from ..rules import sign_reward
 from ..sql import db
@@ -21,8 +21,8 @@ class PlayerService(CoreService):
             "3. 修仙信息 / 武器 / 查看纳戒\n"
             "4. 探险 -> 探险状态 -> 30分钟后结束探险\n"
             "5. 自动用药 开启 / 查看背包 / 使用 血契丹 / 洗髓 / 休息\n"
-            "6. 商场列表 / 商场 / 商场推荐\n"
-            "常用：签到、源库、地点、固定装备、二手市场、特殊自动出售、切磋 对方ID"
+            "6. 商场列表 / 商场 / 商场推荐 / 商场奖励\n"
+            "常用：签到、源库、地点、固定装备、铭刻、二手市场、特殊自动出售、切磋 对方名称"
         )
 
     def create(self, client_id: str, message: str) -> str:
@@ -52,14 +52,13 @@ class PlayerService(CoreService):
         weapon_attack = int(weapon["attack"]) if weapon else 0
         total_attack = int(player["base_attack"]) + weapon_attack
         weapon_text = (
-            f"#{weapon['weapon_id']} {weapon['name']}[{weapon['quality']}] 攻击:{weapon_attack}"
+            f"#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] 攻击:{weapon_attack}"
             if weapon
             else "未装备"
         )
         physique_text = self._physique_text(player)
         return (
             f"☆{player['display_name']}的修仙信息☆\n"
-            f"id:{player['client_id']}\n"
             f"等级:{player['level']} 经验:{self.next_level_text(player)}\n"
             f"血气:{player['hp']}/{player['max_hp']} 精神:{player['mp']}/{player['max_mp']}\n"
             f"体质:{physique_text} 攻击:{total_attack}(基础{player['base_attack']}+武器{weapon_attack}) 防御:{player['defense']}\n"
@@ -205,7 +204,7 @@ class PlayerService(CoreService):
 
         return self.db.fetch_one(
             """
-            SELECT w.weapon_id, w.quality, w.attack, d.name
+            SELECT w.weapon_id, w.quality, w.attack, w.custom_name, d.name
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.owner_id = ? AND w.equipped = 1

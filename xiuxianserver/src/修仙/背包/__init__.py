@@ -7,7 +7,7 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from .service import service
 
 
-@WsMessageHandler.handler(cmd=("查看背包", "背包查看"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("查看背包", "背包查看", "背包"), priority=100, block=True)
 async def ws_backpack_list(client_id: str, message: str) -> None:
     """查看背包。"""
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..combat_core import service as combat_service
-from ..common import CoreService, hint, money, parse_player_ref, split_words, to_int, ts
+from ..common import CoreService, hint, money, split_words, to_int, ts
 from ..sql import db
 
 
@@ -30,12 +30,11 @@ class DuelService(CoreService):
 
         parts = split_words(message)
         if len(parts) < 2:
-            return hint("赌约格式不正确。", "发送：赌约 对方ID 源石数量，也可以用 CQ/at 指定对方。")
-        target_id = parse_player_ref(parts[0])
+            return hint("赌约格式不正确。", "发送：赌约 对方名称 源石数量，也可以用 CQ/at 指定对方。")
         stake = to_int(parts[1])
         if stake <= 0:
-            return hint("赌约源石必须大于 0。", "重新发送：赌约 对方ID 源石数量")
-        return self._create_request(client_id, target_id, "bet", stake)
+            return hint("赌约源石必须大于 0。", "重新发送：赌约 对方名称 源石数量")
+        return self._create_request(client_id, parts[0], "bet", stake)
 
     def accept_bet(self, client_id: str, message: str) -> str:
         """接受赌约。"""
@@ -63,7 +62,7 @@ class DuelService(CoreService):
             (client_id, client_id),
         )
         if not rows:
-            return hint("暂无决斗记录。", "发送：切磋 对方ID，或发送：赌约 对方ID 源石数量。")
+            return hint("暂无决斗记录。", "发送：切磋 对方名称，或发送：赌约 对方名称 源石数量。")
         return "\n".join(row["summary"] for row in rows)
 
     def _create_request(self, client_id: str, message: str, mode: str, stake: int) -> str:
@@ -73,14 +72,14 @@ class DuelService(CoreService):
         if error:
             return error
         assert player is not None
-        target_id = parse_player_ref(message)
+        target_id = self.resolve_player_ref(message)
         if not target_id:
-            return hint("缺少对方 ID。", "发送：切磋 对方ID，或使用 CQ/at 指定对方。")
+            return hint("没有找到对方。", "发送：切磋 对方名称，或使用 CQ/at 指定对方。")
         target, error = self.require_player(target_id)
         if error:
             return hint("对方还没有创建用户。", "请对方先发送：创建用户 名称")
         if target_id == client_id:
-            return hint("不能挑战自己。", "请输入其他玩家 ID，或使用 CQ/at 指定对方。")
+            return hint("不能挑战自己。", "请输入其他玩家名称，或使用 CQ/at 指定对方。")
         if player["status"] != "空闲" or target["status"] != "空闲":
             return hint("双方都需要处于空闲状态。", "双方可先发送：修仙信息 查看状态，处理探险或休息后再挑战。")
         with self.db.transaction() as conn:
@@ -115,9 +114,9 @@ class DuelService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
-        from_id = parse_player_ref(message)
+        from_id = self.resolve_player_ref(message)
         if not from_id:
-            return hint("缺少发起人 ID。", "发送：接受切磋 发起人ID，或使用 CQ/at 指定发起人。")
+            return hint("没有找到发起人。", "发送：接受切磋 发起人名称，或使用 CQ/at 指定发起人。")
         with self.db.transaction() as conn:
             self._expire_requests_conn(conn, client_id, from_id)
             request_row = conn.execute(
@@ -131,7 +130,7 @@ class DuelService(CoreService):
             ).fetchone()
             request = dict(request_row) if request_row else None
         if not request:
-            return hint("没有找到待接受的请求。", "确认对方 ID 是否正确，或让对方重新发起切磋/赌约。")
+            return hint("没有找到待接受的请求。", "确认对方名称是否正确，或让对方重新发起切磋/赌约。")
         result = combat_service.duel(from_id, client_id, write_log=False)
 
         with self.db.transaction() as conn:
@@ -203,9 +202,9 @@ class DuelService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
-        from_id = parse_player_ref(message)
+        from_id = self.resolve_player_ref(message)
         if not from_id:
-            return hint("缺少发起人 ID。", "发送：拒绝切磋 发起人ID，或使用 CQ/at 指定发起人。")
+            return hint("没有找到发起人。", "发送：拒绝切磋 发起人名称，或使用 CQ/at 指定发起人。")
         with self.db.transaction() as conn:
             self._expire_requests_conn(conn, client_id, from_id)
             request = conn.execute(
@@ -218,7 +217,7 @@ class DuelService(CoreService):
                 (mode, from_id, client_id),
             ).fetchone()
             if not request:
-                return hint("没有找到待拒绝的请求。", "确认对方 ID 是否正确，或忽略已超时的请求。")
+                return hint("没有找到待拒绝的请求。", "确认对方名称是否正确，或忽略已超时的请求。")
             cursor = conn.execute(
                 "UPDATE duel_requests SET status = '已拒绝' WHERE duel_id = ? AND status = '等待'",
                 (request["duel_id"],),

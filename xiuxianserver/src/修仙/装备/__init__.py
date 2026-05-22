@@ -7,7 +7,7 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from .service import service
 
 
-@WsMessageHandler.handler(cmd="固定装备", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("固定装备", "查看固定装备", "固定装备查看"), priority=100, block=True)
 async def ws_equipment_list(client_id: str, message: str) -> None:
     """查看固定装备。"""
 
@@ -21,7 +21,7 @@ async def ws_equipment_upgrade(client_id: str, message: str) -> None:
     await ws_manager.send(service.upgrade(client_id, message), client_id)
 
 
-@WsMessageHandler.handler(cmd="孔位", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("孔位", "查看孔位", "孔位查看"), priority=100, block=True)
 async def ws_equipment_holes(client_id: str, message: str) -> None:
     """查看孔位。"""
 
@@ -56,7 +56,7 @@ async def ws_equipment_upgrade_inlay(client_id: str, message: str) -> None:
     await ws_manager.send(service.upgrade_inlay(client_id, message), client_id)
 
 
-@WsMessageHandler.handler(cmd="我的宝石", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("我的宝石", "宝石", "查看宝石", "宝石查看"), priority=100, block=True)
 async def ws_equipment_my_inlays(client_id: str, message: str) -> None:
     """查看宝石。"""
 

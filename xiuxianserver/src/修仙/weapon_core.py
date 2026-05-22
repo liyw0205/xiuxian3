@@ -92,8 +92,8 @@ class WeaponCore(CoreService):
         cursor = conn.execute(
             """
             INSERT INTO player_weapons
-            (owner_id, weapon_def_id, level, max_level, quality, attack, skill_id, enchant_slots, equipped, enchant_effects, created_at)
-            VALUES (?, ?, 0, ?, ?, ?, ?, 0, ?, ?, ?)
+            (owner_id, weapon_def_id, level, max_level, quality, attack, skill_id, enchant_slots, equipped, enchant_effects, custom_name, created_at)
+            VALUES (?, ?, 0, ?, ?, ?, ?, 0, ?, ?, '', ?)
             """,
             (
                 client_id,

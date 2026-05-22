@@ -9,16 +9,26 @@ from math import hypot
 from ..common import CoreService, business_day, dt, hint, load_json, money, now, split_words, to_int, ts
 from ..constants import (
     TRADE_BUY_FEE_RATE,
+    TRADE_DAILY_REWARD_CAP_BASE,
+    TRADE_DAILY_REWARD_CAP_LEVEL_BONUS,
+    TRADE_DAILY_REWARD_MIN_NET,
+    TRADE_DAILY_REWARD_MIN_QUANTITY,
+    TRADE_DAILY_REWARD_RATE,
     TRADE_MAX_PROFIT_RATE,
     TRADE_RESALE_LOCK_HOURS,
     TRADE_SELL_FEE_RATE,
 )
 from ..rules import special_sell_price_rate, special_sell_soft_line
 from ..sql import TRADE_LOCATION_DEMANDS, db
+from ..wormhole_core import WormholeCore
 
 
 class TradeService(CoreService):
     """地点跑商、价格查询和特殊收购。"""
+
+    def __init__(self, database) -> None:
+        super().__init__(database)
+        self.wormhole = WormholeCore(database)
 
     def current(self, client_id: str) -> str:
         """查看当前位置商场。"""
@@ -144,7 +154,10 @@ class TradeService(CoreService):
                 """,
                 (client_id, item["item_id"], player["location_name"], ts(), buy_price),
             )
-        return f"购买成功：{item['name']} x{quantity}，花费 {money(total)}，手续费 {money(fee)}。"
+        return (
+            f"购买成功：{item['name']} x{quantity}，花费 {money(total)}，手续费 {money(fee)}。"
+            + self.wormhole.try_discover(client_id, "trade_buy", player["location_name"])
+        )
 
     def sell(self, client_id: str, message: str) -> str:
         """商场出售。"""
@@ -181,10 +194,13 @@ class TradeService(CoreService):
             item = self.item_def(row["item_id"])
             if not item:
                 continue
-            text = self._sell_item(client_id, player["location_name"], item, row["quantity"])
+            text = self._sell_item(client_id, player["location_name"], item, row["quantity"], discover=False)
             texts.append(text)
             total_gain += 1
-        return "自动出售完成：\n" + "\n".join(texts) if total_gain else hint("没有成功出售的商品。", "发送：查看背包 确认货物数量和类型。")
+        if not total_gain:
+            return hint("没有成功出售的商品。", "发送：查看背包 确认货物数量和类型。")
+        notice = self.wormhole.try_discover(client_id, "trade_auto_sell", player["location_name"])
+        return "自动出售完成：\n" + "\n".join(texts) + notice
 
     def recommend(self, client_id: str) -> str:
         """按单位负重收益推荐当前能买的跑商路线。"""
@@ -196,28 +212,15 @@ class TradeService(CoreService):
         current = player["location_name"]
         if not self._location(current):
             return hint("当前位置不是商场地点。", "发送：商场列表 查看跑商地点，再发送：导航 地点名")
-        options: list[tuple[float, int, str, str, int, int]] = []
-        buy_fee_rate = self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE)
-        sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
-        for item in self._location_goods(current):
-            if not self._can_buy_one(client_id, player, item, buy_fee_rate):
-                continue
-            buy, _ = self.price(current, item["item_id"])
-            for loc in self.db.fetch_all("SELECT name FROM trade_locations"):
-                _, sell = self.price(loc["name"], item["item_id"])
-                capped_sell = min(sell, int(buy * (1 + TRADE_MAX_PROFIT_RATE)))
-                profit = int(capped_sell * (1 - sell_fee_rate)) - int(buy * (1 + buy_fee_rate))
-                if loc["name"] != current and profit > 0:
-                    profit_per_weight = profit / max(1, int(item["weight"]))
-                    options.append((profit_per_weight, profit, item["name"], loc["name"], buy, capped_sell))
-        options.sort(reverse=True, key=lambda row: row[0])
+        options = self._trade_options(client_id, player)
         if not options:
             return hint("当前没有能购买且有利润的跑商路线。", "确认随身源石和背包空间足够，或换一个商场地点再试。")
         lines = [f"☆{current}跑商推荐☆"]
-        for profit_per_weight, profit, item_name, target, buy, sell in options[:5]:
+        for index, option in enumerate(options[:5], start=1):
             lines.append(
-                f"{item_name} -> {target}，买{money(buy)} 卖{money(sell)}，"
-                f"单件利润{money(profit)}，每负重{profit_per_weight:.1f}"
+                f"{index}. 跑商购买 {option['item_name']} {option['quantity']} -> "
+                f"去 {option['target']} -> 跑商出售 {option['item_name']} {option['quantity']}\n"
+                f"   预计净赚{money(option['total_profit'])}，单件{money(option['unit_profit'])}"
             )
         return "\n".join(lines)
 
@@ -257,6 +260,70 @@ class TradeService(CoreService):
             f"跑商单件利润率最高约 {int(TRADE_MAX_PROFIT_RATE * 100)}%；"
             f"今日特殊收购价 {self._special_sell_rate_text(client_id, player['level'])}。"
         )
+
+    def daily_reward(self, client_id: str) -> str:
+        """领取每日普通跑商额外奖励。"""
+
+        player, error = self.require_player(client_id)
+        if error:
+            return error
+        assert player is not None
+
+        day = business_day()
+        with self.db.transaction() as conn:
+            claimed = conn.execute(
+                """
+                SELECT reward FROM trade_daily_rewards
+                WHERE client_id = ? AND business_day = ?
+                """,
+                (client_id, day),
+            ).fetchone()
+            if claimed:
+                return hint("今日跑商奖励已经领取。", "每日 04:00 后重置，明天继续跑商。")
+
+            stat = conn.execute(
+                """
+                SELECT
+                    COALESCE(SUM(quantity), 0) AS quantity,
+                    COALESCE(SUM(total_price - fee), 0) AS net_income
+                FROM trade_records
+                WHERE client_id = ?
+                  AND business_day = ?
+                  AND action = 'sell'
+                """,
+                (client_id, day),
+            ).fetchone()
+            quantity = int(stat["quantity"] if stat else 0)
+            net_income = int(stat["net_income"] if stat else 0)
+            if quantity <= 0:
+                return hint("今天还没有普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。")
+            if quantity < TRADE_DAILY_REWARD_MIN_QUANTITY and net_income < TRADE_DAILY_REWARD_MIN_NET:
+                return hint(
+                    "今日普通跑商量还不够领取奖励。",
+                    f"至少出售 {TRADE_DAILY_REWARD_MIN_QUANTITY} 件跑商商品，或普通跑商净收入达到 {money(TRADE_DAILY_REWARD_MIN_NET)}。",
+                )
+
+            cap = TRADE_DAILY_REWARD_CAP_BASE + int(player["level"]) * TRADE_DAILY_REWARD_CAP_LEVEL_BONUS
+            reward = min(cap, max(1, int(net_income * TRADE_DAILY_REWARD_RATE)))
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO trade_daily_rewards
+                (client_id, business_day, sell_quantity, net_income, reward, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (client_id, day, quantity, net_income, reward, ts()),
+            )
+            if cursor.rowcount <= 0:
+                return hint("今日跑商奖励已经领取。", "每日 04:00 后重置，明天继续跑商。")
+            conn.execute(
+                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                (reward, client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '跑商奖励', ?, ?)",
+                (client_id, f"day={day}, quantity={quantity}, net={net_income}, reward={reward}", ts()),
+            )
+        return f"跑商奖励领取成功：今日出售 {quantity} 件，普通跑商净收入 {money(net_income)}，奖励源石 {money(reward)}。"
 
     def special_buyers(self, client_id: str) -> str:
         """查看特殊收购。"""
@@ -320,6 +387,7 @@ class TradeService(CoreService):
         return (
             f"特殊出售成功：{item['name']} x{quantity}，"
             f"原价 {money(raw_total)}，当前倍率 {int(rate * 100)}%，收入 {money(total)}。"
+            + self.wormhole.try_discover(client_id, "special_sell", buyer["buyer_name"])
         )
 
     def special_auto_sell(self, client_id: str) -> str:
@@ -385,6 +453,9 @@ class TradeService(CoreService):
 
         lines.append(f"合计收入：{money(total_gain)}")
         lines.append(f"当前位置：{last_buyer['buyer_name']} ({last_buyer['x']},{last_buyer['y']})")
+        notice = self.wormhole.try_discover(client_id, "special_auto_sell", last_buyer["buyer_name"])
+        if notice:
+            lines.append(notice.strip())
         return "\n".join(lines)
 
     def navigate(self, client_id: str, message: str) -> str:
@@ -409,7 +480,7 @@ class TradeService(CoreService):
             "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
             (name, location["x"], location["y"], client_id),
         )
-        return f"已到达 {name} ({location['x']},{location['y']})。"
+        return f"已到达 {name} ({location['x']},{location['y']})。" + self.wormhole.try_discover(client_id, "navigate", name)
 
     def price(self, location_name: str, item_id: str, save: bool = False) -> tuple[int, int]:
         """获取当天价格。
@@ -481,7 +552,76 @@ class TradeService(CoreService):
             return 0.98
         return TRADE_LOCATION_DEMANDS.get(location_name, {}).get(trade_type, 0.98)
 
-    def _sell_item(self, client_id: str, location_name: str, item: dict, quantity: int) -> str:
+    def _trade_options(self, client_id: str, player: dict) -> list[dict]:
+        """计算当前位置可执行的跑商路线。"""
+
+        current = player["location_name"]
+        buy_fee_rate = self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE)
+        sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
+        source_stones = int(player["source_stones"])
+        options: list[dict] = []
+
+        for item in self._location_goods(current):
+            buy_price, _ = self.price(current, item["item_id"])
+            quantity = self._max_buy_quantity(client_id, item, buy_price, buy_fee_rate, source_stones)
+            if quantity <= 0:
+                continue
+            for loc in self.db.fetch_all("SELECT name, x, y FROM trade_locations"):
+                if loc["name"] == current:
+                    continue
+                _, sell_price = self.price(loc["name"], item["item_id"])
+                sell_price = min(sell_price, int(buy_price * (1 + TRADE_MAX_PROFIT_RATE)))
+
+                buy_total = buy_price * quantity
+                buy_fee = int(buy_total * buy_fee_rate)
+                sell_total = sell_price * quantity
+                sell_fee = int(sell_total * sell_fee_rate)
+                unit_profit = int(sell_price * (1 - sell_fee_rate)) - int(buy_price * (1 + buy_fee_rate))
+                total_profit = sell_total - sell_fee - buy_total - buy_fee
+                if total_profit <= 0:
+                    continue
+
+                options.append(
+                    {
+                        "item_id": item["item_id"],
+                        "item_name": item["name"],
+                        "quantity": quantity,
+                        "target": loc["name"],
+                        "target_x": loc["x"],
+                        "target_y": loc["y"],
+                        "buy_price": buy_price,
+                        "sell_price": sell_price,
+                        "buy_total": buy_total,
+                        "buy_fee": buy_fee,
+                        "sell_total": sell_total,
+                        "sell_fee": sell_fee,
+                        "unit_profit": unit_profit,
+                        "total_profit": total_profit,
+                        "profit_per_weight": total_profit / max(1, int(item["weight"]) * quantity),
+                    }
+                )
+
+        options.sort(key=lambda row: (row["total_profit"], row["profit_per_weight"]), reverse=True)
+        return options
+
+    def _max_buy_quantity(self, client_id: str, item: dict, buy_price: int, buy_fee_rate: float, source_stones: int) -> int:
+        """计算当前源石和背包最多能买多少。"""
+
+        high = min(int(item["stack_limit"]), source_stones // max(1, buy_price))
+        low = 0
+        with self.db.transaction() as conn:
+            while low < high:
+                mid = (low + high + 1) // 2
+                total = buy_price * mid
+                fee = int(total * buy_fee_rate)
+                ok, _reason = self.can_add_backpack_conn(conn, client_id, item["item_id"], mid)
+                if ok and total + fee <= source_stones:
+                    low = mid
+                else:
+                    high = mid - 1
+        return low
+
+    def _sell_item(self, client_id: str, location_name: str, item: dict, quantity: int, discover: bool = True) -> str:
         """出售一类背包物品。"""
 
         _buy, sell_price = self.price(location_name, item["item_id"], save=True)
@@ -507,7 +647,10 @@ class TradeService(CoreService):
                 (client_id, item["item_id"], quantity, total, fee, location_name, business_day(), ts()),
             )
             self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity)
-        return f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
+        text = f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
+        if discover:
+            text += self.wormhole.try_discover(client_id, "trade_sell", location_name)
+        return text
 
     def _resale_lock_text(self, client_id: str, item_id: str, location_name: str) -> str:
         """同地点刚买入的货物不能立刻原地卖出。"""

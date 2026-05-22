@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .common import CoreService, load_json, random, ts
-from .constants import MAX_COMBAT_ROUNDS
+from .constants import MAX_COMBAT_ROUNDS, WEAPON_TYPE_INTERVAL_FACTORS
 from .rules import damage_after_defense, monster_exp
 from .sql import db
 from .weapon_core import service as weapon_core
@@ -32,6 +32,8 @@ class CombatCore(CoreService):
         weapon = weapon_core.equipped_weapon(client_id)
         skill = weapon_core.skill(weapon["skill_id"]) if weapon else None
         effects = self._merge_effects(self.equipment_bonuses(client_id), self._weapon_effects(weapon))
+        skill_interval = self._skill_interval(skill, weapon, effects) if skill else 0
+        skill_cost = self._skill_cost(skill, effects) if skill else 0
 
         hp = int(player["hp"] if start_hp is None else start_hp)
         mp = int(player["mp"] if start_mp is None else start_mp)
@@ -44,16 +46,14 @@ class CombatCore(CoreService):
             rounds += 1
             raw = self._attack_raw(player_attack, int(player["level"]), effects)
             skill_used = False
-            if skill and rounds % int(skill["interval"]) == 0:
-                cost = max(0, int(skill["cost_mp"]) + int(effects.get("mp_delta", 0)))
-                if mp >= cost:
+            if skill and skill_interval and rounds % skill_interval == 0:
+                if mp >= skill_cost:
                     raw = int(raw * self._skill_power(skill, effects))
-                    mp -= cost
+                    mp -= skill_cost
                     skill_used = True
                     skill_times += 1
             damage = damage_after_defense(raw, monster["defense"], self._pierce_rate(effects))
-            if random.random() < effects.get("combo_bonus", 0):
-                damage += damage_after_defense(int(raw * 0.35), monster["defense"], self._pierce_rate(effects))
+            damage += self._combo_damage(raw, monster["defense"], effects)
             monster_hp -= damage
             if effects.get("life_steal"):
                 hp = min(int(player["max_hp"]), hp + int(damage * effects["life_steal"]))
@@ -89,32 +89,50 @@ class CombatCore(CoreService):
 
         left_weapon = weapon_core.equipped_weapon(left_id)
         right_weapon = weapon_core.equipped_weapon(right_id)
+        left_skill = weapon_core.skill(left_weapon["skill_id"]) if left_weapon else None
+        right_skill = weapon_core.skill(right_weapon["skill_id"]) if right_weapon else None
         left_effects = self._merge_effects(self.equipment_bonuses(left_id), self._weapon_effects(left_weapon))
         right_effects = self._merge_effects(self.equipment_bonuses(right_id), self._weapon_effects(right_weapon))
         left_hp = int(left["max_hp"])
         right_hp = int(right["max_hp"])
+        left_mp = int(left["max_mp"])
+        right_mp = int(right["max_mp"])
+        left_interval = self._skill_interval(left_skill, left_weapon, left_effects) if left_skill else 0
+        right_interval = self._skill_interval(right_skill, right_weapon, right_effects) if right_skill else 0
+        left_cost = self._skill_cost(left_skill, left_effects) if left_skill else 0
+        right_cost = self._skill_cost(right_skill, right_effects) if right_skill else 0
         rounds = 0
 
         while left_hp > 0 and right_hp > 0 and rounds < 60:
             rounds += 1
             left_attack = int(left["base_attack"]) + (int(left_weapon["attack"]) if left_weapon else 0)
             right_attack = int(right["base_attack"]) + (int(right_weapon["attack"]) if right_weapon else 0)
+            left_skill_used = bool(left_skill and left_interval and rounds % left_interval == 0 and left_mp >= left_cost)
+            right_skill_used = bool(right_skill and right_interval and rounds % right_interval == 0 and right_mp >= right_cost)
+            if left_skill_used:
+                left_mp -= left_cost
+            if right_skill_used:
+                right_mp -= right_cost
             if random.random() >= right_effects.get("dodge_bonus", 0):
                 left_raw = self._attack_raw(left_attack, int(left["level"]), left_effects)
+                if left_skill_used:
+                    left_raw = int(left_raw * self._skill_power(left_skill, left_effects))
                 left_damage = damage_after_defense(left_raw, right["defense"], self._pierce_rate(left_effects))
-                if random.random() < left_effects.get("combo_bonus", 0):
-                    left_damage += damage_after_defense(int(left_raw * 0.35), right["defense"], self._pierce_rate(left_effects))
-                right_hp -= self._reduce_damage(left_damage, right_effects, False)
+                left_damage += self._combo_damage(left_raw, right["defense"], left_effects)
+                right_hp -= self._reduce_damage(left_damage, right_effects, right_skill_used)
+                right_mp = self._suppress_mp(right_mp, int(right["max_mp"]), left_effects)
                 if left_effects.get("life_steal"):
                     left_hp = min(int(left["max_hp"]), left_hp + int(left_damage * left_effects["life_steal"]))
             if right_hp <= 0:
                 break
             if random.random() >= left_effects.get("dodge_bonus", 0):
                 right_raw = self._attack_raw(right_attack, int(right["level"]), right_effects)
+                if right_skill_used:
+                    right_raw = int(right_raw * self._skill_power(right_skill, right_effects))
                 right_damage = damage_after_defense(right_raw, left["defense"], self._pierce_rate(right_effects))
-                if random.random() < right_effects.get("combo_bonus", 0):
-                    right_damage += damage_after_defense(int(right_raw * 0.35), left["defense"], self._pierce_rate(right_effects))
-                left_hp -= self._reduce_damage(right_damage, left_effects, False)
+                right_damage += self._combo_damage(right_raw, left["defense"], right_effects)
+                left_hp -= self._reduce_damage(right_damage, left_effects, left_skill_used)
+                left_mp = self._suppress_mp(left_mp, int(left["max_mp"]), right_effects)
                 if right_effects.get("life_steal"):
                     right_hp = min(int(right["max_hp"]), right_hp + int(right_damage * right_effects["life_steal"]))
 
@@ -170,9 +188,7 @@ class CombatCore(CoreService):
     def _attack_raw(base_attack_value: int, level: int, effects: dict[str, float]) -> int:
         """计算一次普通出手的原始伤害。"""
 
-        stable_bonus = effects.get("hit_bonus", 0) * 0.5 + effects.get("speed_bonus", 0) * 0.5
-        stable_bonus += effects.get("neutral_bonus", 0) * 0.5
-        stable_bonus += effects.get("mp_suppress", 0) * 0.25
+        stable_bonus = effects.get("hit_bonus", 0) * 0.5
         raw = int(base_attack_value * (1 + stable_bonus))
         return raw + random.randint(0, max(2, level * 2))
 
@@ -180,13 +196,51 @@ class CombatCore(CoreService):
     def _skill_power(skill: dict, effects: dict[str, float]) -> float:
         """计算武器技能倍率。"""
 
-        return float(skill["power"]) + effects.get("power_bonus", 0) + effects.get("heavy_bonus", 0)
+        power = float(skill["power"])
+        power += effects.get("skill_power_bonus", 0)
+        power += effects.get("heavy_bonus", 0)
+        power += effects.get("single_hit_bonus", 0)
+        return max(1.0, power)
+
+    @staticmethod
+    def _skill_cost(skill: dict | None, effects: dict[str, float]) -> int:
+        """计算释放武器技能需要的精神。"""
+
+        if not skill:
+            return 0
+        return max(0, int(skill["cost_mp"]) + int(effects.get("mp_delta", 0)))
+
+    @staticmethod
+    def _skill_interval(skill: dict | None, weapon: dict | None, effects: dict[str, float]) -> int:
+        """计算武器技能间隔。
+
+        技能书不再限制武器类型；武器类型只在这里影响触发频率。
+        轻快武器更容易频繁触发，重武器触发更慢但通常基础攻击更高。
+        """
+
+        if not skill:
+            return 0
+        weapon_type = str(weapon.get("weapon_type") if weapon else "")
+        type_factor = WEAPON_TYPE_INTERVAL_FACTORS.get(weapon_type, 1.0)
+        rate = max(0.6, 1.0 + effects.get("interval_rate", 0))
+        interval = round(int(skill["interval"]) * type_factor * rate)
+        interval += int(effects.get("interval_delta", 0))
+        return max(2, min(12, interval))
 
     @staticmethod
     def _pierce_rate(effects: dict[str, float]) -> float:
         """把穿透和压防统一成防御穿透率。"""
 
         return min(0.8, effects.get("pierce_bonus", 0) + effects.get("defense_suppress", 0))
+
+    @staticmethod
+    def _combo_damage(raw: int, defense_value: int, effects: dict[str, float]) -> int:
+        """按连击类附魔追加一段轻伤害。"""
+
+        if random.random() >= min(0.5, effects.get("combo_bonus", 0)):
+            return 0
+        rate = min(0.8, 0.35 + effects.get("combo_damage_bonus", 0))
+        return damage_after_defense(int(raw * rate), defense_value, CombatCore._pierce_rate(effects))
 
     @staticmethod
     def _reduce_damage(damage: int, effects: dict[str, float], skill_used: bool) -> int:
@@ -196,6 +250,15 @@ class CombatCore(CoreService):
         if skill_used:
             rate += effects.get("shield_bonus", 0)
         return max(1, int(damage * (1 - min(0.7, rate))))
+
+    @staticmethod
+    def _suppress_mp(mp: int, max_mp_value: int, effects: dict[str, float]) -> int:
+        """按断念类附魔削掉对手精神。"""
+
+        rate = min(0.25, effects.get("mp_suppress", 0))
+        if rate <= 0:
+            return mp
+        return max(0, mp - int(max_mp_value * rate))
 
 
 service = CombatCore(db)

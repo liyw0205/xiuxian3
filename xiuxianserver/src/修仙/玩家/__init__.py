@@ -13,7 +13,7 @@ from .service import service
 HELP_IMAGE = Path(__file__).with_name("help.png")
 
 
-@WsMessageHandler.handler(cmd=("修仙帮助", "新手指引"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("修仙帮助", "新手指引", "帮助"), priority=100, block=True)
 async def ws_xiuxian_guide(client_id: str, message: str) -> None:
     """查看新手指引。"""
 
@@ -47,7 +47,7 @@ async def ws_rename_player(client_id: str, message: str) -> None:
     await ws_manager.send(service.rename(client_id, message), client_id)
 
 
-@WsMessageHandler.handler(cmd=("修仙信息","状态"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("修仙信息", "状态"), priority=100, block=True)
 async def ws_profile(client_id: str, message: str) -> None:
     """查看玩家信息。"""
 
@@ -68,7 +68,7 @@ async def ws_sign(client_id: str, message: str) -> None:
     await ws_manager.send(service.sign(client_id), client_id)
 
 
-@WsMessageHandler.handler(cmd="新手礼包", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("新手礼包", "礼包"), priority=100, block=True)
 async def ws_newbie_gift(client_id: str, message: str) -> None:
     """领取新手礼包。"""
 

@@ -7,7 +7,7 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from .service import service
 
 
-@WsMessageHandler.handler(cmd="地点", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("地点", "位置"), priority=100, block=True)
 async def ws_current_location(client_id: str, message: str) -> None:
     """查看当前位置。"""
 
@@ -21,21 +21,21 @@ async def ws_exploration_locations(client_id: str, message: str) -> None:
     await ws_manager.send(service.locations(client_id), client_id)
 
 
-@WsMessageHandler.handler(cmd="探险", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("探险", "探索"), priority=100, block=True)
 async def ws_exploration_start(client_id: str, message: str) -> None:
     """开始探险。"""
 
     await ws_manager.send(service.start(client_id), client_id)
 
 
-@WsMessageHandler.handler(cmd=("探险状态", "状态探险"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("探险状态", "状态探险", "探索状态"), priority=100, block=True)
 async def ws_exploration_status(client_id: str, message: str) -> None:
     """查看探险状态。"""
 
     await ws_manager.send(service.status(client_id), client_id)
 
 
-@WsMessageHandler.handler(cmd=("结束探险", "探险结束"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("结束探险", "探险结束", "结束探索", "探索结束"), priority=100, block=True)
 async def ws_exploration_claim(client_id: str, message: str) -> None:
     """领取探险结果。"""
 

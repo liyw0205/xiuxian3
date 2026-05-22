@@ -10,6 +10,11 @@ from .constants import (
     SPECIAL_SELL_MIN_RATE,
     SPECIAL_SELL_SOFT_BASE,
     SPECIAL_SELL_SOFT_LEVEL_BONUS,
+    WEAPON_RECYCLE_MIN_RATE,
+    WEAPON_RECYCLE_SINGLE_CAP_BASE,
+    WEAPON_RECYCLE_SINGLE_CAP_LEVEL_BONUS,
+    WEAPON_RECYCLE_SOFT_BASE,
+    WEAPON_RECYCLE_SOFT_LEVEL_BONUS,
 )
 
 
@@ -29,9 +34,10 @@ def exp_need(level: int) -> int:
     if level <= 40:
         return base_need
 
-    # 40 级后平滑加难，压住高强度在线冲级，但不做突然断崖。
+    # 40 级后平滑加难：每日 10 次全胜约 7 个月满级，
+    # 每日 2 次全胜约 3 年满级，兼顾高频和低频玩家。
     progress = (level - 40) / 59
-    difficulty = 1 + 0.4 * (progress**1.25)
+    difficulty = 1 + 4 * (progress**1.25)
     return floor(base_need * difficulty)
 
 
@@ -95,6 +101,27 @@ def special_sell_price_rate(level: int, today_income: int) -> float:
     pressure = max(0, int(today_income)) / soft_line
     rate = 1.0 / (1.0 + pressure * 0.45)
     return max(SPECIAL_SELL_MIN_RATE, min(1.0, rate))
+
+
+def weapon_recycle_single_cap(level: int) -> int:
+    """计算单把武器回收价上限。"""
+
+    return WEAPON_RECYCLE_SINGLE_CAP_BASE + max(1, int(level)) * WEAPON_RECYCLE_SINGLE_CAP_LEVEL_BONUS
+
+
+def weapon_recycle_soft_line(level: int) -> int:
+    """计算武器回收开始明显降价的日收入参考线。"""
+
+    return WEAPON_RECYCLE_SOFT_BASE + max(1, int(level)) * WEAPON_RECYCLE_SOFT_LEVEL_BONUS
+
+
+def weapon_recycle_price_rate(level: int, today_income: int) -> float:
+    """按今日武器回收收入计算当前回收倍率。"""
+
+    soft_line = max(1, weapon_recycle_soft_line(level))
+    pressure = max(0, int(today_income)) / soft_line
+    rate = 1.0 / (1.0 + pressure * 0.75)
+    return max(WEAPON_RECYCLE_MIN_RATE, min(1.0, rate))
 
 
 def monster_exp(monster_level: int, kind_factor: float = 1.0, player_level: int | None = None) -> int:
@@ -180,5 +207,8 @@ __all__ = [
     "special_sell_price_rate",
     "special_sell_soft_line",
     "weapon_enchant_slots",
+    "weapon_recycle_price_rate",
+    "weapon_recycle_single_cap",
+    "weapon_recycle_soft_line",
     "weapon_upgrade_cost",
 ]

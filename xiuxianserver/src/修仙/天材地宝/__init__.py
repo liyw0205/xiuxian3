@@ -7,7 +7,7 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from .service import service
 
 
-@WsMessageHandler.handler(cmd=("查看天材地宝", "天材地宝查看"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("查看天材地宝", "天材地宝查看", "物品库", "物品"), priority=100, block=True)
 async def ws_treasure_info(client_id: str, message: str) -> None:
     """查看物品库物品。"""
 

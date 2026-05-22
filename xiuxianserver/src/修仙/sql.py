@@ -1,6 +1,6 @@
 """修仙模块 SQLite 数据层。
 
-当前模块尚未上线，不做旧表迁移。schema 版本不一致时会直接重建修仙库。
+当前模块按最新 schema 运行；schema 版本不一致时会直接重建修仙库。
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ EQUIPMENT_ITEM_DEFS = (
     ("yanghundan", "养魂丹", "恢复类", "珍品", 1, "玩家", {"mp_ratio": 0.7}, "恢复 70% 精神。"),
     ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "固定装备", {}, "固定装备开孔材料，只通过活动 Boss 掉落。"),
     ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "活动 Boss 掉落的洗髓消耗品，通过洗髓命令消耗。"),
-    ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "提高命中和技能稳定性。"),
+    ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "提高命中稳定。"),
     ("poxie_shu", "破甲书", "技能书", "良品", 0, "武器", {"enchant_id": "poxie_shu"}, "提高穿透。"),
     ("huichun_shu", "回春书", "技能书", "良品", 0, "武器", {"enchant_id": "huichun_shu"}, "命中后轻微回血。"),
     ("xuandun_shu", "玄盾书", "技能书", "珍品", 0, "武器", {"enchant_id": "xuandun_shu"}, "释放后提高承伤。"),
@@ -124,13 +124,13 @@ EQUIPMENT_ITEM_DEFS = (
     ("yueshi_shu", "月蚀书", "技能书", "珍品", 0, "武器", {"enchant_id": "yueshi_shu"}, "降低敌人防御。"),
     ("zhuixing_shu", "追星书", "技能书", "良品", 0, "武器", {"enchant_id": "zhuixing_shu"}, "增加多段轻击概率。"),
     ("zhenyue_shu", "镇岳书", "技能书", "珍品", 0, "武器", {"enchant_id": "zhenyue_shu"}, "释放后短暂减伤。"),
-    ("wuxiang_shu", "无相书", "技能书", "稀品", 0, "武器", {"enchant_id": "wuxiang_shu"}, "稳定提高技能威力。"),
-    ("bengshan_shu", "崩山书", "技能书", "珍品", 0, "武器", {"enchant_id": "bengshan_shu"}, "提高重击伤害。"),
+    ("wuxiang_shu", "无相书", "技能书", "稀品", 0, "武器", {"enchant_id": "wuxiang_shu"}, "蓄势提高技能威力，但触发更慢。"),
+    ("bengshan_shu", "崩山书", "技能书", "珍品", 0, "武器", {"enchant_id": "bengshan_shu"}, "强化重击爆发，但触发更慢。"),
     ("shaying_shu", "沙影书", "技能书", "良品", 0, "武器", {"enchant_id": "shaying_shu"}, "提高连击稳定性。"),
-    ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "提高命中和出手稳定性。"),
-    ("xingluo_shu", "星落书", "技能书", "珍品", 0, "武器", {"enchant_id": "xingluo_shu"}, "提高多段伤害。"),
-    ("duanhai_shu", "断海书", "技能书", "珍品", 0, "武器", {"enchant_id": "duanhai_shu"}, "提高单体爆发。"),
-    ("jueying_shu", "绝影书", "技能书", "珍品", 0, "武器", {"enchant_id": "jueying_shu"}, "提高闪避和命中。"),
+    ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "加快武器技能触发。"),
+    ("xingluo_shu", "星落书", "技能书", "珍品", 0, "武器", {"enchant_id": "xingluo_shu"}, "提高连击追加伤害。"),
+    ("duanhai_shu", "断海书", "技能书", "珍品", 0, "武器", {"enchant_id": "duanhai_shu"}, "提高单次技能爆发，但触发更慢。"),
+    ("jueying_shu", "绝影书", "技能书", "珍品", 0, "武器", {"enchant_id": "jueying_shu"}, "提高闪避。"),
     ("huxinyu", "护心玉", "宝石", "凡品", 0, "固定装备", {"max_hp_bonus": 30}, "提高血气上限。"),
     ("xuangui shi", "玄龟石", "宝石", "凡品", 0, "固定装备", {"defense_bonus": 10}, "提高防御。"),
     ("shanbi fozhu", "闪避佛珠", "宝石", "良品", 0, "固定装备", {"dodge_bonus": 0.02}, "提高闪避。"),
@@ -310,7 +310,7 @@ SPECIAL_BUYERS = (
 
 
 WEAPON_RECYCLE_LOCATIONS = (
-    ("铸剑阁", 3.5, -120, 760, "专收探险所得武器，回收价高，适合处理备用武器。"),
+    ("铸剑阁", 1.2, -120, 760, "专收探险所得备用武器，回收价稳定但受每日回收曲线影响。"),
 )
 
 
@@ -383,23 +383,23 @@ WEAPON_DEFS = (
 
 
 WEAPON_ENCHANTS = (
-    ("fengren_shu", "风刃书", {"power_bonus": 0.06, "hit_bonus": 0.03}, 2),
-    ("poxie_shu", "破甲书", {"pierce_bonus": 0.06}, 3),
+    ("fengren_shu", "风刃书", {"hit_bonus": 0.08}, 2),
+    ("poxie_shu", "破甲书", {"pierce_bonus": 0.07}, 3),
     ("huichun_shu", "回春书", {"life_steal": 0.04}, 2),
-    ("xuandun_shu", "玄盾书", {"shield_bonus": 0.05}, 2),
-    ("xueqi_shu", "血契书", {"life_steal": 0.06}, 3),
-    ("duannian_shu", "断念书", {"mp_suppress": 0.08}, 3),
-    ("chuanyun_shu", "穿云书", {"pierce_bonus": 0.08}, 4),
-    ("yueshi_shu", "月蚀书", {"defense_suppress": 0.06}, 4),
-    ("zhuixing_shu", "追星书", {"combo_bonus": 0.05}, 4),
-    ("zhenyue_shu", "镇岳书", {"damage_reduce": 0.05}, 4),
-    ("wuxiang_shu", "无相书", {"neutral_bonus": 0.1}, 5),
-    ("bengshan_shu", "崩山书", {"heavy_bonus": 0.08}, 4),
-    ("shaying_shu", "沙影书", {"combo_bonus": 0.04}, 2),
-    ("liuguang_shu", "流光书", {"hit_bonus": 0.04, "speed_bonus": 0.04}, 3),
-    ("xingluo_shu", "星落书", {"power_bonus": 0.1, "combo_bonus": 0.03}, 5),
-    ("duanhai_shu", "断海书", {"power_bonus": 0.09}, 4),
-    ("jueying_shu", "绝影书", {"power_bonus": 0.06, "dodge_bonus": 0.03}, 4),
+    ("xuandun_shu", "玄盾书", {"shield_bonus": 0.08}, 2),
+    ("xueqi_shu", "血契书", {"life_steal": 0.07}, 3),
+    ("duannian_shu", "断念书", {"mp_suppress": 0.12}, 3),
+    ("chuanyun_shu", "穿云书", {"pierce_bonus": 0.1}, 4),
+    ("yueshi_shu", "月蚀书", {"defense_suppress": 0.08}, 4),
+    ("zhuixing_shu", "追星书", {"combo_bonus": 0.07}, 4),
+    ("zhenyue_shu", "镇岳书", {"damage_reduce": 0.06}, 4),
+    ("wuxiang_shu", "无相书", {"skill_power_bonus": 0.16, "interval_delta": 1}, 5),
+    ("bengshan_shu", "崩山书", {"heavy_bonus": 0.12, "interval_delta": 1}, 4),
+    ("shaying_shu", "沙影书", {"combo_bonus": 0.05}, 2),
+    ("liuguang_shu", "流光书", {"interval_delta": -1}, 3),
+    ("xingluo_shu", "星落书", {"combo_damage_bonus": 0.18}, 5),
+    ("duanhai_shu", "断海书", {"single_hit_bonus": 0.14, "interval_delta": 1}, 4),
+    ("jueying_shu", "绝影书", {"dodge_bonus": 0.04}, 4),
 )
 
 
@@ -547,6 +547,7 @@ class XiuxianDB:
             DROP TABLE IF EXISTS trade_prices;
             DROP TABLE IF EXISTS trade_inventory;
             DROP TABLE IF EXISTS trade_records;
+            DROP TABLE IF EXISTS trade_daily_rewards;
             DROP TABLE IF EXISTS trade_limits;
             DROP TABLE IF EXISTS special_buyers;
             DROP TABLE IF EXISTS weapon_recycle_locations;
@@ -558,13 +559,20 @@ class XiuxianDB:
             DROP TABLE IF EXISTS weapon_skill_defs;
             DROP TABLE IF EXISTS player_weapons;
             DROP TABLE IF EXISTS weapon_enchants;
+            DROP TABLE IF EXISTS weapon_enchant_names;
             DROP TABLE IF EXISTS fixed_equipment;
             DROP TABLE IF EXISTS inlay_defs;
             DROP TABLE IF EXISTS gem_defs;
             DROP TABLE IF EXISTS fixed_equipment_inlays;
+            DROP TABLE IF EXISTS inscription_feathers;
+            DROP TABLE IF EXISTS seasonal_boss_events;
+            DROP TABLE IF EXISTS seasonal_boss_participants;
             DROP TABLE IF EXISTS duel_requests;
             DROP TABLE IF EXISTS duel_records;
             DROP TABLE IF EXISTS combat_logs;
+            DROP TABLE IF EXISTS wormholes;
+            DROP TABLE IF EXISTS wormhole_participants;
+            DROP TABLE IF EXISTS wormhole_notices;
             DROP TABLE IF EXISTS game_logs;
             DROP TABLE IF EXISTS request_idempotency;
             DROP TABLE IF EXISTS trade_heat;
@@ -755,6 +763,16 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS trade_daily_rewards (
+                client_id TEXT NOT NULL,
+                business_day TEXT NOT NULL,
+                sell_quantity INTEGER NOT NULL,
+                net_income INTEGER NOT NULL,
+                reward INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (client_id, business_day)
+            );
+
             CREATE TABLE IF NOT EXISTS trade_limits (
                 client_id TEXT NOT NULL,
                 item_id TEXT NOT NULL,
@@ -780,6 +798,23 @@ class XiuxianDB:
                 desc TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS weapon_recycle_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                weapon_id INTEGER NOT NULL,
+                weapon_name TEXT NOT NULL,
+                quality TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                max_level INTEGER NOT NULL,
+                raw_value INTEGER NOT NULL,
+                capped_value INTEGER NOT NULL,
+                price_rate REAL NOT NULL,
+                total_price INTEGER NOT NULL,
+                location_name TEXT NOT NULL,
+                business_day TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS exploration_locations (
                 name TEXT PRIMARY KEY,
                 recommended_level INTEGER NOT NULL,
@@ -798,15 +833,6 @@ class XiuxianDB:
                 finished_at TEXT,
                 result TEXT NOT NULL DEFAULT '{}',
                 claimed INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS drop_tables (
-                location_name TEXT NOT NULL,
-                item_type TEXT NOT NULL,
-                item_id TEXT NOT NULL,
-                chance REAL NOT NULL,
-                min_quantity INTEGER NOT NULL DEFAULT 1,
-                max_quantity INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS monster_defs (
@@ -851,6 +877,7 @@ class XiuxianDB:
                 enchant_slots INTEGER NOT NULL DEFAULT 0,
                 enchant_effects TEXT NOT NULL DEFAULT '[]',
                 equipped INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
 
@@ -861,11 +888,19 @@ class XiuxianDB:
                 mp_delta INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS weapon_enchant_names (
+                weapon_id INTEGER NOT NULL,
+                slot_no INTEGER NOT NULL,
+                custom_name TEXT NOT NULL,
+                PRIMARY KEY (weapon_id, slot_no)
+            );
+
             CREATE TABLE IF NOT EXISTS fixed_equipment (
                 client_id TEXT NOT NULL,
                 slot TEXT NOT NULL,
                 level INTEGER NOT NULL DEFAULT 0,
                 hole_count INTEGER NOT NULL DEFAULT 3,
+                custom_name TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (client_id, slot)
             );
 
@@ -882,6 +917,55 @@ class XiuxianDB:
                 gem_id TEXT NOT NULL,
                 level INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (client_id, slot, hole_no)
+            );
+
+            CREATE TABLE IF NOT EXISTS inscription_feathers (
+                feather_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                source_key TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                flavor_text TEXT NOT NULL,
+                obtained_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS seasonal_boss_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                business_day TEXT NOT NULL UNIQUE,
+                boss_key TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                weight_type TEXT NOT NULL,
+                boss_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                scene TEXT NOT NULL,
+                story TEXT NOT NULL,
+                farewell TEXT NOT NULL,
+                feather_text TEXT NOT NULL,
+                atmosphere TEXT NOT NULL DEFAULT '[]',
+                level INTEGER NOT NULL,
+                max_hp INTEGER NOT NULL,
+                hp INTEGER NOT NULL,
+                attack INTEGER NOT NULL,
+                defense INTEGER NOT NULL,
+                difficulty REAL NOT NULL,
+                status TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                closes_at TEXT NOT NULL,
+                killed_at TEXT,
+                result TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS seasonal_boss_participants (
+                event_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                challenge_count INTEGER NOT NULL DEFAULT 0,
+                last_challenge_at TEXT,
+                reward_claimed INTEGER NOT NULL DEFAULT 0,
+                reward_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (event_id, client_id)
             );
 
             CREATE TABLE IF NOT EXISTS duel_requests (
@@ -917,6 +1001,48 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS wormholes (
+                wormhole_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                boss_name TEXT NOT NULL,
+                boss_kind TEXT NOT NULL,
+                location_name TEXT NOT NULL,
+                x INTEGER NOT NULL,
+                y INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                max_hp INTEGER NOT NULL,
+                hp INTEGER NOT NULL,
+                attack INTEGER NOT NULL,
+                defense INTEGER NOT NULL,
+                difficulty REAL NOT NULL,
+                opened_by TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                closes_at TEXT NOT NULL,
+                killed_at TEXT,
+                result TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS wormhole_participants (
+                wormhole_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                challenge_count INTEGER NOT NULL DEFAULT 0,
+                last_challenge_at TEXT,
+                reward_claimed INTEGER NOT NULL DEFAULT 0,
+                reward_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (wormhole_id, client_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS wormhole_notices (
+                wormhole_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                last_notice_at TEXT NOT NULL,
+                PRIMARY KEY (wormhole_id, client_id)
+            );
+
             CREATE TABLE IF NOT EXISTS game_logs (
                 log_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id TEXT NOT NULL,
@@ -934,13 +1060,21 @@ class XiuxianDB:
             );
 
             CREATE INDEX IF NOT EXISTS idx_backpack_client ON backpack_items(client_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_players_display_name ON players(display_name);
             CREATE INDEX IF NOT EXISTS idx_ring_client ON ring_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_gem_client ON gem_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_physique_level ON physique_defs(level, physique_value);
             CREATE INDEX IF NOT EXISTS idx_trade_records_client ON trade_records(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
+            CREATE INDEX IF NOT EXISTS idx_weapon_recycle_day ON weapon_recycle_records(client_id, business_day);
             CREATE INDEX IF NOT EXISTS idx_exploration_client ON exploration_records(client_id, claimed);
+            CREATE INDEX IF NOT EXISTS idx_inscription_feathers_client ON inscription_feathers(client_id, feather_id);
+            CREATE INDEX IF NOT EXISTS idx_seasonal_boss_status ON seasonal_boss_events(status, closes_at);
+            CREATE INDEX IF NOT EXISTS idx_seasonal_boss_participants_client ON seasonal_boss_participants(client_id, reward_claimed);
             CREATE INDEX IF NOT EXISTS idx_duel_to_client ON duel_requests(to_client_id, status);
+            CREATE INDEX IF NOT EXISTS idx_wormholes_status ON wormholes(status, closes_at);
+            CREATE INDEX IF NOT EXISTS idx_wormhole_participants_client ON wormhole_participants(client_id, reward_claimed);
             CREATE INDEX IF NOT EXISTS idx_game_logs_client ON game_logs(client_id, created_at);
             """
         )

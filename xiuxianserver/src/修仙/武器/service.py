@@ -2,8 +2,25 @@
 
 from __future__ import annotations
 
-from ..common import dump_json, hint, load_json, money, quality_factor, split_words, to_int, ts
-from ..rules import weapon_enchant_slots, weapon_upgrade_cost
+from ..common import (
+    business_day,
+    dump_json,
+    enchant_label_name,
+    hint,
+    load_json,
+    money,
+    quality_factor,
+    split_words,
+    to_int,
+    ts,
+    weapon_label_name,
+)
+from ..rules import (
+    weapon_enchant_slots,
+    weapon_recycle_price_rate,
+    weapon_recycle_single_cap,
+    weapon_upgrade_cost,
+)
 from ..sql import db
 from ..weapon_core import WeaponCore
 
@@ -23,11 +40,13 @@ class WeaponService(WeaponCore):
         for row in rows:
             mark = "已装备" if row["equipped"] else "备用"
             skill = self.skill(row["skill_id"])
-            enchants = len(load_json(row["enchant_effects"], []))
+            enchant_ids = load_json(row["enchant_effects"], [])
+            enchants = len(enchant_ids)
+            enchant_text = self._enchant_text(row["weapon_id"], enchant_ids)
             lines.append(
-                f"#{row['weapon_id']} {row['name']}[{row['quality']}] {mark} "
+                f"#{row['weapon_id']} {weapon_label_name(row)}[{row['quality']}] {mark} "
                 f"等级:{row['level']}/{row['max_level']} 攻击:{row['attack']} "
-                f"技能:{skill['name']} 附魔:{enchants}/{row['enchant_slots']}"
+                f"技能:{skill['name']} 附魔:{enchants}/{row['enchant_slots']}{enchant_text}"
             )
         return "\n".join(lines)
 
@@ -44,7 +63,7 @@ class WeaponService(WeaponCore):
         with self.db.transaction() as conn:
             conn.execute("UPDATE player_weapons SET equipped = 0 WHERE owner_id = ?", (client_id,))
             conn.execute("UPDATE player_weapons SET equipped = 1 WHERE owner_id = ? AND weapon_id = ?", (client_id, weapon_id))
-        return f"已切换武器：{weapon['name']}。"
+        return f"已切换武器：{weapon_label_name(weapon)}。"
 
     def upgrade(self, client_id: str, message: str) -> str:
         """升级武器。"""
@@ -82,7 +101,7 @@ class WeaponService(WeaponCore):
                 (next_level, attack, slots, weapon_id, client_id),
             )
         return (
-            f"升级成功，{weapon['name']} 等级 {next_level}/{weapon['max_level']}，"
+            f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{weapon['max_level']}，"
             f"攻击 {attack}，附魔栏 {slots}。"
         )
 
@@ -124,18 +143,54 @@ class WeaponService(WeaponCore):
             if int(count["total"]) <= 1:
                 return hint("不能回收最后一把武器。", "至少保留一把自用武器，避免无法探险战斗。")
 
-            value = self._recycle_value(dict(weapon), float(location["price_factor"]))
+            today_income = self._today_recycle_income_conn(conn, client_id)
+            quote = self._recycle_quote(
+                dict(weapon),
+                float(location["price_factor"]),
+                int(player["level"]),
+                today_income,
+            )
+            value = quote["value"]
+            conn.execute("DELETE FROM weapon_enchant_names WHERE weapon_id = ?", (weapon_id,))
             conn.execute("DELETE FROM player_weapons WHERE owner_id = ? AND weapon_id = ?", (client_id, weapon_id))
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (value, client_id),
             )
             conn.execute(
+                """
+                INSERT INTO weapon_recycle_records (
+                    client_id, weapon_id, weapon_name, quality, level, max_level,
+                    raw_value, capped_value, price_rate, total_price,
+                    location_name, business_day, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    weapon_id,
+                    weapon_label_name(weapon),
+                    weapon["quality"],
+                    int(weapon["level"]),
+                    int(weapon["max_level"]),
+                    quote["raw_value"],
+                    quote["capped_value"],
+                    quote["rate"],
+                    value,
+                    location["name"],
+                    business_day(),
+                    ts(),
+                ),
+            )
+            conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '武器回收', ?, ?)",
-                (client_id, f"weapon_id={weapon_id}, stones={value}", ts()),
+                (client_id, f"weapon_id={weapon_id}, stones={value}, rate={quote['rate']:.2f}", ts()),
             )
 
-        return f"回收成功：#{weapon_id} {weapon['name']}[{weapon['quality']}]，获得源石 {money(value)}。"
+        return (
+            f"回收成功：#{weapon_id} {weapon_label_name(weapon)}[{weapon['quality']}]，"
+            f"获得源石 {money(value)}，当前倍率 {int(quote['rate'] * 100)}%。"
+        )
 
     def enchant(self, client_id: str, message: str) -> str:
         """给武器附魔。"""
@@ -178,7 +233,7 @@ class WeaponService(WeaponCore):
                 "UPDATE player_weapons SET enchant_effects = ? WHERE weapon_id = ? AND owner_id = ?",
                 (dump_json(current), weapon_id, client_id),
             )
-        return f"附魔成功：{weapon['name']} 获得 {book['name']}。"
+        return f"附魔成功：{weapon_label_name(weapon)} 获得 {book['name']}。"
 
     def _recycle_preview(self, client_id: str, location: dict) -> str:
         """展示当前可回收武器和估价。"""
@@ -188,21 +243,47 @@ class WeaponService(WeaponCore):
         spares = [row for row in rows if not int(row["equipped"])]
         if not spares:
             return hint(
-                f"{location['name']}可以高价回收备用武器，但你当前没有可回收武器。",
+                f"{location['name']}可以稳定回收备用武器，但你当前没有可回收武器。",
                 "继续探险获取备用武器；已装备武器和最后一把武器不能回收。",
             )
 
-        lines = [f"☆{location['name']}武器回收☆ 倍率 {location['price_factor']}"]
+        player = self.player(client_id) or {}
+        today_income = self._today_recycle_income(client_id)
+        rate = weapon_recycle_price_rate(int(player.get("level", 1)), today_income)
+        lines = [f"☆{location['name']}武器回收☆ 当前倍率 {int(rate * 100)}%"]
+        lines.append(f"今日已回收:{money(today_income)}。估价会随今日回收收入降低。")
         lines.append("已装备武器和最后一把武器不能回收。")
         for row in spares:
-            value = self._recycle_value(row, float(location["price_factor"]))
+            quote = self._recycle_quote(
+                row,
+                float(location["price_factor"]),
+                int(player.get("level", 1)),
+                today_income,
+            )
             enchants = len(load_json(row["enchant_effects"], []))
             lines.append(
-                f"#{row['weapon_id']} {row['name']}[{row['quality']}] "
+                f"#{row['weapon_id']} {weapon_label_name(row)}[{row['quality']}] "
                 f"等级:{row['level']}/{row['max_level']} 攻击:{row['attack']} "
-                f"附魔:{enchants}/{row['enchant_slots']} 估价:{money(value)}"
+                f"附魔:{enchants}/{row['enchant_slots']} 估价:{money(quote['value'])}"
             )
         return "\n".join(lines)
+
+    def _enchant_text(self, weapon_id: int, enchant_ids: object) -> str:
+        """把武器已附魔技能书按槽位展示出来。"""
+
+        if not isinstance(enchant_ids, list) or not enchant_ids:
+            return ""
+        custom_rows = self.db.fetch_all(
+            "SELECT slot_no, custom_name FROM weapon_enchant_names WHERE weapon_id = ?",
+            (weapon_id,),
+        )
+        custom_names = {int(row["slot_no"]): row["custom_name"] for row in custom_rows}
+        labels = []
+        for slot_no, enchant_id in enumerate(enchant_ids, start=1):
+            row = self.db.fetch_one("SELECT name FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
+            base_name = row["name"] if row else str(enchant_id)
+            labels.append(f"{slot_no}.{enchant_label_name(base_name, custom_names.get(slot_no, ''))}")
+        return "（" + "、".join(labels) + "）"
 
     @staticmethod
     def _parse_weapon_id(message: str) -> int:
@@ -223,18 +304,55 @@ class WeaponService(WeaponCore):
             (location_name.strip(),),
         )
 
-    @staticmethod
-    def _recycle_value(weapon: dict, price_factor: float) -> int:
-        """计算武器回收价。
+    def _today_recycle_income(self, client_id: str) -> int:
+        """读取玩家今日武器回收收入。"""
 
-        回收价高于普通怪物战利品，主要看攻击、等级上限、已升级等级和附魔数量。
+        with self.db.transaction() as conn:
+            return self._today_recycle_income_conn(conn, client_id)
+
+    @staticmethod
+    def _today_recycle_income_conn(conn, client_id: str) -> int:
+        """在事务里读取玩家今日武器回收收入。"""
+
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM weapon_recycle_records
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, business_day()),
+        ).fetchone()
+        return int(row["total"]) if row else 0
+
+    @staticmethod
+    def _recycle_quote(weapon: dict, price_factor: float, player_level: int, today_income: int) -> dict[str, float | int]:
+        """计算武器回收报价。
+
+        先按武器属性估价，再限制单把上限，最后按今日回收收入降价。
         """
 
         enchants = len(load_json(weapon.get("enchant_effects"), []))
-        base = int(weapon["attack"]) * 180
-        growth = int(weapon["max_level"]) * 350 + int(weapon["level"]) * 1200
-        enchant_value = enchants * 20_000
-        return max(1, int((base + growth + enchant_value) * quality_factor(weapon["quality"]) * price_factor))
+        raw_value = int(
+            (
+                int(weapon["attack"]) * 60
+                + int(weapon["max_level"]) * 100
+                + int(weapon["level"]) * 250
+                + enchants * 5_000
+            )
+            * quality_factor(weapon["quality"])
+            * price_factor
+        )
+        single_cap = weapon_recycle_single_cap(player_level)
+        capped_value = min(raw_value, single_cap)
+        rate = weapon_recycle_price_rate(player_level, today_income + capped_value // 2)
+        value = max(1, int(capped_value * rate))
+        return {
+            "raw_value": raw_value,
+            "single_cap": single_cap,
+            "capped_value": capped_value,
+            "rate": rate,
+            "value": value,
+        }
 
 
 service = WeaponService(db)

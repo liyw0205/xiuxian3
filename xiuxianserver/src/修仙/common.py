@@ -93,6 +93,47 @@ def validate_name(name: str) -> tuple[bool, str]:
     return True, clean
 
 
+def row_value(row: Any, key: str, default: Any = "") -> Any:
+    """从 dict 或 sqlite.Row 里安全取值。"""
+
+    if row is None:
+        return default
+    try:
+        if hasattr(row, "get"):
+            value = row.get(key, default)
+        else:
+            value = row[key]
+    except (IndexError, KeyError, TypeError):
+        return default
+    return default if value is None else value
+
+
+def custom_label(base_name: object, custom_name: object = "") -> str:
+    """优先展示自定义名，同时保留原名方便识别。"""
+
+    base = str(base_name or "").strip()
+    custom = str(custom_name or "").strip()
+    return f"{custom}（{base}）" if custom else base
+
+
+def fixed_equipment_label(equipment: Any) -> str:
+    """固定装备展示名：自定义名（原部位）。"""
+
+    return custom_label(row_value(equipment, "slot"), row_value(equipment, "custom_name"))
+
+
+def weapon_label_name(weapon: Any) -> str:
+    """武器展示名：自定义名（原模板名）。"""
+
+    return custom_label(row_value(weapon, "name"), row_value(weapon, "custom_name"))
+
+
+def enchant_label_name(enchant_name: object, custom_name: object = "") -> str:
+    """附魔展示名：自定义名（原技能书名）。"""
+
+    return custom_label(enchant_name, custom_name)
+
+
 def hint(reason: str, suggestion: str) -> str:
     """把失败原因和下一步建议拼成统一回复。"""
 
@@ -100,7 +141,7 @@ def hint(reason: str, suggestion: str) -> str:
 
 
 def parse_player_ref(text: str) -> str:
-    """把纯 id 或 CQ/at 转成 client_id。"""
+    """提取玩家引用文本；普通文本是名称，CQ/at 提取内部 id。"""
 
     value = text.strip()
     match = AT_RE.search(value)
@@ -157,6 +198,35 @@ class CoreService:
 
         return self.db.fetch_one("SELECT * FROM players WHERE client_id = ?", (client_id,))
 
+    def player_name_taken(self, display_name: str, exclude_client_id: str | None = None) -> bool:
+        """判断展示名称是否已被其他玩家使用。"""
+
+        if exclude_client_id is None:
+            row = self.db.fetch_one(
+                "SELECT 1 FROM players WHERE display_name = ? LIMIT 1",
+                (display_name,),
+            )
+        else:
+            row = self.db.fetch_one(
+                "SELECT 1 FROM players WHERE display_name = ? AND client_id != ? LIMIT 1",
+                (display_name, exclude_client_id),
+            )
+        return bool(row)
+
+    def resolve_player_ref(self, text: str) -> str:
+        """把玩家输入的名称或 CQ/at 转成内部 client_id。"""
+
+        value = parse_player_ref(text)
+        if not value:
+            return ""
+        if AT_RE.search(text):
+            return value if self.player(value) else ""
+        row = self.db.fetch_one(
+            "SELECT client_id FROM players WHERE display_name = ?",
+            (value,),
+        )
+        return str(row["client_id"]) if row else ""
+
     def require_player(self, client_id: str) -> tuple[dict[str, Any] | None, str | None]:
         """要求玩家已创建。"""
 
@@ -173,6 +243,8 @@ class CoreService:
         ok, result = validate_name(display_name)
         if not ok:
             return hint(result, "请换一个 2 到 12 个字符、且不含空白的名称。")
+        if self.player_name_taken(result):
+            return hint("这个名称已经被使用了。", "请换一个不重复的名称后再创建用户。")
 
         hp = max_hp(1, 0)
         mp = max_mp(1)
@@ -203,7 +275,11 @@ class CoreService:
                 ),
             )
             if cursor.rowcount <= 0:
-                return hint("你已经创建过用户了。", "发送：修仙信息 查看角色，或发送：改名 新名称")
+                if conn.execute("SELECT 1 FROM players WHERE client_id = ?", (client_id,)).fetchone():
+                    return hint("你已经创建过用户了。", "发送：修仙信息 查看角色，或发送：改名 新名称")
+                if conn.execute("SELECT 1 FROM players WHERE display_name = ?", (result,)).fetchone():
+                    return hint("这个名称刚刚被别人使用了。", "请换一个不重复的名称后再创建用户。")
+                return hint("创建用户失败。", "请稍后重试，或换一个不重复的名称。")
             conn.execute(
                 """
                 INSERT INTO source_vaults (client_id, level, balance, last_settle_at)
@@ -219,7 +295,7 @@ class CoreService:
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '创建用户', ?, ?)",
                 (client_id, result, ts()),
             )
-        return f"创建成功，道友 {result}，你的 id 是 {client_id}。"
+        return f"创建成功，道友 {result}。"
 
     def rename_player(self, client_id: str, display_name: str) -> str:
         """修改展示名称。"""
@@ -232,6 +308,10 @@ class CoreService:
         ok, result = validate_name(display_name)
         if not ok:
             return hint(result, "请换一个 2 到 12 个字符、且不含空白的名称。")
+        if result == player["display_name"]:
+            return "名称没有变化。"
+        if self.player_name_taken(result, client_id):
+            return hint("这个名称已经被使用了。", "请换一个不重复的新名称。")
 
         last = dt(player.get("last_rename_at"))
         if last and now() - last < timedelta(hours=RENAME_COOLDOWN_HOURS):
@@ -239,11 +319,24 @@ class CoreService:
             hours = max(1, int(left.total_seconds() // 3600) + 1)
             return hint(f"改名太频繁，请约 {hours} 小时后再试。", "冷却结束后发送：改名 新名称")
 
-        self.db.execute(
-            "UPDATE players SET display_name = ?, last_rename_at = ? WHERE client_id = ?",
-            (result, ts(), client_id),
-        )
-        self.log(client_id, "改名", result)
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE players
+                SET display_name = ?, last_rename_at = ?
+                WHERE client_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM players WHERE display_name = ? AND client_id != ?
+                  )
+                """,
+                (result, ts(), client_id, result, client_id),
+            )
+            if cursor.rowcount <= 0:
+                return hint("这个名称刚刚被别人使用了。", "请换一个不重复的新名称。")
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '改名', ?, ?)",
+                (client_id, result, ts()),
+            )
         return f"改名成功，现在叫 {result}。"
 
     def log(self, client_id: str, action: str, detail: str = "") -> None:
@@ -718,12 +811,12 @@ class CoreService:
         )
 
     def format_player_name(self, client_id: str) -> str:
-        """返回展示名和 id。"""
+        """返回玩家展示名；对外回复不展示 client_id。"""
 
         player = self.player(client_id)
         if not player:
-            return client_id
-        return f"{player['display_name']}({client_id})"
+            return "未知道友"
+        return str(player["display_name"])
 
     def next_level_text(self, player: dict[str, Any]) -> str:
         """返回升级进度文本。"""
@@ -768,6 +861,8 @@ def format_effect(effect_text: str) -> str:
         parts.append(f"精神+{int(effect['mp_ratio'] * 100)}%")
     if effect.get("wash_physique"):
         parts.append("洗髓体质，大概率升阶，小概率回落")
+    if effect.get("enchant_id"):
+        parts.append("武器附魔")
     bonus_labels = {
         "max_hp_bonus": "血气上限",
         "max_mp_bonus": "精神上限",
@@ -840,8 +935,11 @@ __all__ = [
     "CoreService",
     "business_day",
     "choose_one",
+    "custom_label",
     "dt",
     "dump_json",
+    "enchant_label_name",
+    "fixed_equipment_label",
     "format_effect",
     "hint",
     "load_json",
@@ -853,10 +951,12 @@ __all__ = [
     "quality_factor",
     "random",
     "random_quality",
+    "row_value",
     "split_words",
     "sqlite3",
     "timedelta",
     "to_int",
     "ts",
     "validate_name",
+    "weapon_label_name",
 ]

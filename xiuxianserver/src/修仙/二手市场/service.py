@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..common import CoreService, hint, load_json, money, parse_name_level, parse_player_ref, split_words, to_int, ts
+from ..common import CoreService, hint, load_json, money, parse_name_level, split_words, to_int, ts, weapon_label_name
 from ..constants import MARKET_FEE_RATE
 from ..sql import db
 
@@ -35,9 +35,9 @@ class SecondHandService(CoreService):
         lines = ["☆二手市场☆"]
         for row in rows:
             name = self._item_name(row["item_type"], row["item_id"])
-            seller = row["display_name"] or row["seller_id"]
+            seller = row["display_name"] or "未知道友"
             quantity = "" if row["item_type"] == "weapon" else f" x{row['quantity']}"
-            lines.append(f"{seller}({row['seller_id']})：{name}{quantity}，总价 {money(row['total_price'])}")
+            lines.append(f"{seller}：{name}{quantity}，总价 {money(row['total_price'])}")
         return "\n".join(lines)
 
     def sell(self, client_id: str, message: str) -> str:
@@ -152,9 +152,9 @@ class SecondHandService(CoreService):
         buyer, error = self.require_player(client_id)
         if error:
             return error
-        seller_id = parse_player_ref(message)
+        seller_id = self.resolve_player_ref(message)
         if not seller_id:
-            return hint("购买格式不正确。", "发送：二手市场购买 卖家ID，或直接 at 卖家。")
+            return hint("没有找到这个卖家。", "发送：二手市场 查看卖家名称，再发送：二手市场购买 卖家名称。")
         if seller_id == client_id:
             return hint("不能购买自己的商品。", "想收回商品请发送：二手市场下架")
 
@@ -415,7 +415,7 @@ class SecondHandService(CoreService):
 
         enchants = len(load_json(weapon["enchant_effects"], []))
         return (
-            f"武器#{weapon['weapon_id']} {weapon['name']}[{weapon['quality']}] "
+            f"武器#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] "
             f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{weapon['attack']} "
             f"附魔:{enchants}/{weapon['enchant_slots']}"
         )
