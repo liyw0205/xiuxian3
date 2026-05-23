@@ -309,8 +309,10 @@ SPECIAL_BUYERS = (
 )
 
 
-WEAPON_RECYCLE_LOCATIONS = (
-    ("铸剑阁", 1.2, -120, 760, "专收探险所得备用武器，回收价稳定但受每日回收曲线影响。"),
+RECYCLE_LOCATIONS = (
+    ("weapon", "铸剑阁", 1.2, -120, 760, "专收探险所得备用武器，回收价稳定但受每日回收曲线影响。"),
+    ("gem", "琢玉楼", 1.15, 320, 760, "专收未镶嵌宝石，擅长鉴定灵玉、拆解碎宝。"),
+    ("book", "藏经阁", 1.1, 120, 820, "专收未附魔技能书，负责整理残卷、术法和旧拓本。"),
 )
 
 
@@ -550,7 +552,11 @@ class XiuxianDB:
             DROP TABLE IF EXISTS trade_daily_rewards;
             DROP TABLE IF EXISTS trade_limits;
             DROP TABLE IF EXISTS special_buyers;
+            DROP TABLE IF EXISTS recycle_locations;
             DROP TABLE IF EXISTS weapon_recycle_locations;
+            DROP TABLE IF EXISTS weapon_recycle_records;
+            DROP TABLE IF EXISTS gem_recycle_records;
+            DROP TABLE IF EXISTS book_recycle_records;
             DROP TABLE IF EXISTS exploration_locations;
             DROP TABLE IF EXISTS exploration_records;
             DROP TABLE IF EXISTS drop_tables;
@@ -790,8 +796,9 @@ class XiuxianDB:
                 y INTEGER NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS weapon_recycle_locations (
+            CREATE TABLE IF NOT EXISTS recycle_locations (
                 name TEXT PRIMARY KEY,
+                recycle_type TEXT NOT NULL,
                 price_factor REAL NOT NULL,
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
@@ -806,6 +813,39 @@ class XiuxianDB:
                 quality TEXT NOT NULL,
                 level INTEGER NOT NULL,
                 max_level INTEGER NOT NULL,
+                raw_value INTEGER NOT NULL,
+                capped_value INTEGER NOT NULL,
+                price_rate REAL NOT NULL,
+                total_price INTEGER NOT NULL,
+                location_name TEXT NOT NULL,
+                business_day TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS gem_recycle_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                gem_id TEXT NOT NULL,
+                gem_name TEXT NOT NULL,
+                quality TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                raw_value INTEGER NOT NULL,
+                capped_value INTEGER NOT NULL,
+                price_rate REAL NOT NULL,
+                total_price INTEGER NOT NULL,
+                location_name TEXT NOT NULL,
+                business_day TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS book_recycle_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                book_id TEXT NOT NULL,
+                book_name TEXT NOT NULL,
+                quality TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
                 raw_value INTEGER NOT NULL,
                 capped_value INTEGER NOT NULL,
                 price_rate REAL NOT NULL,
@@ -1068,6 +1108,8 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
             CREATE INDEX IF NOT EXISTS idx_weapon_recycle_day ON weapon_recycle_records(client_id, business_day);
+            CREATE INDEX IF NOT EXISTS idx_gem_recycle_day ON gem_recycle_records(client_id, business_day);
+            CREATE INDEX IF NOT EXISTS idx_book_recycle_day ON book_recycle_records(client_id, business_day);
             CREATE INDEX IF NOT EXISTS idx_exploration_client ON exploration_records(client_id, claimed);
             CREATE INDEX IF NOT EXISTS idx_inscription_feathers_client ON inscription_feathers(client_id, feather_id);
             CREATE INDEX IF NOT EXISTS idx_seasonal_boss_status ON seasonal_boss_events(status, closes_at);
@@ -1163,11 +1205,11 @@ class XiuxianDB:
         )
         self.conn.executemany(
             """
-            INSERT OR REPLACE INTO weapon_recycle_locations
-            (name, price_factor, x, y, desc)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO recycle_locations
+            (recycle_type, name, price_factor, x, y, desc)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            WEAPON_RECYCLE_LOCATIONS,
+            RECYCLE_LOCATIONS,
         )
         self.conn.executemany(
             """
@@ -1264,14 +1306,14 @@ class XiuxianDB:
         }
         duplicated_names = names & equipment_names
         if duplicated_names:
-            missing.append(f"物品库和装备库重名：{','.join(sorted(duplicated_names))}")
+            missing.append(f"背包物品和纳戒物品重名：{','.join(sorted(duplicated_names))}")
 
         for location, _x, _y, specialties in TRADE_LOCATIONS:
             for name in specialties.split(","):
                 if name not in TRADE_ITEM_DEFS:
                     missing.append(f"跑商特产缺少定价：{location}/{name}")
                 if name not in names:
-                    missing.append(f"跑商特产未落物品库：{location}/{name}")
+                    missing.append(f"跑商特产未落背包物品定义：{location}/{name}")
         trade_names = {
             name
             for _location, _x, _y, specialties in TRADE_LOCATIONS

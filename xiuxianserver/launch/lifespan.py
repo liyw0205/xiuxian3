@@ -13,8 +13,8 @@ from .mount import AdapterMount, FastAPIMount
 async def lifespan(app: "FastAPI") -> AsyncGenerator:
     """FastAPI 生命周期。
 
-    启动：挂载适配器、启动调度器、运行启动回调。
-    关闭：运行关闭回调、关闭适配器、关闭调度器。
+    启动：挂载适配器、启动调度器、按优先级运行启动回调。
+    关闭：按优先级运行关闭回调、关闭适配器、关闭调度器。
     """
 
     adapters = await _mount_app(app)
@@ -24,13 +24,13 @@ async def lifespan(app: "FastAPI") -> AsyncGenerator:
         await _run_adapters(adapters)
         await _start_schedulers()
         await _add_scheduler_jobs()
-        await _run_callbacks(OnEvent.connect_list)
+        await _run_callbacks(OnEvent.ordered_callbacks(OnEvent.connect_list))
         started = True
 
         logger.opt(colors=True).success(f"{C.ok('FastAPI 服务启动成功')}")
         yield
     finally:
-        callbacks = OnEvent.disconnect_list if started else []
+        callbacks = OnEvent.ordered_callbacks(OnEvent.disconnect_list) if started else []
         await _shutdown(callbacks, adapters)
 
 
@@ -98,7 +98,7 @@ async def _add_scheduler_jobs() -> None:
 
 
 async def _run_callbacks(callbacks: Iterable[Callable]) -> None:
-    """按注册顺序运行启动/关闭回调。"""
+    """按传入顺序运行启动/关闭回调。"""
 
     for callback in callbacks:
         if inspect.iscoroutinefunction(callback):

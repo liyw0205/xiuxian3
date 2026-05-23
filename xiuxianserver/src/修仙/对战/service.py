@@ -52,6 +52,7 @@ class DuelService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
+        self.cleanup_battle_records()
         rows = self.db.fetch_all(
             """
             SELECT * FROM duel_records
@@ -114,6 +115,7 @@ class DuelService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
+        self.cleanup_battle_records()
         from_id = self.resolve_player_ref(message)
         if not from_id:
             return hint("没有找到发起人。", "发送：接受切磋 发起人名称，或使用 CQ/at 指定发起人。")
@@ -194,7 +196,89 @@ class DuelService(CoreService):
                 "INSERT INTO combat_logs (client_id, target, summary, created_at) VALUES (?, ?, ?, ?)",
                 (from_id, client_id, result["summary"], ts()),
             )
-        return result["summary"] + (f"\n赌约结算：胜者获得 {money(request['stake'] * 2 - fee)}，手续费 {money(fee)}。" if mode == "bet" else "")
+        settlement = ""
+        if mode == "bet":
+            settlement = f"赌约结算：胜者获得 {money(request['stake'] * 2 - fee)}，手续费 {money(fee)}。"
+        return self._duel_log_block(
+            title="切磋结束" if mode == "spar" else "赌约决斗结束",
+            result=result,
+            settlement=settlement,
+        )
+
+    def _duel_log_block(self, *, title: str, result: dict, settlement: str = "") -> str:
+        """把切磋/赌约整理成逐回合代码块。"""
+
+        lines = [
+            title,
+            result["summary"],
+            "",
+            "一、战斗明细",
+        ]
+        actions = result.get("actions")
+        if isinstance(actions, list) and actions:
+            for action in actions:
+                lines.extend(self._duel_round_lines(action))
+        else:
+            lines.append("无逐次出手记录。")
+
+        left_id = result.get("left_id", "")
+        right_id = result.get("right_id", "")
+        lines.extend(
+            [
+                "",
+                "二、最终结算",
+                f"胜者：{self.format_player_name(result.get('winner_id', ''))}",
+                f"败者：{self.format_player_name(result.get('loser_id', ''))}",
+                (
+                    f"{self.format_player_name(left_id)}：血气 {result.get('left_hp_left', 0)}/{result.get('left_max_hp', 0)}，"
+                    f"精神 {result.get('left_mp_left', 0)}/{result.get('left_max_mp', 0)}"
+                ),
+                (
+                    f"{self.format_player_name(right_id)}：血气 {result.get('right_hp_left', 0)}/{result.get('right_max_hp', 0)}，"
+                    f"精神 {result.get('right_mp_left', 0)}/{result.get('right_max_mp', 0)}"
+                ),
+            ]
+        )
+        if settlement:
+            lines.append(settlement)
+        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+
+    def _duel_round_lines(self, action: dict) -> list[str]:
+        """整理一回合双方出手。"""
+
+        lines = [f"第 {int(action.get('round', 0))} 回合"]
+        for side in ("left", "right"):
+            attack = action.get(side)
+            if not isinstance(attack, dict):
+                continue
+            lines.append("  " + self._duel_attack_text(attack))
+        return lines
+
+    def _duel_attack_text(self, attack: dict) -> str:
+        """整理一次玩家出手。"""
+
+        actor = self.format_player_name(str(attack.get("actor_id", "")))
+        target = self.format_player_name(str(attack.get("target_id", "")))
+        if attack.get("skill_used"):
+            move = f"技能「{attack.get('skill_name', '')}」"
+            cost = f"，消耗精神 {int(attack.get('mp_cost', 0))}"
+        else:
+            move = "普通攻击"
+            cost = ""
+        if attack.get("dodged"):
+            return (
+                f"{actor} 出手：{move} 被 {target} 闪过{cost}；"
+                f"{target} 血气 {attack.get('target_hp_left', 0)}，精神 {attack.get('target_mp_left', 0)}"
+            )
+        combo = int(attack.get("combo_damage", 0))
+        combo_text = f"，连击追加 {combo}" if combo > 0 else ""
+        steal = int(attack.get("life_steal", 0))
+        steal_text = f"，吸血 +{steal}" if steal > 0 else ""
+        return (
+            f"{actor} 出手：{move}，对 {target} 造成 {int(attack.get('damage', 0))} 伤害"
+            f"{combo_text}{steal_text}{cost}；"
+            f"{target} 血气 {attack.get('target_hp_left', 0)}，精神 {attack.get('target_mp_left', 0)}"
+        )
 
     def _reject(self, client_id: str, message: str, mode: str) -> str:
         """拒绝对战请求。"""

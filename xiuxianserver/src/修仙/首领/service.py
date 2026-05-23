@@ -274,6 +274,7 @@ class SeasonalBossService(CoreService):
         player, error = self.require_player(client_id)
         if error:
             return error
+        self.cleanup_battle_records()
         assert player is not None
 
         event = self._today_event(create=True, update=True)
@@ -282,7 +283,7 @@ class SeasonalBossService(CoreService):
         if event["status"] != "开启":
             return hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：首领奖励 查看是否可以领取奖励。")
         if player["status"] != "空闲":
-            return hint(f"当前状态为 {player['status']}，不能挑战首领。", "先结束当前状态，再发送：挑战首领")
+            return self._busy_challenge_hint(player["status"])
         if int(player["hp"]) <= 0:
             return hint("血气不足，无法挑战首领。", "发送：休息，时间到后发送：结束休息")
 
@@ -357,22 +358,21 @@ class SeasonalBossService(CoreService):
                 (client_id, f"event={event['event_id']}, boss={event['boss_name']}, damage={damage}", ts()),
             )
 
-        lines = [
-            f"挑战岁时情劫：{event['boss_name']}",
-            random.choice(load_json(event["atmosphere"], [])) if event["atmosphere"] else event["scene"],
-            f"本次造成伤害：{damage}",
-            f"战斗后血气/精神：{result['hp_left']}/{result['mp_left']}",
-        ]
-        if result["skill_times"]:
-            lines.append(f"武器技能触发：{result['skill_times']} 次")
-        if result["hp_left"] <= 0:
-            lines.append("你被旧念重伤，建议先休息。")
-        if killed:
-            lines.append(f"{event['boss_name']} 已被送回岁时深处，发送：首领奖励")
-        else:
-            lines.append(f"剩余旧念：{left_hp}/{event['max_hp']}")
-            lines.append(f"再次挑战需等待 {SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES} 分钟。")
-        return "\n".join(lines)
+        atmosphere = random.choice(load_json(event["atmosphere"], [])) if event["atmosphere"] else event["scene"]
+        return self._challenge_log_block(
+            title=f"挑战岁时情劫：{event['boss_name']}",
+            subtitle=atmosphere,
+            boss_name=event["boss_name"],
+            player=player,
+            result=result,
+            damage=damage,
+            left_hp=left_hp,
+            max_hp=int(event["max_hp"]),
+            killed=killed,
+            killed_text=f"{event['boss_name']} 已被送回岁时深处，发送：首领奖励",
+            alive_text=f"再次挑战需等待 {SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES} 分钟。",
+            hurt_text="你被旧念重伤，建议先休息。",
+        )
 
     def reward(self, client_id: str) -> str:
         """领取最近一次可领取的首领奖励。"""
@@ -603,8 +603,19 @@ class SeasonalBossService(CoreService):
         seconds = max(1, int(left.total_seconds()))
         return hint(f"岁时旧念尚未重新凝形，还需 {seconds // 60}分{seconds % 60}秒。", "稍后再发送：挑战首领")
 
-    def _fight_boss(self, player: dict[str, Any], event: dict[str, Any]) -> dict[str, int]:
-        """结算一次挑战，不在这里写库。"""
+    @staticmethod
+    def _busy_challenge_hint(status: str) -> str:
+        """玩家本体忙碌时，解释为什么不能挑战首领。"""
+
+        if status == "探险中":
+            return hint(
+                "本体正在探险，不能挑战首领。",
+                "行商化身仍可跑商；先发送：探险状态，30 分钟后发送：结束探险，再发送：挑战首领",
+            )
+        return hint(f"当前状态为 {status}，不能挑战首领。", "先结束当前状态，再发送：挑战首领")
+
+    def _fight_boss(self, player: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+        """结算一次挑战；这里只算数值和逐回合日志，不写数据库。"""
 
         client_id = player["client_id"]
         weapon_service.ensure_starter_weapon(client_id)
@@ -619,14 +630,40 @@ class SeasonalBossService(CoreService):
         rounds = 10 + min(4, int(player["level"]) // 25)
         interval = self._skill_interval(skill, weapon)
         skill_cost = max(0, int(skill["cost_mp"]) if skill else 0)
+        boss_hp = int(event["hp"])
+        actions: list[dict[str, Any]] = []
 
         for round_no in range(1, rounds + 1):
             raw = player_attack + random.randint(int(player["level"]), max(int(player["level"]) * 4, int(player["level"]) + 3))
+            skill_used = False
+            skill_name = ""
             if skill and interval and round_no % interval == 0 and mp >= skill_cost:
                 raw = int(raw * float(skill["power"]))
                 mp -= skill_cost
                 skill_times += 1
-            total_damage += damage_after_defense(raw, int(event["defense"]))
+                skill_used = True
+                skill_name = str(skill["name"])
+            damage = damage_after_defense(raw, int(event["defense"]))
+            total_damage += damage
+            boss_hp = max(0, boss_hp - damage)
+            action = {
+                "round": round_no,
+                "raw": raw,
+                "damage": damage,
+                "skill_used": skill_used,
+                "skill_name": skill_name,
+                "mp_cost": skill_cost if skill_used else 0,
+                "boss_hp_left": boss_hp,
+                "boss_hp_max": int(event["max_hp"]),
+                "boss_attack": False,
+                "boss_damage": 0,
+                "player_hp_left": hp,
+                "player_mp_left": mp,
+                "dodged": False,
+            }
+            if boss_hp <= 0:
+                actions.append(action)
+                break
             if random.random() >= min(0.45, float(bonuses.get("dodge_bonus", 0))):
                 hurt = damage_after_defense(
                     random.randint(max(1, int(event["attack"] * 0.75)), max(1, int(event["attack"] * 1.18))),
@@ -634,6 +671,13 @@ class SeasonalBossService(CoreService):
                 )
                 hurt = max(1, int(hurt * (1 - min(0.55, float(bonuses.get("crit_resist_bonus", 0))))))
                 hp -= hurt
+                action["boss_attack"] = True
+                action["boss_damage"] = hurt
+            else:
+                action["dodged"] = True
+            action["player_hp_left"] = max(0, hp)
+            action["player_mp_left"] = max(0, mp)
+            actions.append(action)
             if hp <= 0:
                 break
         return {
@@ -641,7 +685,97 @@ class SeasonalBossService(CoreService):
             "hp_left": max(0, hp),
             "mp_left": max(0, mp),
             "skill_times": skill_times,
+            "actions": actions,
         }
+
+    def _challenge_log_block(
+        self,
+        *,
+        title: str,
+        subtitle: str,
+        boss_name: str,
+        player: dict[str, Any],
+        result: dict[str, Any],
+        damage: int,
+        left_hp: int,
+        max_hp: int,
+        killed: bool,
+        killed_text: str,
+        alive_text: str,
+        hurt_text: str,
+    ) -> str:
+        """把首领挑战整理成包含逐次出手的代码块。"""
+
+        lines = [
+            title,
+            subtitle,
+            "",
+            "一、战斗明细",
+        ]
+        actions = result.get("actions")
+        if isinstance(actions, list) and actions:
+            for action in actions:
+                lines.extend(self._boss_action_lines(action, boss_name, player))
+        else:
+            lines.append("无逐次出手记录。")
+
+        lines.extend(
+            [
+                "",
+                "二、最终结算",
+                f"本次造成伤害：{damage}",
+                f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
+                f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
+                f"武器技能触发：{result['skill_times']} 次",
+            ]
+        )
+        if int(result["hp_left"]) <= 0:
+            lines.append(hurt_text)
+        if killed:
+            lines.append(killed_text)
+        else:
+            lines.append(f"剩余旧念：{left_hp}/{max_hp}")
+            lines.append(alive_text)
+        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+
+    @staticmethod
+    def _boss_action_lines(action: dict[str, Any], boss_name: str, player: dict[str, Any]) -> list[str]:
+        """整理一回合首领战日志。"""
+
+        round_no = int(action.get("round", 0))
+        damage = int(action.get("damage", 0))
+        boss_hp_left = max(0, int(action.get("boss_hp_left", 0)))
+        boss_hp_max = max(1, int(action.get("boss_hp_max", 1)))
+        skill_name = str(action.get("skill_name") or "")
+        if action.get("skill_used"):
+            attack_text = f"技能「{skill_name}」"
+            cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
+        else:
+            attack_text = "普通攻击"
+            cost_text = ""
+        lines = [
+            f"第 {round_no} 回合",
+            f"  我方出手：{attack_text}，造成 {damage} 伤害{cost_text}；{boss_name} 旧念 {boss_hp_left}/{boss_hp_max}",
+        ]
+        if boss_hp_left <= 0:
+            lines.append(f"  首领出手：{boss_name} 已消散。")
+            return lines
+
+        hp_left = max(0, int(action.get("player_hp_left", 0)))
+        mp_left = max(0, int(action.get("player_mp_left", 0)))
+        if action.get("dodged"):
+            lines.append(
+                f"  首领出手：{boss_name} 攻击落空；"
+                f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
+            )
+            return lines
+
+        hurt = int(action.get("boss_damage", 0))
+        lines.append(
+            f"  首领出手：{boss_name} 造成 {hurt} 伤害；"
+            f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
+        )
+        return lines
 
     def _roll_reward(self, event: dict[str, Any], participant: dict[str, Any], player: dict[str, Any]) -> dict[str, Any]:
         """按贡献、排名和节日权重生成奖励。"""
@@ -706,7 +840,7 @@ class SeasonalBossService(CoreService):
         return count
 
     def _random_equipment_item(self, category: str) -> dict[str, Any] | None:
-        """随机装备库物品，不包含开孔器。"""
+        """随机纳戒物品，不包含开孔器。"""
 
         rows = self.db.fetch_all(
             """

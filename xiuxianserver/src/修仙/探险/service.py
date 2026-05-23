@@ -41,6 +41,7 @@ class ExplorationService(CoreService):
         player, error = self.require_player(client_id)
         if error:
             return error
+        self.cleanup_battle_records()
         assert player is not None
         active = self._active_record(client_id)
         if active:
@@ -77,7 +78,7 @@ class ExplorationService(CoreService):
                     (client_id, item_id),
                 ).fetchone()
                 if not row or int(row["quantity"]) < int(quantity):
-                    return hint("自动用药库存已变化，无法开始探险。", "发送：查看纳戒 确认恢复药数量后，再发送：探险")
+                    return hint("自动用药库存已变化，无法开始探险。", "发送：纳戒 确认恢复药数量后，再发送：探险")
             cursor = conn.execute(
                 "UPDATE players SET status = '探险中' WHERE client_id = ? AND status = '空闲'",
                 (client_id,),
@@ -100,30 +101,59 @@ class ExplorationService(CoreService):
     def status(self, client_id: str) -> str:
         """查看探险状态。"""
 
-        _, error = self.require_player(client_id)
+        player, error = self.require_player(client_id)
         if error:
             return error
+        assert player is not None
         record = self._active_record(client_id)
         if not record:
             return hint("当前没有探险。", "发送：地点列表 选地点，再发送：探险")
         result = load_json(record["result"], {})
+        events = list(result.get("events", []))
         current = now()
         elapsed = max(0, int((current - self._time(record["started_at"])).total_seconds()))
         total = EXPLORE_MINUTES * 60
         done = min(total, elapsed)
         if result.get("dead"):
-            state = "已死亡，等待结算"
+            state = "已重伤，预计算已停止"
+            reason = "本体战斗失败，后续不再继续遇怪。"
         elif result.get("bag_full"):
-            state = "背包已满，等待结算"
+            state = "背包已满，预计算已停止"
+            reason = "下一件背包掉落已经装不下，后续不再继续遇怪。"
         elif elapsed >= total:
             state = "已到点，待领取"
+            reason = "30 分钟已到，可以领取本次探险结果。"
         else:
             state = "探险中"
+            reason = "预计算已经完成，但本体仍需等 30 分钟冷却到点。"
         ready_at = self._time(record["ready_at"])
-        if ready_at and current < ready_at:
+        can_claim = not (ready_at and current < ready_at)
+        if can_claim:
+            action = "现在可以发送：结束探险"
+            time_text = "可领取"
+        else:
             left = max(1, int((ready_at - current).total_seconds() // 60) + 1)
-            return f"探险状态：{state}。进度 {done // 60}/{EXPLORE_MINUTES} 分钟，{left} 分钟后可结束探险。"
-        return f"探险状态：{state}。进度 {done // 60}/{EXPLORE_MINUTES} 分钟，可领取。"
+            action = f"{left} 分钟后发送：结束探险"
+            time_text = f"还需约 {left} 分钟"
+
+        summary = self._status_summary(player, result, events)
+        lines = [
+            f"☆探险状态·{record['location_name']}☆",
+            f"状态：{state}",
+            f"时间：已过 {done // 60}/{EXPLORE_MINUTES} 分钟，{time_text}",
+            f"原因：{reason}",
+            f"战斗：{summary['fight_text']}",
+            f"预计经验：+{summary['exp_total']}",
+            f"最后状态：血气 {summary['hp_left']}/{player['max_hp']}，精神 {summary['mp_left']}/{player['max_mp']}",
+        ]
+        if summary["drop_text"]:
+            lines.append(f"预计收获：{summary['drop_text']}")
+        else:
+            lines.append("预计收获：暂无掉落")
+        if summary["medicine_text"]:
+            lines.append(f"自动用药：{summary['medicine_text']}")
+        lines.append(f"下一步：{action}")
+        return "\n".join(lines)
 
     def claim(self, client_id: str) -> str:
         """领取探险结果。"""
@@ -204,28 +234,21 @@ class ExplorationService(CoreService):
                 (ts(), record["record_id"]),
             )
 
-        lines = [f"探险结束：{record['location_name']}"]
-        lines.append(f"战斗 {len(events)} 场，经验+{exp_total}")
-        if new_level > old_level:
-            lines.append(f"等级提升：{old_level} -> {new_level}")
-        if drops:
-            for item_id, quantity in drops.items():
-                item = self.item_def(item_id)
-                lines.append(f"获得 {item['name'] if item else item_id} x{quantity}")
-        if ring_drops:
-            for item_id, quantity in ring_drops.items():
-                item = self.equipment_item_def(item_id)
-                lines.append(f"纳戒获得 {item['name'] if item else item_id} x{quantity}")
-        if weapon_drops:
-            lines.extend(f"获得武器 {name}" for name in weapon_drops)
-        medicine_used = result.get("medicine_used", {})
-        if medicine_used:
-            lines.append("自动用药：" + self._format_medicine_used(medicine_used))
-        if dead:
-            lines.append("本次探险中途重伤，已自动撤离。")
-        if result.get("bag_full"):
-            lines.append("背包已满，本次探险提前停止。")
-        return "\n".join(lines)
+        final_player = self.player(client_id) or player
+        return self._claim_log_block(
+            record=record,
+            player=final_player,
+            events=events,
+            exp_total=exp_total,
+            old_level=old_level,
+            new_level=new_level,
+            drops=drops,
+            ring_drops=ring_drops,
+            weapon_drops=weapon_drops,
+            medicine_used=result.get("medicine_used", {}),
+            dead=dead,
+            bag_full=bool(result.get("bag_full")),
+        )
 
     def records(self, client_id: str) -> str:
         """查看最近探险记录。"""
@@ -233,6 +256,7 @@ class ExplorationService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
+        self.cleanup_battle_records()
         rows = self.db.fetch_all(
             """
             SELECT * FROM exploration_records
@@ -420,7 +444,7 @@ class ExplorationService(CoreService):
     def _roll_ring_drop(self) -> str:
         """随机掉落纳戒物品。
 
-        恢复类、宝石和技能书都属于装备库，所以探险获得时直接进纳戒。
+        恢复类、宝石和技能书都进纳戒，所以探险获得时直接写入纳戒。
         """
 
         rows = self.db.fetch_all(
@@ -550,6 +574,258 @@ class ExplorationService(CoreService):
             item = self.equipment_item_def(item_id)
             texts.append(f"{item['name'] if item else item_id} x{quantity}")
         return "、".join(texts)
+
+    def _claim_log_block(
+        self,
+        *,
+        record: dict,
+        player: dict,
+        events: list[dict],
+        exp_total: int,
+        old_level: int,
+        new_level: int,
+        drops: dict[str, int],
+        ring_drops: dict[str, int],
+        weapon_drops: list[str],
+        medicine_used: dict[str, int],
+        dead: bool,
+        bag_full: bool,
+    ) -> str:
+        """把结束探险的战斗过程和最终结算整理成代码块文本。"""
+
+        wins = sum(1 for event in events if event.get("win"))
+        losses = max(0, len(events) - wins)
+        hp_left = int(player.get("hp", 1))
+        mp_left = int(player.get("mp", 0))
+        lines = [
+            "探险结束",
+            f"记录：#{record['record_id']}",
+            f"地点：{record['location_name']}",
+            f"开始时间：{record['started_at']}",
+            f"可领取时间：{record['ready_at']}",
+            f"领取时间：{ts()}",
+            "",
+            f"战斗总览：{len(events)} 场，胜 {wins} 场，败 {losses} 场。",
+            "",
+            "一、战斗明细",
+        ]
+
+        if events:
+            for index, event in enumerate(events, start=1):
+                lines.extend(self._event_log_lines(index, event, player))
+        else:
+            lines.append("本次没有战斗事件。")
+
+        lines.extend(
+            [
+                "",
+                "二、最终结算",
+                f"经验：+{exp_total}",
+                f"等级：{old_level} -> {new_level}" if new_level > old_level else f"等级：{new_level}，未升级",
+                f"最终血气：{hp_left}/{player['max_hp']}",
+                f"最终精神：{mp_left}/{player['max_mp']}",
+                f"背包获得：{self._format_backpack_awards(drops)}",
+                f"纳戒获得：{self._format_ring_awards(ring_drops)}",
+                f"武器获得：{self._format_weapon_awards(weapon_drops)}",
+                f"自动用药：{self._format_medicine_used(medicine_used) if medicine_used else '无'}",
+                f"停止原因：{self._stop_reason(dead, bag_full)}",
+                "当前状态：空闲",
+            ]
+        )
+        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+
+    def _event_log_lines(self, index: int, event: dict, player: dict) -> list[str]:
+        """整理单场战斗日志，细到每一次出手。"""
+
+        hp_left = max(0, int(event.get("hp_left", 0)))
+        mp_left = max(0, int(event.get("mp_left", 0)))
+        lines = [
+            f"第 {index} 战",
+            f"  概况：{event.get('summary', '无战斗摘要')}",
+        ]
+        actions = event.get("actions")
+        if isinstance(actions, list) and actions:
+            for action in actions:
+                lines.extend(self._action_log_lines(action, event, player))
+        else:
+            lines.append("  逐次出手：无记录")
+        lines.append(f"  战后：血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}")
+        lines.append(f"  掉落：{self._event_drop_text(event)}")
+        if event.get("bag_full"):
+            lines.append("  动作：背包已满，本场后停止后续预计算。")
+        if hp_left <= 0:
+            lines.append("  动作：本体重伤，本场后停止后续预计算。")
+        return lines
+
+    def _action_log_lines(self, action: dict, event: dict, player: dict) -> list[str]:
+        """整理一回合内玩家出手和怪物反击。"""
+
+        round_no = int(action.get("round", 0))
+        monster_name = str(event.get("monster") or "怪物")
+        monster_hp_left = max(0, int(action.get("monster_hp_left", 0)))
+        monster_hp_max = max(1, int(action.get("monster_hp_max", 1)))
+        total_damage = int(action.get("player_total_damage", 0))
+        combo_damage = int(action.get("combo_damage", 0))
+        skill_name = str(action.get("skill_name") or "")
+        if action.get("skill_used"):
+            attack_text = f"技能「{skill_name}」"
+            cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
+        else:
+            attack_text = "普通攻击"
+            cost_text = ""
+        combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
+        life_steal = int(action.get("life_steal", 0))
+        steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+        lines = [
+            f"  第 {round_no} 回合",
+            (
+                f"    我方出手：{attack_text}，造成 {total_damage} 伤害"
+                f"{combo_text}{steal_text}{cost_text}；"
+                f"{monster_name} 血气 {monster_hp_left}/{monster_hp_max}"
+            ),
+        ]
+        if monster_hp_left <= 0:
+            lines.append(f"    敌方出手：{monster_name} 已倒下。")
+            return lines
+
+        player_hp_left = max(0, int(action.get("player_hp_left", 0)))
+        player_mp_left = max(0, int(action.get("player_mp_left", 0)))
+        if action.get("dodged"):
+            lines.append(
+                f"    敌方出手：{monster_name} 攻击落空；"
+                f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
+            )
+            return lines
+
+        hurt = int(action.get("monster_damage", 0))
+        lines.append(
+            f"    敌方出手：{monster_name} 造成 {hurt} 伤害；"
+            f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
+        )
+        return lines
+
+    def _event_drop_text(self, event: dict) -> str:
+        """整理单场战斗掉落。"""
+
+        texts = []
+        if event.get("drop_item_id"):
+            texts.append("怪物掉落 " + self._item_name(event["drop_item_id"]))
+        if event.get("location_drop_item_id"):
+            texts.append("地点特产 " + self._item_name(event["location_drop_item_id"]))
+        if event.get("ring_drop_id"):
+            texts.append("纳戒物品 " + self._ring_item_name(event["ring_drop_id"]))
+        if event.get("weapon_drop"):
+            drop = event["weapon_drop"]
+            texts.append(f"武器预掉落 {drop['name']}[{drop['quality']}] 上限{drop['max_level']}")
+        return "、".join(texts) if texts else "无"
+
+    def _format_backpack_awards(self, drops: dict[str, int]) -> str:
+        """整理背包最终获得。"""
+
+        if not drops:
+            return "无"
+        return "、".join(f"{self._item_name(item_id)} x{quantity}" for item_id, quantity in drops.items())
+
+    def _format_ring_awards(self, drops: dict[str, int]) -> str:
+        """整理纳戒最终获得。"""
+
+        if not drops:
+            return "无"
+        return "、".join(f"{self._ring_item_name(item_id)} x{quantity}" for item_id, quantity in drops.items())
+
+    @staticmethod
+    def _format_weapon_awards(weapon_drops: list[str]) -> str:
+        """整理武器最终获得。"""
+
+        return "、".join(weapon_drops) if weapon_drops else "无"
+
+    @staticmethod
+    def _stop_reason(dead: bool, bag_full: bool) -> str:
+        """整理本次预计算停止原因。"""
+
+        if dead:
+            return "本体重伤，已自动撤离"
+        if bag_full:
+            return "背包已满，提前停止"
+        return "30 分钟到点"
+
+    def _item_name(self, item_id: str) -> str:
+        """读取背包物品名称。"""
+
+        item = self.item_def(item_id)
+        return item["name"] if item else item_id
+
+    def _ring_item_name(self, item_id: str) -> str:
+        """读取纳戒物品名称。"""
+
+        item = self.equipment_item_def(item_id)
+        return item["name"] if item else item_id
+
+    def _status_summary(self, player: dict, result: dict, events: list[dict]) -> dict:
+        """整理探险状态摘要。
+
+        探险在开始时已经预计算完整结果；状态页只展示摘要，
+        真正发放经验、物品和武器仍然必须等 `结束探险`。
+        """
+
+        wins = sum(1 for event in events if event.get("win"))
+        losses = max(0, len(events) - wins)
+        exp_total = sum(int(event.get("exp", 0)) for event in events)
+        hp_left = int(events[-1].get("hp_left", player["hp"])) if events else int(player["hp"])
+        mp_left = int(events[-1].get("mp_left", player["mp"])) if events else int(player["mp"])
+        fight_text = f"{len(events)} 场，胜 {wins}，败 {losses}"
+
+        backpack_drops: dict[str, int] = {}
+        ring_drops: dict[str, int] = {}
+        weapon_drops: list[str] = []
+        for event in events:
+            for key in ("drop_item_id", "location_drop_item_id"):
+                item_id = event.get(key)
+                if item_id:
+                    backpack_drops[item_id] = backpack_drops.get(item_id, 0) + 1
+            ring_id = event.get("ring_drop_id")
+            if ring_id:
+                ring_drops[ring_id] = ring_drops.get(ring_id, 0) + 1
+            weapon_drop = event.get("weapon_drop")
+            if weapon_drop:
+                weapon_drops.append(
+                    f"{weapon_drop['name']}[{weapon_drop['quality']}]上限{weapon_drop['max_level']}"
+                )
+
+        drop_parts = []
+        if backpack_drops:
+            drop_parts.append("背包 " + self._format_drop_preview(backpack_drops, ring=False))
+        if ring_drops:
+            drop_parts.append("纳戒 " + self._format_drop_preview(ring_drops, ring=True))
+        if weapon_drops:
+            drop_parts.append("武器 " + self._limit_texts(weapon_drops))
+
+        medicine_used = result.get("medicine_used", {})
+        return {
+            "fight_text": fight_text,
+            "exp_total": exp_total,
+            "hp_left": max(0, hp_left),
+            "mp_left": max(0, mp_left),
+            "drop_text": "；".join(drop_parts),
+            "medicine_text": self._format_medicine_used(medicine_used) if medicine_used else "",
+        }
+
+    def _format_drop_preview(self, drops: dict[str, int], ring: bool) -> str:
+        """把掉落预览转成短文本。"""
+
+        texts = []
+        for item_id, quantity in drops.items():
+            item = self.equipment_item_def(item_id) if ring else self.item_def(item_id)
+            texts.append(f"{item['name'] if item else item_id} x{quantity}")
+        return self._limit_texts(texts)
+
+    @staticmethod
+    def _limit_texts(texts: list[str], limit: int = 5) -> str:
+        """限制状态页单行长度，避免掉落太多时刷屏。"""
+
+        if len(texts) <= limit:
+            return "、".join(texts)
+        return "、".join(texts[:limit]) + f" 等{len(texts)}种"
 
     @staticmethod
     def _time(value: str):

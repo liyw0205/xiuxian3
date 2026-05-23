@@ -20,7 +20,7 @@ from ..constants import (
 )
 from ..rules import special_sell_price_rate, special_sell_soft_line
 from ..sql import TRADE_LOCATION_DEMANDS, db
-from ..wormhole_core import WormholeCore
+from ..wormhole_service import WormholeService
 
 
 class TradeService(CoreService):
@@ -28,7 +28,7 @@ class TradeService(CoreService):
 
     def __init__(self, database) -> None:
         super().__init__(database)
-        self.wormhole = WormholeCore(database)
+        self.wormhole = WormholeService(database)
 
     def current(self, client_id: str) -> str:
         """查看当前位置商场。"""
@@ -54,13 +54,16 @@ class TradeService(CoreService):
             return error
         trade_rows = self.db.fetch_all("SELECT * FROM trade_locations ORDER BY name")
         buyer_rows = self.db.fetch_all("SELECT * FROM special_buyers ORDER BY buyer_name")
-        recycle_rows = self.db.fetch_all("SELECT * FROM weapon_recycle_locations ORDER BY name")
+        recycle_rows = self.db.fetch_all("SELECT * FROM recycle_locations ORDER BY recycle_type, name")
         lines = ["☆跑商地点☆"]
         lines.extend(f"{row['name']} ({row['x']},{row['y']})" for row in trade_rows)
         lines.append("☆特殊收购地点☆")
         lines.extend(f"{row['buyer_name']} ({row['x']},{row['y']})" for row in buyer_rows)
-        lines.append("☆武器回收地点☆")
-        lines.extend(f"{row['name']} ({row['x']},{row['y']})" for row in recycle_rows)
+        lines.append("☆回收地点☆")
+        lines.extend(
+            f"{row['name']} ({row['x']},{row['y']}) {self._recycle_type_text(row['recycle_type'])}"
+            for row in recycle_rows
+        )
         return "\n".join(lines)
 
     def detail(self, client_id: str, location_name: str) -> str:
@@ -75,9 +78,9 @@ class TradeService(CoreService):
             buyer = self._special_buyer(name)
             if buyer:
                 return self._format_special_buyer(buyer)
-            recycle_location = self._weapon_recycle_location(name)
+            recycle_location = self._recycle_location(name)
             if recycle_location:
-                return self._format_weapon_recycle_location(recycle_location)
+                return self._format_recycle_location(recycle_location)
             return hint(f"没有找到地点：{name}。", "发送：商场列表 查看可导航地点。")
 
         demand = TRADE_LOCATION_DEMANDS.get(location["name"], {})
@@ -100,7 +103,7 @@ class TradeService(CoreService):
         if not item:
             return hint(f"没有找到商品：{item_name.strip()}。", "发送：商场 查看当前位置商品，或发送：商场详情 地点名")
         if not item["tradeable"]:
-            return hint(f"{item['name']} 不是跑商商品。", "跑商只能查询特产商品；其他物品可发送：查看背包 或 查看纳戒")
+            return hint(f"{item['name']} 不是跑商商品。", "跑商只能查询特产商品；其他物品可发送：背包 或 纳戒")
         rows = self.db.fetch_all("SELECT name FROM trade_locations ORDER BY name")
         lines = [f"☆{item['name']}市价☆"]
         for row in rows:
@@ -173,7 +176,7 @@ class TradeService(CoreService):
             return hint("出售格式不正确。", "发送：商场出售 商品名 数量，例如：商场出售 青木符纸 3")
         item = self.item_def_by_name(item_name)
         if not item or not item["tradeable"]:
-            return hint(f"{item_name} 不是可出售的跑商商品。", "发送：查看背包 查看可出售的跑商货物。")
+            return hint(f"{item_name} 不是可出售的跑商商品。", "发送：背包 查看可出售的跑商货物。")
         return self._sell_item(client_id, player["location_name"], item, quantity)
 
     def auto_sell(self, client_id: str) -> str:
@@ -198,7 +201,7 @@ class TradeService(CoreService):
             texts.append(text)
             total_gain += 1
         if not total_gain:
-            return hint("没有成功出售的商品。", "发送：查看背包 确认货物数量和类型。")
+            return hint("没有成功出售的商品。", "发送：背包 确认货物数量和类型。")
         notice = self.wormhole.try_discover(client_id, "trade_auto_sell", player["location_name"])
         return "自动出售完成：\n" + "\n".join(texts) + notice
 
@@ -360,7 +363,7 @@ class TradeService(CoreService):
             return hint("特殊出售格式不正确。", "发送：特殊出售 物品名 数量，例如：特殊出售 妖核 2")
         item = self.item_def_by_name(item_name)
         if not item:
-            return hint(f"没有找到物品：{item_name}。", "发送：查看背包 确认物品名称。")
+            return hint(f"没有找到物品：{item_name}。", "发送：背包 确认物品名称。")
         allowed = set(str(buyer["item_ids"]).split(","))
         if item["item_id"] not in allowed:
             return hint(f"{buyer['buyer_name']} 不收 {item['name']}。", "发送：特殊收购 查看各地点收购物，再导航到对应地点。")
@@ -371,7 +374,7 @@ class TradeService(CoreService):
             rate = special_sell_price_rate(player["level"], used + raw_total // 2)
             total = max(1, int(raw_total * rate))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
-                return hint(f"背包中 {item['name']} 数量不足。", "发送：查看背包 确认数量，或继续探险获取。")
+                return hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险获取。")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (total, client_id),
@@ -445,7 +448,7 @@ class TradeService(CoreService):
                 lines.extend(sold_lines)
 
             if not last_buyer:
-                return hint("没有成功出售的特殊物品。", "发送：查看背包 确认可出售物品数量。")
+                return hint("没有成功出售的特殊物品。", "发送：背包 确认可出售物品数量。")
             conn.execute(
                 "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
                 (last_buyer["buyer_name"], last_buyer["x"], last_buyer["y"], client_id),
@@ -466,7 +469,7 @@ class TradeService(CoreService):
             return error
         parts = split_words(message)
         if len(parts) == 1:
-            location = self._location(parts[0]) or self._special_buyer(parts[0]) or self._weapon_recycle_location(parts[0])
+            location = self._location(parts[0]) or self._special_buyer(parts[0]) or self._recycle_location(parts[0])
         elif len(parts) >= 2:
             x = to_int(parts[0])
             y = to_int(parts[1])
@@ -633,7 +636,7 @@ class TradeService(CoreService):
         fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
         with self.db.transaction() as conn:
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
-                return hint(f"背包中 {item['name']} 数量不足。", "发送：查看背包 确认数量，或继续探险/购买获取。")
+                return hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险/购买获取。")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (total - fee, client_id),
@@ -731,17 +734,17 @@ class TradeService(CoreService):
 
         return self.db.fetch_one("SELECT * FROM special_buyers WHERE buyer_name = ?", (name.strip(),))
 
-    def _weapon_recycle_location(self, name: str) -> dict | None:
-        """读取武器回收地点。"""
+    def _recycle_location(self, name: str) -> dict | None:
+        """读取系统回收地点。"""
 
-        return self.db.fetch_one("SELECT * FROM weapon_recycle_locations WHERE name = ?", (name.strip(),))
+        return self.db.fetch_one("SELECT * FROM recycle_locations WHERE name = ?", (name.strip(),))
 
     def _nearest_location(self, x: int, y: int) -> dict | None:
         """按坐标找最近地点。"""
 
         trade_rows = self.db.fetch_all("SELECT name, x, y FROM trade_locations")
         buyer_rows = self.db.fetch_all("SELECT buyer_name, x, y FROM special_buyers")
-        recycle_rows = self.db.fetch_all("SELECT name, x, y FROM weapon_recycle_locations")
+        recycle_rows = self.db.fetch_all("SELECT name, x, y FROM recycle_locations")
         rows = trade_rows + buyer_rows + recycle_rows
         if not rows:
             return None
@@ -768,15 +771,26 @@ class TradeService(CoreService):
         )
 
     @staticmethod
-    def _format_weapon_recycle_location(location: dict) -> str:
-        """格式化武器回收地点详情。"""
+    def _format_recycle_location(location: dict) -> str:
+        """格式化系统回收地点详情。"""
 
         return (
             f"☆{location['name']}详情☆\n"
             f"坐标：({location['x']},{location['y']})\n"
+            f"回收：{TradeService._recycle_type_text(location['recycle_type'])}\n"
             f"倍率：{location['price_factor']}\n"
             f"{location['desc']}"
         )
+
+    @staticmethod
+    def _recycle_type_text(recycle_type: str) -> str:
+        """把回收类型转成玩家能看懂的文字。"""
+
+        return {
+            "weapon": "武器",
+            "gem": "宝石",
+            "book": "技能书",
+        }.get(recycle_type, recycle_type)
 
     def _special_sell_rate_text(self, client_id: str, level: int) -> str:
         """读取今日特殊收购价格倍率展示。"""

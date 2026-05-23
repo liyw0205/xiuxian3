@@ -5,6 +5,16 @@ from __future__ import annotations
 from math import floor, sqrt
 
 from .constants import (
+    BOOK_RECYCLE_MIN_RATE,
+    BOOK_RECYCLE_SINGLE_CAP_BASE,
+    BOOK_RECYCLE_SINGLE_CAP_LEVEL_BONUS,
+    BOOK_RECYCLE_SOFT_BASE,
+    BOOK_RECYCLE_SOFT_LEVEL_BONUS,
+    GEM_RECYCLE_MIN_RATE,
+    GEM_RECYCLE_SINGLE_CAP_BASE,
+    GEM_RECYCLE_SINGLE_CAP_LEVEL_BONUS,
+    GEM_RECYCLE_SOFT_BASE,
+    GEM_RECYCLE_SOFT_LEVEL_BONUS,
     MAX_LEVEL,
     PLAYER_BASE_ATTACK,
     SPECIAL_SELL_MIN_RATE,
@@ -124,6 +134,48 @@ def weapon_recycle_price_rate(level: int, today_income: int) -> float:
     return max(WEAPON_RECYCLE_MIN_RATE, min(1.0, rate))
 
 
+def gem_recycle_single_cap(level: int) -> int:
+    """计算单颗宝石回收价上限。"""
+
+    return GEM_RECYCLE_SINGLE_CAP_BASE + max(1, int(level)) * GEM_RECYCLE_SINGLE_CAP_LEVEL_BONUS
+
+
+def gem_recycle_soft_line(level: int) -> int:
+    """计算宝石回收开始明显降价的日收入参考线。"""
+
+    return GEM_RECYCLE_SOFT_BASE + max(1, int(level)) * GEM_RECYCLE_SOFT_LEVEL_BONUS
+
+
+def gem_recycle_price_rate(level: int, today_income: int) -> float:
+    """按今日宝石回收收入计算当前回收倍率。"""
+
+    soft_line = max(1, gem_recycle_soft_line(level))
+    pressure = max(0, int(today_income)) / soft_line
+    rate = 1.0 / (1.0 + pressure * 0.65)
+    return max(GEM_RECYCLE_MIN_RATE, min(1.0, rate))
+
+
+def book_recycle_single_cap(level: int) -> int:
+    """计算单本技能书回收价上限。"""
+
+    return BOOK_RECYCLE_SINGLE_CAP_BASE + max(1, int(level)) * BOOK_RECYCLE_SINGLE_CAP_LEVEL_BONUS
+
+
+def book_recycle_soft_line(level: int) -> int:
+    """计算技能书回收开始明显降价的日收入参考线。"""
+
+    return BOOK_RECYCLE_SOFT_BASE + max(1, int(level)) * BOOK_RECYCLE_SOFT_LEVEL_BONUS
+
+
+def book_recycle_price_rate(level: int, today_income: int) -> float:
+    """按今日技能书回收收入计算当前回收倍率。"""
+
+    soft_line = max(1, book_recycle_soft_line(level))
+    pressure = max(0, int(today_income)) / soft_line
+    rate = 1.0 / (1.0 + pressure * 0.65)
+    return max(BOOK_RECYCLE_MIN_RATE, min(1.0, rate))
+
+
 def monster_exp(monster_level: int, kind_factor: float = 1.0, player_level: int | None = None) -> int:
     """计算怪物经验。"""
 
@@ -192,10 +244,16 @@ def page_count(total: int, page_size: int) -> int:
 
 __all__ = [
     "base_attack",
+    "book_recycle_price_rate",
+    "book_recycle_single_cap",
+    "book_recycle_soft_line",
     "damage_after_defense",
     "defense",
     "equipment_upgrade_cost",
     "exp_need",
+    "gem_recycle_price_rate",
+    "gem_recycle_single_cap",
+    "gem_recycle_soft_line",
     "level_from_exp",
     "max_hp",
     "max_mp",

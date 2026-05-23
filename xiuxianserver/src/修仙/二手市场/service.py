@@ -71,7 +71,7 @@ class SecondHandService(CoreService):
             item_type = "gem" if item and item["category"] == "宝石" else "ring"
             item_id = item["equipment_item_id"] if item else ""
         if not item:
-            return hint(f"没有找到可上架物品：{item_name}。", "发送：查看背包、查看纳戒 或 武器，复制准确名称或武器 ID。")
+            return hint(f"没有找到可上架物品：{item_name}。", "发送：背包、纳戒 或 武器，复制准确名称或武器 ID。")
 
         with self.db.transaction() as conn:
             exists = conn.execute(
@@ -103,7 +103,7 @@ class SecondHandService(CoreService):
                 listing_item_id = item_id
                 item_label = item["name"]
             if not removed:
-                return hint(f"库存不足，无法上架 {item_label} x{quantity}。", "发送：查看背包 或 查看纳戒 确认库存数量。")
+                return hint(f"库存不足，无法上架 {item_label} x{quantity}。", "发送：背包 或 纳戒 确认库存数量。")
             conn.execute(
                 """
                 INSERT INTO second_hand_listings

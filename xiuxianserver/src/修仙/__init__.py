@@ -12,7 +12,7 @@ from .url import router as router
 __all__ = ["router"]
 
 
-@OnEvent.connect()
+@OnEvent.connect(priority=50)
 async def start_db() -> None:
     """服务启动时准备修仙玩法数据库。"""
 
@@ -20,7 +20,7 @@ async def start_db() -> None:
     logger.opt(colors=True).info(f"{C.ok('执行 修仙数据库 启动')}")
 
 
-@OnEvent.disconnect()
+@OnEvent.disconnect(priority=50)
 async def stop_db() -> None:
     """服务关闭时释放修仙玩法数据库连接。"""
 

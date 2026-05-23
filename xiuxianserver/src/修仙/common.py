@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 from .constants import (
+    BATTLE_RECORD_RETENTION_DAYS,
     DAY_RESET_HOUR,
     DEFAULT_BACKPACK_LIMIT,
     DEFAULT_LOCATION,
@@ -234,6 +235,65 @@ class CoreService:
         if not player:
             return None, hint("你还没有创建用户。", "发送：创建用户 名称，例如：创建用户 青衫客")
         return player, None
+
+    def cleanup_battle_records(self, force: bool = False) -> None:
+        """每天最多清理一次 7 天前的战斗记录，避免详细日志长期堆积。"""
+
+        today = business_day()
+        cutoff = ts(now() - timedelta(days=BATTLE_RECORD_RETENTION_DAYS))
+        with self.db.transaction() as conn:
+            if not force:
+                row = conn.execute(
+                    "SELECT value FROM schema_meta WHERE key = 'battle_cleanup_day'",
+                ).fetchone()
+                if row and row["value"] == today:
+                    return
+            conn.execute("DELETE FROM combat_logs WHERE created_at < ?", (cutoff,))
+            conn.execute("DELETE FROM duel_records WHERE created_at < ?", (cutoff,))
+            conn.execute(
+                """
+                DELETE FROM duel_requests
+                WHERE status != '等待' AND created_at < ?
+                """,
+                (cutoff,),
+            )
+            conn.execute(
+                """
+                DELETE FROM exploration_records
+                WHERE claimed = 1 AND COALESCE(finished_at, started_at) < ?
+                """,
+                (cutoff,),
+            )
+            old_wormholes = conn.execute(
+                """
+                SELECT wormhole_id FROM wormholes
+                WHERE status != '开启' AND COALESCE(killed_at, closes_at, opened_at) < ?
+                """,
+                (cutoff,),
+            ).fetchall()
+            for row in old_wormholes:
+                conn.execute("DELETE FROM wormhole_notices WHERE wormhole_id = ?", (row["wormhole_id"],))
+                conn.execute("DELETE FROM wormhole_participants WHERE wormhole_id = ?", (row["wormhole_id"],))
+                conn.execute("DELETE FROM wormholes WHERE wormhole_id = ?", (row["wormhole_id"],))
+
+            old_bosses = conn.execute(
+                """
+                SELECT event_id FROM seasonal_boss_events
+                WHERE status != '开启' AND COALESCE(killed_at, closes_at, opened_at) < ?
+                """,
+                (cutoff,),
+            ).fetchall()
+            for row in old_bosses:
+                conn.execute("DELETE FROM seasonal_boss_participants WHERE event_id = ?", (row["event_id"],))
+                conn.execute("DELETE FROM seasonal_boss_events WHERE event_id = ?", (row["event_id"],))
+            conn.execute(
+                """
+                INSERT INTO schema_meta (key, value)
+                VALUES ('battle_cleanup_day', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (today,),
+            )
 
     def create_player(self, client_id: str, display_name: str) -> str:
         """创建玩家。"""
@@ -502,22 +562,22 @@ class CoreService:
         return True
 
     def item_def_by_name(self, name: str) -> dict[str, Any] | None:
-        """按名称读取物品库定义。"""
+        """按名称读取背包物品定义。"""
 
         return self.db.fetch_one("SELECT * FROM item_defs WHERE name = ?", (name.strip(),))
 
     def item_def(self, item_id: str) -> dict[str, Any] | None:
-        """按 id 读取物品库定义。"""
+        """按 id 读取背包物品定义。"""
 
         return self.db.fetch_one("SELECT * FROM item_defs WHERE item_id = ?", (item_id,))
 
     def equipment_item_def_by_name(self, name: str) -> dict[str, Any] | None:
-        """按名称读取装备库定义。"""
+        """按名称读取纳戒物品定义。"""
 
         return self.db.fetch_one("SELECT * FROM equipment_item_defs WHERE name = ?", (name.strip(),))
 
     def equipment_item_def(self, equipment_item_id: str) -> dict[str, Any] | None:
-        """按 id 读取装备库定义。"""
+        """按 id 读取纳戒物品定义。"""
 
         return self.db.fetch_one(
             "SELECT * FROM equipment_item_defs WHERE equipment_item_id = ?",
@@ -742,7 +802,7 @@ class CoreService:
 
     @staticmethod
     def _is_gem_conn(conn: sqlite3.Connection, equipment_item_id: str) -> bool:
-        """判断装备库物品是否是宝石。"""
+        """判断纳戒物品是否是宝石。"""
 
         row = conn.execute(
             "SELECT category FROM equipment_item_defs WHERE equipment_item_id = ?",
@@ -801,7 +861,7 @@ class CoreService:
         return self.db.fetch_all(
             """
             SELECT g.gem_id AS equipment_item_id, g.quantity, g.level,
-                   e.name, e.category, e.usable, e.effect
+                   e.name, e.category, e.quality, e.usable, e.effect
             FROM gem_items g
             JOIN equipment_item_defs e ON e.equipment_item_id = g.gem_id
             WHERE g.client_id = ? AND g.quantity > 0

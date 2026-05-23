@@ -260,6 +260,15 @@ class WsMessageHandler(BaseMessageHandler):
         cmd, separator, message = raw_message.partition(" ")
         if not separator:
             return WsMessageHandler._split_no_space_message(raw_message)
+
+        if "[CQ:at," in cmd:
+            split_cmd, split_message = WsMessageHandler._split_no_space_message(cmd)
+            if split_cmd != cmd:
+                tail = message.lstrip()
+                if tail:
+                    split_message = f"{split_message} {tail}"
+                return split_cmd, split_message
+
         return cmd, message
 
     @staticmethod

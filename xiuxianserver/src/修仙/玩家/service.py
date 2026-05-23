@@ -18,9 +18,9 @@ class PlayerService(CoreService):
             "☆修仙新手指引☆\n"
             "1. 创建用户 名称\n"
             "2. 新手礼包\n"
-            "3. 修仙信息 / 武器 / 查看纳戒\n"
+            "3. 修仙信息 / 武器 / 纳戒\n"
             "4. 探险 -> 探险状态 -> 30分钟后结束探险\n"
-            "5. 自动用药 开启 / 查看背包 / 使用 血契丹 / 洗髓 / 休息\n"
+            "5. 自动用药 开启 / 背包 / 使用 血契丹 / 洗髓 / 休息\n"
             "6. 商场列表 / 商场 / 商场推荐 / 商场奖励\n"
             "常用：签到、源库、地点、固定装备、铭刻、二手市场、特殊自动出售、切磋 对方名称"
         )
@@ -141,7 +141,7 @@ class PlayerService(CoreService):
                 (NEWBIE_GIFT_STONES, client_id),
             )
             if cursor.rowcount <= 0:
-                return hint("新手礼包已经领取过了。", "发送：查看纳戒 查看礼包物品，或发送：探险 开始升级。")
+                return hint("新手礼包已经领取过了。", "发送：纳戒 查看礼包物品，或发送：探险 开始升级。")
             self.add_ring_conn(conn, client_id, "xueqidan", 2)
             self.add_ring_conn(conn, client_id, "yinmingcao", 2)
             conn.execute(
@@ -223,7 +223,7 @@ class PlayerService(CoreService):
         if not row:
             return str(player["physique"])
         effect = format_effect(row["effect"])
-        return f"{row['name']}[{row['grade']}/{row['kind']}]({row['physique_value']}) 特性:{effect}"
+        return f"{row['name']}|{row['grade']}/{row['kind']}|{row['physique_value']}|特性:{effect}"
 
 
 service = PlayerService(db)

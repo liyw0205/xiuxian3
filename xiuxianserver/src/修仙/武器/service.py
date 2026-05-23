@@ -15,7 +15,10 @@ from ..common import (
     ts,
     weapon_label_name,
 )
+from ..constants import WEAPON_TYPE_INTERVAL_FACTORS
 from ..rules import (
+    book_recycle_price_rate,
+    book_recycle_single_cap,
     weapon_enchant_slots,
     weapon_recycle_price_rate,
     weapon_recycle_single_cap,
@@ -29,26 +32,36 @@ class WeaponService(WeaponCore):
     """武器持有、切换、升级、附魔和掉落。"""
 
     def list_weapons(self, client_id: str) -> str:
-        """查看武器。"""
+        """查看武器简表。"""
 
         _, error = self.require_player(client_id)
         if error:
             return error
         self.ensure_starter_weapon(client_id)
         rows = self.weapons(client_id)
-        lines = ["☆武器☆"]
+        lines = [f"☆武器☆ 共{len(rows)}把"]
         for row in rows:
-            mark = "已装备" if row["equipped"] else "备用"
-            skill = self.skill(row["skill_id"])
-            enchant_ids = load_json(row["enchant_effects"], [])
-            enchants = len(enchant_ids)
-            enchant_text = self._enchant_text(row["weapon_id"], enchant_ids)
-            lines.append(
-                f"#{row['weapon_id']} {weapon_label_name(row)}[{row['quality']}] {mark} "
-                f"等级:{row['level']}/{row['max_level']} 攻击:{row['attack']} "
-                f"技能:{skill['name']} 附魔:{enchants}/{row['enchant_slots']}{enchant_text}"
-            )
+            lines.append(self._weapon_summary_text(row))
         return "\n".join(lines)
+
+    def detail(self, client_id: str, message: str) -> str:
+        """查看单把武器详情。"""
+
+        _, error = self.require_player(client_id)
+        if error:
+            return error
+        self.ensure_starter_weapon(client_id)
+
+        weapon_id = self._parse_weapon_id(message)
+        if weapon_id <= 0:
+            return hint("查看武器格式不正确。", "发送：查看武器 武器ID，例如：查看武器 1")
+
+        rows = self.weapons(client_id)
+        weapon = next((row for row in rows if int(row["weapon_id"]) == weapon_id), None)
+        if not weapon:
+            return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID，再发送：查看武器 武器ID。")
+
+        return "\n".join(["☆武器详情☆", *self._weapon_detail_lines(weapon, len(rows))])
 
     def switch(self, client_id: str, message: str) -> str:
         """切换武器。"""
@@ -113,7 +126,7 @@ class WeaponService(WeaponCore):
             return error
         assert player is not None
 
-        location = self._recycle_location(player["location_name"])
+        location = self._recycle_location(player["location_name"], "weapon")
         if not location:
             return hint("当前位置不是武器回收地点。", "发送：商场列表 查看地点，再发送：导航 铸剑阁")
 
@@ -192,6 +205,88 @@ class WeaponService(WeaponCore):
             f"获得源石 {money(value)}，当前倍率 {int(quote['rate'] * 100)}%。"
         )
 
+    def recycle_book(self, client_id: str, message: str) -> str:
+        """在回收地点处理纳戒里的未附魔技能书。"""
+
+        player, error = self.require_player(client_id)
+        if error:
+            return error
+        assert player is not None
+
+        location = self._recycle_location(player["location_name"], "book")
+        if not location:
+            return hint("当前位置不是技能书回收地点。", "发送：商场列表 查看地点，再发送：导航 藏经阁")
+
+        text = message.strip()
+        if not text:
+            return self._book_recycle_preview(client_id, location)
+
+        book_name, quantity = self._parse_book_recycle_message(text)
+        if quantity <= 0:
+            return hint("技能书回收格式不正确。", "发送：回收技能书 技能书名 数量，例如：回收技能书 风刃书 1")
+        book = self.equipment_item_def_by_name(book_name)
+        if not book or book["category"] != "技能书":
+            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书名称。")
+
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT quantity FROM ring_items
+                WHERE client_id = ? AND equipment_item_id = ?
+                """,
+                (client_id, book["equipment_item_id"]),
+            ).fetchone()
+            owned = int(row["quantity"]) if row else 0
+            if owned < quantity:
+                return hint(f"纳戒里 {book['name']} 只有 {owned} 本。", "发送：纳戒 查看库存后再回收。")
+
+            today_income = self._today_book_recycle_income_conn(conn, client_id)
+            quote = self._book_recycle_quote(
+                book,
+                quantity,
+                float(location["price_factor"]),
+                int(player["level"]),
+                today_income,
+            )
+            if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], quantity):
+                return hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。")
+            conn.execute(
+                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                (quote["value"], client_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO book_recycle_records (
+                    client_id, book_id, book_name, quality, quantity,
+                    raw_value, capped_value, price_rate, total_price,
+                    location_name, business_day, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    book["equipment_item_id"],
+                    book["name"],
+                    book["quality"],
+                    quantity,
+                    quote["raw_value"],
+                    quote["capped_value"],
+                    quote["rate"],
+                    quote["value"],
+                    location["name"],
+                    business_day(),
+                    ts(),
+                ),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书回收', ?, ?)",
+                (client_id, f"book={book['equipment_item_id']}, quantity={quantity}, stones={quote['value']}", ts()),
+            )
+        return (
+            f"回收成功：{book['name']} x{quantity}，"
+            f"获得源石 {money(quote['value'])}，当前倍率 {int(quote['rate'] * 100)}%。"
+        )
+
     def enchant(self, client_id: str, message: str) -> str:
         """给武器附魔。"""
 
@@ -205,12 +300,12 @@ class WeaponService(WeaponCore):
         book_name = " ".join(parts[1:])
         book = self.equipment_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
-            return hint(f"没有找到技能书：{book_name}。", "发送：查看纳戒 查看已有技能书。")
+            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。")
         effect = load_json(book["effect"], {})
         enchant_id = effect.get("enchant_id")
         enchant = self.db.fetch_one("SELECT * FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
         if not enchant:
-            return hint("这本技能书暂时不能附魔。", "换一本技能书，或发送：查看装备库 技能书名 查看说明。")
+            return hint("这本技能书暂时不能附魔。", "换一本技能书，或发送：查看修仙物品 技能书名 查看说明。")
         with self.db.transaction() as conn:
             weapon = conn.execute(
                 """
@@ -227,7 +322,7 @@ class WeaponService(WeaponCore):
             if len(current) >= weapon["enchant_slots"]:
                 return hint("这把武器没有空余附魔栏。", "升级武器可能解锁附魔栏，或换一把更高上限武器。")
             if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], 1):
-                return hint(f"纳戒里没有 {book['name']}。", "发送：查看纳戒 确认库存，或继续探险获取技能书。")
+                return hint(f"纳戒里没有 {book['name']}。", "发送：纳戒 确认库存，或继续探险获取技能书。")
             current.append(enchant_id)
             conn.execute(
                 "UPDATE player_weapons SET enchant_effects = ? WHERE weapon_id = ? AND owner_id = ?",
@@ -285,6 +380,189 @@ class WeaponService(WeaponCore):
             labels.append(f"{slot_no}.{enchant_label_name(base_name, custom_names.get(slot_no, ''))}")
         return "（" + "、".join(labels) + "）"
 
+    def _weapon_summary_text(self, weapon: dict) -> str:
+        """格式化武器简表中的一行。"""
+
+        mark = "已装备" if int(weapon["equipped"]) else "备用"
+        skill = self.skill(weapon["skill_id"])
+        enchant_ids = load_json(weapon["enchant_effects"], [])
+        if not isinstance(enchant_ids, list):
+            enchant_ids = []
+        return (
+            f"#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] {mark} "
+            f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{weapon['attack']} "
+            f"技能:{skill['name']} 附魔:{len(enchant_ids)}/{weapon['enchant_slots']}"
+            f"{self._enchant_text(int(weapon['weapon_id']), enchant_ids)}"
+        )
+
+    def _weapon_detail_lines(self, weapon: dict, total_count: int) -> list[str]:
+        """格式化一把武器的完整展示。"""
+
+        skill = self.skill(weapon["skill_id"])
+        enchant_ids = load_json(weapon["enchant_effects"], [])
+        if not isinstance(enchant_ids, list):
+            enchant_ids = []
+        effects = self._enchant_effects(enchant_ids)
+        used_slots = len(enchant_ids)
+        unlocked_slots = int(weapon["enchant_slots"])
+        potential_slots = weapon_enchant_slots(int(weapon["max_level"]), int(weapon["max_level"]))
+        status = "已装备" if int(weapon["equipped"]) else "备用"
+        next_cost = self._next_upgrade_text(weapon)
+        recycle_text = self._recycle_state_text(weapon, total_count)
+        return [
+            f"#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] {status}",
+            (
+                f"  模板:{weapon['name']} 类型:{weapon['weapon_type']} "
+                f"掉落:{weapon['drop_location']} 模板基础攻击:{weapon['base_attack']}"
+            ),
+            (
+                f"  成长:等级 {weapon['level']}/{weapon['max_level']} "
+                f"当前攻击 {weapon['attack']} 下级:{next_cost}"
+            ),
+            "  自带技能:" + self._skill_text(skill, weapon, effects),
+            (
+                f"  附魔栏:已用 {used_slots}/已解锁 {unlocked_slots}/潜力 {potential_slots}；"
+                f"{self._next_slot_text(weapon, unlocked_slots, potential_slots)}"
+            ),
+            "  附魔:" + self._enchant_detail_text(int(weapon["weapon_id"]), enchant_ids),
+            f"  回收:{recycle_text}",
+        ]
+
+    @staticmethod
+    def _next_upgrade_text(weapon: dict) -> str:
+        """展示下一次升级花费。"""
+
+        if int(weapon["level"]) >= int(weapon["max_level"]):
+            return "已到上限"
+        next_level = int(weapon["level"]) + 1
+        cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
+        return f"{next_level}级需源石{money(cost)}"
+
+    @staticmethod
+    def _recycle_state_text(weapon: dict, total_count: int) -> str:
+        """展示当前武器是否能系统回收。"""
+
+        if int(weapon["equipped"]):
+            return "已装备，不能回收；先切换到其他武器"
+        if total_count <= 1:
+            return "最后一把武器，不能回收"
+        return "可在铸剑阁回收"
+
+    @staticmethod
+    def _next_slot_text(weapon: dict, unlocked_slots: int, potential_slots: int) -> str:
+        """展示下一格附魔栏的解锁条件。"""
+
+        if potential_slots <= 0:
+            return "这把武器等级上限不足，无法解锁附魔栏"
+        if unlocked_slots >= potential_slots:
+            return "附魔栏已按当前等级上限全部解锁"
+        for level in (20, 40, 60, 80, 100):
+            if int(weapon["max_level"]) >= level and int(weapon["level"]) < level:
+                return f"下个附魔栏在武器{level}级解锁"
+        return "继续升级可解锁更多附魔栏"
+
+    def _skill_text(self, skill: dict, weapon: dict, effects: dict[str, float]) -> str:
+        """展示武器自带技能和当前实际触发参数。"""
+
+        interval = self._skill_interval(skill, weapon, effects)
+        cost = max(0, int(skill["cost_mp"]) + int(effects.get("mp_delta", 0)))
+        power = self._skill_power(skill, effects)
+        desc = skill.get("desc", "")
+        text = (
+            f"{skill['name']} | 威力{power:.2f}倍 | 消耗精神{cost} | "
+            f"每{interval}次攻击触发"
+        )
+        return f"{text} | {desc}" if desc else text
+
+    @staticmethod
+    def _skill_interval(skill: dict, weapon: dict, effects: dict[str, float]) -> int:
+        """按武器类型和附魔计算实际技能触发间隔。"""
+
+        type_factor = WEAPON_TYPE_INTERVAL_FACTORS.get(str(weapon["weapon_type"]), 1.0)
+        rate = max(0.6, 1.0 + float(effects.get("interval_rate", 0)))
+        interval = round(int(skill["interval"]) * type_factor * rate)
+        interval += int(effects.get("interval_delta", 0))
+        return max(2, min(12, interval))
+
+    @staticmethod
+    def _skill_power(skill: dict, effects: dict[str, float]) -> float:
+        """按附魔计算实际技能威力倍率。"""
+
+        power = float(skill["power"])
+        power += float(effects.get("skill_power_bonus", 0))
+        power += float(effects.get("heavy_bonus", 0))
+        power += float(effects.get("single_hit_bonus", 0))
+        return max(1.0, power)
+
+    def _enchant_effects(self, enchant_ids: list[str]) -> dict[str, float]:
+        """汇总已附魔技能书的数值效果。"""
+
+        effects: dict[str, float] = {}
+        for enchant_id in enchant_ids:
+            row = self.db.fetch_one("SELECT effect, mp_delta FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
+            if not row:
+                continue
+            for key, value in load_json(row["effect"], {}).items():
+                if isinstance(value, int | float):
+                    effects[key] = effects.get(key, 0) + float(value)
+            effects["mp_delta"] = effects.get("mp_delta", 0) + int(row["mp_delta"])
+        return effects
+
+    def _enchant_detail_text(self, weapon_id: int, enchant_ids: list[str]) -> str:
+        """展示附魔名称和效果。"""
+
+        if not enchant_ids:
+            return "无"
+        custom_rows = self.db.fetch_all(
+            "SELECT slot_no, custom_name FROM weapon_enchant_names WHERE weapon_id = ?",
+            (weapon_id,),
+        )
+        custom_names = {int(row["slot_no"]): row["custom_name"] for row in custom_rows}
+        lines = []
+        for slot_no, enchant_id in enumerate(enchant_ids, start=1):
+            row = self.db.fetch_one("SELECT name, effect, mp_delta FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
+            if not row:
+                lines.append(f"{slot_no}.{enchant_id}")
+                continue
+            name = enchant_label_name(row["name"], custom_names.get(slot_no, ""))
+            effect_text = self._effect_text(load_json(row["effect"], {}), int(row["mp_delta"]))
+            lines.append(f"{slot_no}.{name}({effect_text})")
+        return "；".join(lines)
+
+    @staticmethod
+    def _effect_text(effect: dict, mp_delta: int) -> str:
+        """把附魔效果翻译成玩家可读文本。"""
+
+        labels = {
+            "hit_bonus": "命中稳定",
+            "pierce_bonus": "防御穿透",
+            "life_steal": "吸血",
+            "shield_bonus": "技能护盾",
+            "mp_suppress": "精神压制",
+            "defense_suppress": "压低防御",
+            "combo_bonus": "连击概率",
+            "damage_reduce": "最终减伤",
+            "skill_power_bonus": "技能威力",
+            "heavy_bonus": "重击威力",
+            "combo_damage_bonus": "连击伤害",
+            "single_hit_bonus": "单次爆发",
+            "dodge_bonus": "闪避",
+        }
+        texts = []
+        for key, label in labels.items():
+            value = effect.get(key)
+            if isinstance(value, int | float) and value:
+                texts.append(f"{label}{value * 100:+.1f}%")
+        interval_delta = effect.get("interval_delta")
+        if isinstance(interval_delta, int | float) and interval_delta:
+            if interval_delta > 0:
+                texts.append(f"技能间隔+{int(interval_delta)}")
+            else:
+                texts.append(f"技能间隔{int(interval_delta)}")
+        if mp_delta:
+            texts.append(f"精神消耗{mp_delta:+d}")
+        return "、".join(texts) if texts else "无数值效果"
+
     @staticmethod
     def _parse_weapon_id(message: str) -> int:
         """解析 武器ID / 武器#ID / #ID / ID。"""
@@ -296,12 +574,12 @@ class WeaponService(WeaponCore):
                 break
         return to_int(value)
 
-    def _recycle_location(self, location_name: str) -> dict | None:
-        """读取当前地点是否支持武器回收。"""
+    def _recycle_location(self, location_name: str, recycle_type: str) -> dict | None:
+        """读取当前地点是否支持指定类型回收。"""
 
         return self.db.fetch_one(
-            "SELECT * FROM weapon_recycle_locations WHERE name = ?",
-            (location_name.strip(),),
+            "SELECT * FROM recycle_locations WHERE name = ? AND recycle_type = ?",
+            (location_name.strip(), recycle_type),
         )
 
     def _today_recycle_income(self, client_id: str) -> int:
@@ -353,6 +631,99 @@ class WeaponService(WeaponCore):
             "rate": rate,
             "value": value,
         }
+
+    def _book_recycle_preview(self, client_id: str, location: dict) -> str:
+        """展示当前可回收技能书和估价。"""
+
+        rows = self.db.fetch_all(
+            """
+            SELECT r.equipment_item_id, r.quantity, e.name, e.quality
+            FROM ring_items r
+            JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+            WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
+            ORDER BY e.quality, e.name
+            """,
+            (client_id,),
+        )
+        if not rows:
+            return hint(f"{location['name']}可以回收纳戒里的未附魔技能书，但你当前没有技能书。", "继续探险、挑战虫洞或首领获取技能书。")
+
+        player = self.player(client_id) or {}
+        player_level = int(player.get("level", 1))
+        today_income = self._today_book_recycle_income(client_id)
+        rate = book_recycle_price_rate(player_level, today_income)
+        lines = [f"☆{location['name']}技能书回收☆ 当前倍率 {int(rate * 100)}%"]
+        lines.append(f"今日已回收:{money(today_income)}。估价会随今日回收收入降低。")
+        lines.append("只回收纳戒里未附魔的技能书；已经附魔到武器上的技能书不能取下。")
+        for row in rows:
+            quote = self._book_recycle_quote(
+                row,
+                1,
+                float(location["price_factor"]),
+                player_level,
+                today_income,
+            )
+            lines.append(f"{row['name']}[{row['quality']}] x{row['quantity']} 单本估价:{money(quote['value'])}")
+        return "\n".join(lines)
+
+    def _today_book_recycle_income(self, client_id: str) -> int:
+        """读取玩家今日技能书回收收入。"""
+
+        with self.db.transaction() as conn:
+            return self._today_book_recycle_income_conn(conn, client_id)
+
+    @staticmethod
+    def _today_book_recycle_income_conn(conn, client_id: str) -> int:
+        """在事务里读取玩家今日技能书回收收入。"""
+
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM book_recycle_records
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, business_day()),
+        ).fetchone()
+        return int(row["total"]) if row else 0
+
+    @staticmethod
+    def _book_recycle_quote(
+        book: dict,
+        quantity: int,
+        price_factor: float,
+        player_level: int,
+        today_income: int,
+    ) -> dict[str, float | int]:
+        """计算技能书回收报价。"""
+
+        amount = max(1, int(quantity))
+        raw_unit = int(4000 * quality_factor(book["quality"]) * price_factor)
+        single_cap = book_recycle_single_cap(player_level)
+        capped_unit = min(raw_unit, single_cap)
+        raw_value = raw_unit * amount
+        capped_value = capped_unit * amount
+        rate = book_recycle_price_rate(player_level, today_income + capped_value // 2)
+        value = max(1, int(capped_value * rate))
+        return {
+            "raw_value": raw_value,
+            "single_cap": single_cap,
+            "capped_value": capped_value,
+            "rate": rate,
+            "value": value,
+        }
+
+    @staticmethod
+    def _parse_book_recycle_message(message: str) -> tuple[str, int]:
+        """解析 回收技能书 技能书名 [数量]。"""
+
+        parts = split_words(message)
+        if not parts:
+            return "", 0
+        quantity = 1
+        if len(parts) > 1 and parts[-1].isdigit():
+            quantity = to_int(parts[-1], 1)
+            parts = parts[:-1]
+        return " ".join(parts), quantity
 
 
 service = WeaponService(db)

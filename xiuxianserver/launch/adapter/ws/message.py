@@ -5,7 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .manager import current_request_id, manager
 from launch.log import C, logger
-from .schema import normalize_code
+from .schema import is_ws_code
 from .hander import WsMessageHandler
 from .rule import RateLimiter, TaskLimiter
 
@@ -109,26 +109,19 @@ def _loads_message(data: str) -> Optional[Dict[str, Any]]:
 
 
 async def _dispatch_message(client_id: str, message_data: Dict[str, Any]) -> None:
-    """按 code 分发；code=202 表示正常消息，进入命令分发。"""
+    """分发客户端消息；客户端请求必须使用 code=202。"""
 
     protocol_error = _validate_message_data(message_data)
     if protocol_error:
         await _send_protocol_error(client_id, protocol_error, message_data)
         return
 
-    message_code = normalize_code(message_data["code"])
+    logger.opt(colors=True).success(f"{C.yellow('收到消息')} {C.kv('client', client_id)} {C.kv('body', message_data)}")
+    if not await WsMessageHandler.has_match(message_data):
+        await _send_unmatched_message(client_id, message_data)
+        return
 
-    if message_code == 202:
-        logger.opt(colors=True).success(f"{C.yellow('收到消息')} {C.kv('client', client_id)} {C.kv('body', message_data)}")
-        if not await WsMessageHandler.has_match(message_data):
-            await _send_unmatched_message(client_id, message_data)
-            return
-
-        await _create_message_task(client_id, message_data)
-    else:
-        logger.opt(colors=True).warning(
-            f"{C.warn('收到异常消息')} {C.kv('client', client_id)} {C.kv('body', message_data)}"
-        )
+    await _create_message_task(client_id, message_data)
 
 
 def _validate_message_data(message_data: Dict[str, Any]) -> Optional[str]:
@@ -149,8 +142,11 @@ def _validate_message_data(message_data: Dict[str, Any]) -> Optional[str]:
         if field not in message_data:
             return f"WS 消息缺少 {field}"
 
-    if normalize_code(message_data["code"]) != 202:
-        return None
+    if not is_ws_code(message_data["code"]):
+        return "WS 消息 code 必须是整数 202 或 404"
+
+    if message_data["code"] != 202:
+        return "客户端请求 code 必须为 202"
 
     if not str(message_data.get("type") or "").strip():
         return "WS 消息 type 不能为空"

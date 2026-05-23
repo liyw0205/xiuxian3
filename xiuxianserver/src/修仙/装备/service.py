@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-from ..common import CoreService, fixed_equipment_label, hint, money, parse_name_level, split_words, to_int
+from ..common import (
+    CoreService,
+    business_day,
+    fixed_equipment_label,
+    hint,
+    money,
+    parse_name_level,
+    quality_factor,
+    split_words,
+    to_int,
+    ts,
+)
 from ..constants import EQUIPMENT_SLOTS, FIXED_EQUIPMENT_SLOT_FACTORS
-from ..rules import equipment_upgrade_cost
+from ..rules import equipment_upgrade_cost, gem_recycle_price_rate, gem_recycle_single_cap
 from ..sql import db
 
 DEFAULT_HOLES = 3
@@ -139,7 +150,7 @@ class EquipmentService(CoreService):
             return hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {MAX_HOLES}。")
         item = self.equipment_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
-            return hint(f"没有找到宝石：{item_name}。", "发送：我的宝石 查看纳戒里的宝石名称。")
+            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。")
         with self.db.transaction() as conn:
             equipment = conn.execute(
                 "SELECT hole_count FROM fixed_equipment WHERE client_id = ? AND slot = ?",
@@ -168,7 +179,7 @@ class EquipmentService(CoreService):
                 return level_error
             assert gem_level is not None
             if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, 1):
-                return hint(f"纳戒里没有 {item['name']} {gem_level}级。", "发送：我的宝石 查看已有宝石等级，或继续探险获取。")
+                return hint(f"纳戒里没有 {item['name']} {gem_level}级。", "发送：宝石 查看已有宝石等级，或继续探险获取。")
             conn.execute(
                 """
                 INSERT INTO fixed_equipment_inlays (client_id, slot, hole_no, gem_id, level)
@@ -221,6 +232,102 @@ class EquipmentService(CoreService):
         if not rows:
             return hint("纳戒中没有宝石。", "继续探险有概率获得宝石。")
         return "\n".join(f"{row['name']} {row['level']}级 x{row['quantity']}" for row in rows)
+
+    def recycle_gem(self, client_id: str, message: str) -> str:
+        """在回收地点处理纳戒里的未镶嵌宝石。"""
+
+        player, error = self.require_player(client_id)
+        if error:
+            return error
+        assert player is not None
+
+        location = self._recycle_location(player["location_name"])
+        if not location:
+            return hint("当前位置不是宝石回收地点。", "发送：商场列表 查看地点，再发送：导航 琢玉楼")
+
+        text = message.strip()
+        if not text:
+            return self._gem_recycle_preview(client_id, location)
+
+        item_name, wanted_level, quantity = self._parse_gem_recycle_message(text)
+        if quantity <= 0:
+            return hint("宝石回收格式不正确。", "发送：回收宝石 宝石名 等级 数量，例如：回收宝石 护心玉 2级 1")
+        item = self.equipment_item_def_by_name(item_name)
+        if not item or item["category"] != "宝石":
+            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看纳戒里的宝石。")
+
+        with self.db.transaction() as conn:
+            gem_level, level_error = self._resolve_gem_level_conn(
+                conn,
+                client_id,
+                item["equipment_item_id"],
+                item["name"],
+                wanted_level,
+                "回收宝石",
+            )
+            if level_error:
+                return level_error
+            assert gem_level is not None
+
+            row = conn.execute(
+                """
+                SELECT quantity FROM gem_items
+                WHERE client_id = ? AND gem_id = ? AND level = ?
+                """,
+                (client_id, item["equipment_item_id"], gem_level),
+            ).fetchone()
+            owned = int(row["quantity"]) if row else 0
+            if owned < quantity:
+                return hint(f"纳戒里 {item['name']} {gem_level}级 只有 {owned} 个。", "发送：宝石 查看库存后再回收。")
+
+            today_income = self._today_gem_recycle_income_conn(conn, client_id)
+            quote = self._gem_recycle_quote(
+                item,
+                gem_level,
+                quantity,
+                float(location["price_factor"]),
+                int(player["level"]),
+                today_income,
+            )
+            if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, quantity):
+                return hint("宝石库存已变化，回收失败。", "发送：宝石 查看当前库存后再试。")
+            conn.execute(
+                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                (quote["value"], client_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO gem_recycle_records (
+                    client_id, gem_id, gem_name, quality, level, quantity,
+                    raw_value, capped_value, price_rate, total_price,
+                    location_name, business_day, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    item["equipment_item_id"],
+                    item["name"],
+                    item["quality"],
+                    gem_level,
+                    quantity,
+                    quote["raw_value"],
+                    quote["capped_value"],
+                    quote["rate"],
+                    quote["value"],
+                    location["name"],
+                    business_day(),
+                    ts(),
+                ),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '宝石回收', ?, ?)",
+                (client_id, f"gem={item['equipment_item_id']}, level={gem_level}, quantity={quantity}, stones={quote['value']}", ts()),
+            )
+        return (
+            f"回收成功：{item['name']} {gem_level}级 x{quantity}，"
+            f"获得源石 {money(quote['value'])}，当前倍率 {int(quote['rate'] * 100)}%。"
+        )
 
     def upgrade_inlay(self, client_id: str, message: str) -> str:
         """升级已镶嵌的宝石。"""
@@ -294,8 +401,15 @@ class EquipmentService(CoreService):
         )
 
     @staticmethod
-    def _resolve_gem_level_conn(conn, client_id: str, gem_id: str, gem_name: str, wanted_level: int | None):
-        """确定要镶嵌的宝石等级；同名多等级时要求用户写清等级。"""
+    def _resolve_gem_level_conn(
+        conn,
+        client_id: str,
+        gem_id: str,
+        gem_name: str,
+        wanted_level: int | None,
+        example_command: str | None = None,
+    ):
+        """确定要操作的宝石等级；同名多等级时要求用户写清等级。"""
 
         if wanted_level is not None:
             return wanted_level, None
@@ -314,10 +428,113 @@ class EquipmentService(CoreService):
             return int(rows[0]["level"]), None
 
         options = "、".join(f"{row['level']}级x{row['quantity']}" for row in rows)
+        if example_command == "回收宝石":
+            example_text = f"回收宝石 {gem_name} {rows[-1]['level']}级 1"
+        else:
+            example_text = f"镶嵌 护甲 1 {gem_name} {rows[-1]['level']}级"
         return None, hint(
             f"纳戒里有多种等级的 {gem_name}。",
-            f"请写清等级，例如：镶嵌 护甲 1 {gem_name} {rows[-1]['level']}级。现有：{options}",
+            f"请写清等级，例如：{example_text}。现有：{options}",
         )
+
+    def _gem_recycle_preview(self, client_id: str, location: dict) -> str:
+        """展示当前可回收宝石和估价。"""
+
+        rows = self.gem_rows(client_id)
+        if not rows:
+            return hint(f"{location['name']}可以回收纳戒里的未镶嵌宝石，但你当前没有宝石。", "继续探险或挑战首领、虫洞获取宝石。")
+
+        player = self.player(client_id) or {}
+        player_level = int(player.get("level", 1))
+        today_income = self._today_gem_recycle_income(client_id)
+        rate = gem_recycle_price_rate(player_level, today_income)
+        lines = [f"☆{location['name']}宝石回收☆ 当前倍率 {int(rate * 100)}%"]
+        lines.append(f"今日已回收:{money(today_income)}。估价会随今日回收收入降低。")
+        lines.append("只回收纳戒里未镶嵌的宝石；已镶嵌宝石请先拆卸。")
+        for row in rows:
+            quote = self._gem_recycle_quote(
+                row,
+                int(row["level"]),
+                1,
+                float(location["price_factor"]),
+                player_level,
+                today_income,
+            )
+            lines.append(
+                f"{row['name']} {row['level']}级 x{row['quantity']} "
+                f"单颗估价:{money(quote['value'])}"
+            )
+        return "\n".join(lines)
+
+    def _recycle_location(self, location_name: str) -> dict | None:
+        """读取当前地点是否支持宝石回收。"""
+
+        return self.db.fetch_one(
+            "SELECT * FROM recycle_locations WHERE name = ? AND recycle_type = 'gem'",
+            (location_name.strip(),),
+        )
+
+    def _today_gem_recycle_income(self, client_id: str) -> int:
+        """读取玩家今日宝石回收收入。"""
+
+        with self.db.transaction() as conn:
+            return self._today_gem_recycle_income_conn(conn, client_id)
+
+    @staticmethod
+    def _today_gem_recycle_income_conn(conn, client_id: str) -> int:
+        """在事务里读取玩家今日宝石回收收入。"""
+
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(total_price), 0) AS total
+            FROM gem_recycle_records
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, business_day()),
+        ).fetchone()
+        return int(row["total"]) if row else 0
+
+    @staticmethod
+    def _gem_recycle_quote(
+        gem: dict,
+        level: int,
+        quantity: int,
+        price_factor: float,
+        player_level: int,
+        today_income: int,
+    ) -> dict[str, float | int]:
+        """计算宝石回收报价。"""
+
+        gem_level = max(1, int(level))
+        amount = max(1, int(quantity))
+        raw_unit = int((gem_level * gem_level * 2200 + gem_level * 600) * quality_factor(gem["quality"]) * price_factor)
+        single_cap = int(gem_recycle_single_cap(player_level) * (1 + (gem_level - 1) * 0.25))
+        capped_unit = min(raw_unit, single_cap)
+        capped_value = capped_unit * amount
+        raw_value = raw_unit * amount
+        rate = gem_recycle_price_rate(player_level, today_income + capped_value // 2)
+        value = max(1, int(capped_value * rate))
+        return {
+            "raw_value": raw_value,
+            "single_cap": single_cap,
+            "capped_value": capped_value,
+            "rate": rate,
+            "value": value,
+        }
+
+    @staticmethod
+    def _parse_gem_recycle_message(message: str) -> tuple[str, int | None, int]:
+        """解析 回收宝石 宝石名 [等级] [数量]。"""
+
+        parts = split_words(message)
+        if not parts:
+            return "", None, 0
+        quantity = 1
+        if len(parts) > 1 and parts[-1].isdigit():
+            quantity = to_int(parts[-1], 1)
+            parts = parts[:-1]
+        item_name, wanted_level = parse_name_level(" ".join(parts))
+        return item_name, wanted_level, quantity
 
     def _equipment_row(self, client_id: str, slot: str) -> dict | None:
         """读取某个固定装备位。"""

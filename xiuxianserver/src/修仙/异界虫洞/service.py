@@ -1,9 +1,10 @@
-"""异界虫洞组件服务。
+"""异界虫洞组件服务入口。
 
-这里只保留一个很薄的入口，让 WS 命令包调用根目录的公共虫洞核心。
-真正的动态 Boss 生成、战斗、排行和奖励都在 `wormhole_core.py`。
+命令包只负责挂载 WS 指令。
+真正的虫洞业务放在修仙根目录公共服务里，避免二级包互相导入。
 """
 
-from ..wormhole_core import service
+from ..wormhole_service import BOSS_POOL, DISCOVERY_CHANCES, WormholeService, service
 
-__all__ = ["service"]
+
+__all__ = ["BOSS_POOL", "DISCOVERY_CHANCES", "WormholeService", "service"]

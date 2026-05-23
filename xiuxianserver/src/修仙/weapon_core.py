@@ -115,7 +115,7 @@ class WeaponCore(CoreService):
         self.ensure_starter_weapon(client_id)
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.owner_id = ? AND w.equipped = 1
@@ -129,7 +129,7 @@ class WeaponCore(CoreService):
 
         return self.db.fetch_all(
             """
-            SELECT w.*, d.name, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.owner_id = ?
@@ -143,7 +143,7 @@ class WeaponCore(CoreService):
 
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.owner_id = ? AND w.weapon_id = ?
