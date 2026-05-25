@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..combat_core import service as combat_service
+from ..combat_core import CombatCore, service as combat_service
 from ..common import CoreService, hint, money, split_words, to_int, ts
 from ..sql import db
 
@@ -347,17 +347,21 @@ class DuelService(CoreService):
             move = "普通攻击"
             cost = ""
         if attack.get("dodged"):
+            effect = CombatCore.action_effect_text(attack)
+            effect_text = f"，{effect}" if effect else ""
             return (
-                f"{actor} 出手：{move} 被 {target} 闪过{cost}；"
+                f"{actor} 出手：{move} 被 {target} 闪过{effect_text}{cost}；"
                 f"{target} 血气 {attack.get('target_hp_left', 0)}，精神 {attack.get('target_mp_left', 0)}"
             )
         combo = int(attack.get("combo_damage", 0))
         combo_text = f"，连击追加 {combo}" if combo > 0 else ""
         steal = int(attack.get("life_steal", 0))
         steal_text = f"，吸血 +{steal}" if steal > 0 else ""
+        effect = CombatCore.action_effect_text(attack)
+        effect_text = f"，{effect}" if effect else ""
         return (
             f"{actor} 出手：{move}，对 {target} 造成 {int(attack.get('damage', 0))} 伤害"
-            f"{combo_text}{steal_text}{cost}；"
+            f"{combo_text}{steal_text}{effect_text}{cost}；"
             f"{target} 血气 {attack.get('target_hp_left', 0)}，精神 {attack.get('target_mp_left', 0)}"
         )
 

@@ -1010,8 +1010,10 @@ class SeasonalBossService(CoreService):
                 cost_text = ""
             combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
             steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+            effect = combat_service.action_effect_text(action)
+            effect_text = f"，{effect}" if effect else ""
             lines.append(
-                f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{cost_text}；"
+                f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{effect_text}{cost_text}；"
                 f"{boss_name} 旧念 {boss_hp_left}/{boss_hp_max}"
             )
             if boss_hp_left <= 0:
@@ -1032,8 +1034,10 @@ class SeasonalBossService(CoreService):
         reduce_text = f"，减免 {max(0, raw_hurt - hurt)}" if raw_hurt > hurt else ""
         skill_name = str(action.get("boss_skill_name") or "")
         attack_text = f"技能「{skill_name}」" if action.get("boss_skill_used") else "普通攻击"
+        effect = combat_service.action_effect_text(action)
+        effect_text = f"，{effect}" if effect else ""
         lines.append(
-            f"  首领出手：{attack_text}，造成 {hurt} 伤害{reduce_text}；"
+            f"  首领出手：{attack_text}，造成 {hurt} 伤害{reduce_text}{effect_text}；"
             f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
         )
         return lines

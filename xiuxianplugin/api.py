@@ -7,7 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from websockets.exceptions import ConnectionClosed
 
-from launch.adapter.ws.schema import loads_message, make_payload
+from .schema import loads_message, make_payload
 
 
 @dataclass
@@ -213,3 +213,6 @@ class WSClient:
         """生成本次发送的 request_id。"""
 
         return uuid4().hex
+
+
+client = WSClient()

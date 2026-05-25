@@ -791,9 +791,11 @@ class ExplorationService(CoreService):
             combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
             life_steal = int(action.get("life_steal", 0))
             steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+            effect = combat_service.action_effect_text(action)
+            effect_text = f"，{effect}" if effect else ""
             lines.append(
                 f"    我方出手：{attack_text}，造成 {total_damage} 伤害"
-                f"{combo_text}{steal_text}{cost_text}；"
+                f"{combo_text}{steal_text}{effect_text}{cost_text}；"
                 f"{monster_name} 血气 {monster_hp_left}/{monster_hp_max}"
             )
             if monster_hp_left <= 0:
@@ -809,8 +811,10 @@ class ExplorationService(CoreService):
         hurt = int(action.get("monster_damage", 0))
         skill_name = str(action.get("monster_skill_name") or "")
         attack_text = f"技能「{skill_name}」" if action.get("monster_skill_used") else "普通攻击"
+        effect = combat_service.action_effect_text(action)
+        effect_text = f"，{effect}" if effect else ""
         lines.append(
-            f"    敌方出手：{attack_text}，造成 {hurt} 伤害；" f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
+            f"    敌方出手：{attack_text}，造成 {hurt} 伤害{effect_text}；" f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
         )
         return lines
 
