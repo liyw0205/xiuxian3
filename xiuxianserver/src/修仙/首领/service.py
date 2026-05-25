@@ -1296,11 +1296,11 @@ class SeasonalBossService(CoreService):
         ]
         status = str(event["status"])
         if status == "开启":
-            lines.append("下一步：发送：挑战首领")
-            return append_suggest_commands("\n".join(lines), "发送：挑战首领")
+            lines.append("下一步：发送：挑战首领<挑战首领>")
+            return append_suggest_commands("\n".join(lines), "发送：挑战首领<挑战首领>")
         if status in {"已击破", "已退去"}:
-            lines.append("下一步：发送：首领奖励")
-            return append_suggest_commands("\n".join(lines), "发送：首领奖励")
+            lines.append("下一步：发送：首领奖励<首领奖励>")
+            return append_suggest_commands("\n".join(lines), "发送：首领奖励<首领奖励>")
         return "\n".join(lines)
 
 

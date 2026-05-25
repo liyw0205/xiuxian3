@@ -115,7 +115,7 @@ class WormholeService(CoreService):
                 (event["wormhole_id"],),
             ).fetchone()
             if not fresh:
-                return hint("异界虫洞已经关闭。", "发送：虫洞奖励 查看是否可以领取奖励。")
+                return hint("异界虫洞已经关闭。", "发送：虫洞奖励 查看是否可以领取奖励。<虫洞奖励>")
 
             current = conn.execute(
                 """
@@ -487,7 +487,7 @@ class WormholeService(CoreService):
         if status == "探险中":
             return hint(
                 "本体正在探险，不能挑战虫洞。",
-                "行商化身仍可跑商；先发送：探险状态，30 分钟后发送：结束探险，再发送：挑战虫洞<探险状态>",
+                "行商化身仍可跑商；先发送：探险状态，30 分钟后发送：结束探险，再发送：挑战虫洞",
             )
         return hint(f"当前状态为 {status}，不能挑战虫洞。", "先结束当前状态，再发送：挑战虫洞")
 

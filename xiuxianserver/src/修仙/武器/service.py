@@ -262,7 +262,7 @@ class WeaponService(WeaponCore):
             return hint("技能书回收格式不正确。", "发送：回收技能书 技能书名 数量，例如：回收技能书 风刃书 1")
         book = self.equipment_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
-            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书名称。")
+            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书名称。<纳戒>")
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -274,7 +274,7 @@ class WeaponService(WeaponCore):
             ).fetchone()
             owned = int(row["quantity"]) if row else 0
             if owned < quantity:
-                return hint(f"纳戒里 {book['name']} 只有 {owned} 本。", "发送：纳戒 查看库存后再回收。")
+                return hint(f"纳戒里 {book['name']} 只有 {owned} 本。", "发送：纳戒 查看库存后再回收。<纳戒>")
 
             today_income = self._today_book_recycle_income_conn(conn, client_id)
             quote = self._book_recycle_quote(
@@ -285,7 +285,7 @@ class WeaponService(WeaponCore):
                 today_income,
             )
             if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], quantity):
-                return hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。")
+                return hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (quote["value"], client_id),

@@ -1261,7 +1261,7 @@ class CoreService:
         if weight_after > int(player["weight_limit"]):
             return False, hint(
                 f"背包负重不足，放入后会变成 {weight_after}/{player['weight_limit']}。",
-                "先发送：商场出售 商品名 数量，或发送：商场自动出售 清理跑商货物。",
+                "先发送：商场出售 商品名 数量，或发送：商场自动出售 清理跑商货物。<商场自动出售><特殊自动出售>",
             )
 
         current = conn.execute(
