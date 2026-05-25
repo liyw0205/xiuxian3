@@ -1,4 +1,5 @@
 import ast
+import base64
 from pathlib import Path
 
 from nonebot import logger
@@ -7,12 +8,15 @@ from nonebot import get_driver
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 from nonebot.adapters.onebot.v11 import MessageSegment as MessageSegmentOneBotV11
 
+from nonebot.adapters.qq.models import MessageKeyboard
+
 try:
     from nonebot.adapters.qq import (
         GroupAtMessageCreateEvent,
         GroupMessageCreateEvent,
-        C2CMessageCreateEvent)
+        C2CMessageCreateEvent,)
     from nonebot.adapters.qq import MessageSegment as MessageSegmentQQ
+    from nonebot.adapters.qq import Bot as QQBot
 
     ENABLE_ADAPTER_QQ = True
 except ImportError:
@@ -85,11 +89,12 @@ async def handle_ws_reply_qq(reply, matcher):
         if reply["type"] == "text":
             await matcher.finish(reply["message"])
         if reply["type"] == "image":
-            await matcher.finish(MessageSegmentQQ.image(f"base64://{reply['message']}"))
+            await matcher.finish(MessageSegmentQQ.file_image(base64.b64decode(reply['message'], validate=True)))
         if reply["type"] == "markdown":
             #  这里不是json格式 是{'key': 'value'} 疑似直接str(dict)的，要用ast解析
             message = ast.literal_eval(reply['message'])
-            msg = MessageSegmentQQ.markdown(message['content']) + MessageSegmentQQ.keyboard(message['keyboard'])
+            keyboard = MessageKeyboard.model_validate(message['keyboard'])
+            msg = MessageSegmentQQ.markdown(message['content']) + MessageSegmentQQ.keyboard(keyboard)
             await matcher.finish(msg)
     elif reply["code"] == 404:
         logger.error(reply["message"])
