@@ -42,7 +42,7 @@ async def _(event: GroupMessageEvent | PrivateMessageEvent):
                                 "keyboard": message['keyboard']
                             }
                         }
-                        msg = MessageSegment("markdown", data)
+                        msg = MessageSegment("markdown", {"data": data})
                         await repeater.finish(msg)
                 elif reply["code"] == 404:
                     logger.error(reply["message"])
@@ -66,7 +66,7 @@ async def _(event: GroupMessageEvent | PrivateMessageEvent):
                             "keyboard": message['keyboard']
                         }
                     }
-                    msg = MessageSegment("markdown", data)
+                    msg = MessageSegment("markdown", {"data": data})
                     await repeater.finish(msg)
                 elif reply["code"] == 404:
                     logger.error(reply["message"])
