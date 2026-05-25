@@ -22,10 +22,11 @@ class ItemEffectService(CoreService):
 
     def apply_conn(self, conn: sqlite3.Connection, client_id: str, item_def: dict, source: str) -> str:
         """在当前事务里结算物品效果。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player = conn.execute("SELECT * FROM players WHERE client_id = ?", (client_id,)).fetchone()
         if not player:
-            return hint("你还没有创建用户。", "发送：创建用户 名称，例如：创建用户 青衫客")
+            return hint("你还没有创建用户。", "发送：创建用户 名称，例如：创建用户 青衫客<指南><探险><修仙帮助>")
 
         effect = load_json(item_def["effect"], {})
         texts: list[str] = []
@@ -85,7 +86,6 @@ class ItemEffectService(CoreService):
         规则很直接：大概率从更高体质里抽，小概率从更低体质里抽。
         抽完后同步写入 physique_id 和 physique，再重算玩家面板数值。
         """
-
         rows = [
             dict(row)
             for row in conn.execute(

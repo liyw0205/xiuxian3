@@ -112,8 +112,8 @@ EQUIPMENT_ITEM_DEFS = (
     ("ningshenlu", "凝神露", "恢复类", "良品", 1, "玩家", {"mp_ratio": 0.45}, "恢复 45% 精神。"),
     ("shenggudan", "生骨丹", "恢复类", "珍品", 1, "玩家", {"hp_ratio": 0.7}, "恢复 70% 血气。"),
     ("yanghundan", "养魂丹", "恢复类", "珍品", 1, "玩家", {"mp_ratio": 0.7}, "恢复 70% 精神。"),
-    ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "固定装备", {}, "固定装备开孔材料，只通过活动 Boss 掉落。"),
-    ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "活动 Boss 掉落的洗髓消耗品，通过洗髓命令消耗。"),
+    ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "装备", {}, "装备开孔材料，通过岁时情劫首领奖励获得。"),
+    ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的洗髓消耗品，通过洗髓命令消耗。"),
     ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "提高命中稳定。"),
     ("poxie_shu", "破甲书", "技能书", "良品", 0, "武器", {"enchant_id": "poxie_shu"}, "提高穿透。"),
     ("huichun_shu", "回春书", "技能书", "良品", 0, "武器", {"enchant_id": "huichun_shu"}, "命中后轻微回血。"),
@@ -131,15 +131,63 @@ EQUIPMENT_ITEM_DEFS = (
     ("xingluo_shu", "星落书", "技能书", "珍品", 0, "武器", {"enchant_id": "xingluo_shu"}, "提高连击追加伤害。"),
     ("duanhai_shu", "断海书", "技能书", "珍品", 0, "武器", {"enchant_id": "duanhai_shu"}, "提高单次技能爆发，但触发更慢。"),
     ("jueying_shu", "绝影书", "技能书", "珍品", 0, "武器", {"enchant_id": "jueying_shu"}, "提高闪避。"),
-    ("huxinyu", "护心玉", "宝石", "凡品", 0, "固定装备", {"max_hp_bonus": 30}, "提高血气上限。"),
-    ("xuangui shi", "玄龟石", "宝石", "凡品", 0, "固定装备", {"defense_bonus": 10}, "提高防御。"),
-    ("shanbi fozhu", "闪避佛珠", "宝石", "良品", 0, "固定装备", {"dodge_bonus": 0.02}, "提高闪避。"),
-    ("mingxin fozhu", "明心佛珠", "宝石", "良品", 0, "固定装备", {"mp_bonus": 30}, "提高精神上限。"),
-    ("huichun feicui", "回春翡翠", "宝石", "良品", 0, "固定装备", {"recover_bonus": 0.04}, "提高休息和恢复效果。"),
-    ("qingxin manao", "清心玛瑙", "宝石", "良品", 0, "固定装备", {"max_mp_bonus": 45}, "提高精神上限。"),
-    ("qingshen shuijing", "轻身水晶", "宝石", "珍品", 0, "固定装备", {"explore_bonus": 0.03}, "提高探险效率。"),
-    ("jucai zijing", "聚财紫晶", "宝石", "珍品", 0, "固定装备", {"trade_bonus": 0.02}, "小幅提高跑商收益。"),
-    ("kangbao fuwen", "抗暴符文", "宝石", "稀品", 0, "固定装备", {"crit_resist_bonus": 0.04}, "提高抗暴和承伤稳定性。"),
+    ("huxinyu", "护心玉", "宝石", "凡品", 0, "装备", {"max_hp_bonus": 30}, "提高血气上限。"),
+    ("xuangui shi", "玄龟石", "宝石", "凡品", 0, "装备", {"defense_bonus": 10}, "提高防御。"),
+    ("shanbi fozhu", "闪避佛珠", "宝石", "良品", 0, "装备", {"dodge_bonus": 0.02}, "提高闪避。"),
+    ("mingxin fozhu", "明心佛珠", "宝石", "良品", 0, "装备", {"mp_bonus": 30}, "提高精神上限。"),
+    ("huichun feicui", "回春翡翠", "宝石", "良品", 0, "装备", {"recover_bonus": 0.04}, "提高休息和恢复效果。"),
+    ("qingxin manao", "清心玛瑙", "宝石", "良品", 0, "装备", {"max_mp_bonus": 45}, "提高精神上限。"),
+    ("qingshen shuijing", "轻身水晶", "宝石", "珍品", 0, "装备", {"explore_bonus": 0.03}, "提高探险效率。"),
+    ("jucai zijing", "聚财紫晶", "宝石", "珍品", 0, "装备", {"trade_bonus": 0.02}, "小幅提高跑商收益。"),
+    ("kangbao fuwen", "抗暴符文", "宝石", "稀品", 0, "装备", {"crit_resist_bonus": 0.04}, "提高抗暴和承伤稳定性。"),
+)
+
+
+SEASONAL_BOSS_REWARD_RATES = (
+    (
+        "每日旧愿",
+        0.025,
+        0.012,
+        0.015,
+        0.010,
+        0.080,
+        0.030,
+        0.015,
+        "普通日首领，主要提供日常参与感，珍贵物品只保留低概率惊喜。",
+    ),
+    (
+        "普通节气",
+        0.050,
+        0.020,
+        0.025,
+        0.014,
+        0.100,
+        0.040,
+        0.020,
+        "二十四节气首领，奖励略高于普通日。",
+    ),
+    (
+        "普通传统节日",
+        0.070,
+        0.025,
+        0.030,
+        0.018,
+        0.120,
+        0.050,
+        0.025,
+        "普通传统节日首领，珍贵物品概率小幅提高。",
+    ),
+    (
+        "高权重传统节日",
+        0.100,
+        0.035,
+        0.040,
+        0.025,
+        0.150,
+        0.065,
+        0.035,
+        "春节、元宵、端午、七夕、中秋、重阳等高权重节日。",
+    ),
 )
 
 
@@ -428,7 +476,8 @@ class XiuxianDB:
             if self.initialized:
                 return
 
-            if self._current_schema_version() != SCHEMA_VERSION:
+            current_version = self._current_schema_version()
+            if current_version != SCHEMA_VERSION:
                 self._drop_tables()
             self._create_tables()
             self._seed_data()
@@ -571,6 +620,7 @@ class XiuxianDB:
             DROP TABLE IF EXISTS gem_defs;
             DROP TABLE IF EXISTS fixed_equipment_inlays;
             DROP TABLE IF EXISTS inscription_feathers;
+            DROP TABLE IF EXISTS seasonal_boss_reward_rates;
             DROP TABLE IF EXISTS seasonal_boss_events;
             DROP TABLE IF EXISTS seasonal_boss_participants;
             DROP TABLE IF EXISTS duel_requests;
@@ -580,7 +630,11 @@ class XiuxianDB:
             DROP TABLE IF EXISTS wormhole_participants;
             DROP TABLE IF EXISTS wormhole_notices;
             DROP TABLE IF EXISTS game_logs;
-            DROP TABLE IF EXISTS request_idempotency;
+            DROP TABLE IF EXISTS player_journals;
+            DROP TABLE IF EXISTS player_titles;
+            DROP TABLE IF EXISTS daily_fortunes;
+            DROP TABLE IF EXISTS daily_newspapers;
+            DROP TABLE IF EXISTS weapon_legends;
             DROP TABLE IF EXISTS trade_heat;
             DROP TABLE IF EXISTS bag_items;
             DROP TABLE IF EXISTS treasures;
@@ -735,14 +789,6 @@ class XiuxianDB:
                 item_id TEXT NOT NULL,
                 buy_price INTEGER NOT NULL,
                 sell_price INTEGER NOT NULL,
-                business_day TEXT NOT NULL,
-                PRIMARY KEY (location_name, item_id, business_day)
-            );
-
-            CREATE TABLE IF NOT EXISTS trade_inventory (
-                location_name TEXT NOT NULL,
-                item_id TEXT NOT NULL,
-                stock INTEGER NOT NULL DEFAULT 9999,
                 business_day TEXT NOT NULL,
                 PRIMARY KEY (location_name, item_id, business_day)
             );
@@ -944,12 +990,6 @@ class XiuxianDB:
                 PRIMARY KEY (client_id, slot)
             );
 
-            CREATE TABLE IF NOT EXISTS gem_defs (
-                gem_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                effect TEXT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS fixed_equipment_inlays (
                 client_id TEXT NOT NULL,
                 slot TEXT NOT NULL,
@@ -967,6 +1007,18 @@ class XiuxianDB:
                 title TEXT NOT NULL,
                 flavor_text TEXT NOT NULL,
                 obtained_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS seasonal_boss_reward_rates (
+                weight_type TEXT PRIMARY KEY,
+                feather_chance REAL NOT NULL,
+                feather_rank_chance REAL NOT NULL,
+                material_chance REAL NOT NULL,
+                material_rank_chance REAL NOT NULL,
+                gem_chance REAL NOT NULL,
+                book_chance REAL NOT NULL,
+                weapon_chance REAL NOT NULL,
+                desc TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS seasonal_boss_events (
@@ -1091,12 +1143,51 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS request_idempotency (
+            CREATE TABLE IF NOT EXISTS player_journals (
                 client_id TEXT NOT NULL,
-                request_id TEXT NOT NULL,
-                raw_message TEXT NOT NULL DEFAULT '',
+                milestone_key TEXT NOT NULL,
+                text TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (client_id, request_id)
+                PRIMARY KEY (client_id, milestone_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS player_titles (
+                client_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                active INTEGER NOT NULL DEFAULT 0,
+                obtained_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (client_id, title)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_fortunes (
+                client_id TEXT NOT NULL,
+                business_day TEXT NOT NULL,
+                fortune TEXT NOT NULL,
+                effect TEXT NOT NULL DEFAULT '{}',
+                flavor TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (client_id, business_day)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_newspapers (
+                business_day TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS weapon_legends (
+                weapon_id INTEGER PRIMARY KEY,
+                original_owner_id TEXT NOT NULL,
+                current_owner_id TEXT NOT NULL,
+                monster_kills INTEGER NOT NULL DEFAULT 0,
+                boss_challenges INTEGER NOT NULL DEFAULT 0,
+                duel_wins INTEGER NOT NULL DEFAULT 0,
+                highest_damage INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_backpack_client ON backpack_items(client_id);
@@ -1118,6 +1209,10 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_wormholes_status ON wormholes(status, closes_at);
             CREATE INDEX IF NOT EXISTS idx_wormhole_participants_client ON wormhole_participants(client_id, reward_claimed);
             CREATE INDEX IF NOT EXISTS idx_game_logs_client ON game_logs(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_player_journals_client ON player_journals(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_player_titles_client ON player_titles(client_id, active);
+            CREATE INDEX IF NOT EXISTS idx_daily_fortunes_day ON daily_fortunes(business_day);
+            CREATE INDEX IF NOT EXISTS idx_weapon_legends_owner ON weapon_legends(current_owner_id);
             """
         )
         self.conn.commit()
@@ -1149,6 +1244,18 @@ class XiuxianDB:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in EQUIPMENT_ITEM_DEFS],
+        )
+        self.conn.executemany(
+            """
+            INSERT OR REPLACE INTO seasonal_boss_reward_rates
+            (
+                weight_type, feather_chance, feather_rank_chance,
+                material_chance, material_rank_chance,
+                gem_chance, book_chance, weapon_chance, desc
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            SEASONAL_BOSS_REWARD_RATES,
         )
         self.conn.executemany(
             "INSERT OR REPLACE INTO trade_locations (name, x, y, specialties) VALUES (?, ?, ?, ?)",
@@ -1259,13 +1366,6 @@ class XiuxianDB:
                 ("星陨墟", 75, 70, 100, "高等级探险地。"),
             ),
         )
-        gems = self.conn.execute(
-            "SELECT equipment_item_id, name, effect FROM equipment_item_defs WHERE category = '宝石'"
-        ).fetchall()
-        self.conn.executemany(
-            "INSERT OR REPLACE INTO gem_defs (gem_id, name, effect) VALUES (?, ?, ?)",
-            [(row["equipment_item_id"], row["name"], row["effect"]) for row in gems],
-        )
         self.conn.commit()
 
     def _validate_seed_data(self) -> None:
@@ -1307,6 +1407,18 @@ class XiuxianDB:
         duplicated_names = names & equipment_names
         if duplicated_names:
             missing.append(f"背包物品和纳戒物品重名：{','.join(sorted(duplicated_names))}")
+
+        gem_rows = self.conn.execute(
+            "SELECT name, effect FROM equipment_item_defs WHERE category = '宝石'"
+        ).fetchall()
+        for row in gem_rows:
+            try:
+                effect = json.loads(row["effect"] or "{}")
+            except json.JSONDecodeError:
+                missing.append(f"宝石效果不是 JSON：{row['name']}")
+                continue
+            if not isinstance(effect, dict) or not effect:
+                missing.append(f"宝石缺少有效属性：{row['name']}")
 
         for location, _x, _y, specialties in TRADE_LOCATIONS:
             for name in specialties.split(","):
@@ -1365,7 +1477,7 @@ class XiuxianDB:
             raise RuntimeError("修仙基础配置错误：\n" + "\n".join(missing))
 
     def ensure_fixed_equipment(self, client_id: str) -> None:
-        """确保玩家固定装备位存在。"""
+        """确保玩家装备位存在。"""
 
         with self.lock:
             self.init()

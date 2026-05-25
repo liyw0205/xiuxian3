@@ -19,7 +19,7 @@ class TreasureService(CoreService):
 
     def info(self, client_id: str, item_name: str) -> str:
         """查看任意修仙物品说明。"""
-
+        
         _, error = self.require_player(client_id)
         if error:
             return error
@@ -53,7 +53,7 @@ class TreasureService(CoreService):
 
         return hint(
             f"没有找到修仙物品：{name}。",
-            "发送：背包、纳戒、武器，复制准确名称后再查；武器实例请发送：查看武器 武器ID。",
+            "发送：背包、纳戒、武器，复制准确名称后再查；武器实例请发送：查看武器 武器ID。<背包><纳戒><武器>",
         )
 
     @staticmethod
@@ -100,7 +100,7 @@ class TreasureService(CoreService):
             f"类型:武器模板 武器类型:{weapon['weapon_type']} 掉落:{weapon['drop_location']}\n"
             f"模板基础攻击:{weapon['base_attack']}\n"
             f"自带技能:{skill_text}\n"
-            f"实例详情:发送 查看武器 武器ID"
+            f"武器详情:发送 查看武器 武器ID"
         )
 
     @staticmethod

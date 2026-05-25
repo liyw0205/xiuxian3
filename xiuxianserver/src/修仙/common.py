@@ -23,8 +23,19 @@ from .constants import (
     RENAME_COOLDOWN_HOURS,
     WEAPON_TYPE_INTERVAL_FACTORS,
 )
+from .markdown_utils import append_suggest_commands
 from .rules import base_attack, damage_after_defense, defense, exp_need, level_from_exp, max_hp, max_mp, money
 
+FORTUNE_POOL = (
+    ("平运", "山河无事，适合稳稳修行。", {}),
+    ("小吉", "袖中有风，适合出门寻机缘。", {"explore_bonus": 0.04}),
+    ("中吉", "市声入怀，买卖时少些磕绊。", {"trade_bonus": 0.03}),
+    ("上吉", "灵台清明，调息恢复更顺。", {"recover_bonus": 0.08}),
+    ("轻身", "云履无痕，斗法时身形更活。", {"dodge_bonus": 0.04}),
+    ("定心", "心火不摇，承伤更稳。", {"crit_resist_bonus": 0.05}),
+    ("天眷", "今日天光偏爱，万事都略顺半分。", {"explore_bonus": 0.08, "recover_bonus": 0.05}),
+    ("破云", "心气如剑，出手时更敢一线。", {"damage_reduce": 0.03, "dodge_bonus": 0.03}),
+)
 
 def now() -> datetime:
     """返回当前时间。"""
@@ -115,7 +126,7 @@ def custom_label(base_name: object, custom_name: object = "") -> str:
 
 
 def fixed_equipment_label(equipment: Any) -> str:
-    """固定装备展示名：自定义名（原部位）。"""
+    """装备展示名：自定义名（原部位）。"""
 
     return custom_label(row_value(equipment, "slot"), row_value(equipment, "custom_name"))
 
@@ -134,15 +145,25 @@ def enchant_label_name(enchant_name: object, custom_name: object = "") -> str:
 
 def hint(reason: str, suggestion: str) -> str:
     """把失败原因和下一步建议拼成统一回复。"""
+    # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-    return f"{reason}\n建议：{suggestion}"
+    return append_suggest_commands(reason, suggestion)
 
 
-def parse_player_ref(text: str) -> str:
-    """提取玩家引用文本；WS 层已把 CQ/at 转成内部 id。"""
+def equipment_item_use_hint(item: dict[str, Any]) -> str:
+    """按纳戒物品类型给出正确消耗入口。"""
+    # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-    value = text.strip()
-    return value.split()[0].strip() if value else ""
+
+    if item["name"] == "洗髓液":
+        return "<洗髓><宝石><武器>"
+    if item["category"] == "宝石":
+        return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<洗髓><宝石><武器>"
+    if item["category"] == "技能书":
+        return "技能书请发送：附魔武器 武器ID 技能书名。<洗髓><宝石><武器>"
+    if item["name"] == "开孔器":
+        return "开孔器请发送：开孔 装备位。<洗髓><宝石><武器>"
+    return "只有恢复类物品可以直接发送：使用 物品名。<洗髓><宝石><武器>"
 
 
 def split_words(message: str) -> list[str]:
@@ -170,6 +191,17 @@ def parse_name_level(text: str) -> tuple[str, int | None]:
     return text.strip(), None
 
 
+def parse_weapon_ref(text: str) -> int:
+    """把 武器#12 / 武器ID12 / #12 / 12 转成武器实例 ID。"""
+
+    value = text.strip()
+    for prefix in ("武器#", "武器ID", "武器", "#"):
+        if value.startswith(prefix):
+            value = value[len(prefix) :]
+            break
+    return to_int(value)
+
+
 def quality_factor(quality: str) -> float:
     """返回品质系数。"""
 
@@ -193,6 +225,20 @@ class CoreService:
 
         return self.db.fetch_one("SELECT * FROM players WHERE client_id = ?", (client_id,))
 
+    def equipped_weapon_row(self, client_id: str) -> dict[str, Any] | None:
+        """读取玩家当前装备的武器；不自动补初始武器。"""
+
+        return self.db.fetch_one(
+            """
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.weapon_type
+            FROM player_weapons w
+            JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
+            WHERE w.owner_id = ? AND w.equipped = 1
+            LIMIT 1
+            """,
+            (client_id,),
+        )
+
     def player_name_taken(self, display_name: str, exclude_client_id: str | None = None) -> bool:
         """判断展示名称是否已被其他玩家使用。"""
 
@@ -208,19 +254,16 @@ class CoreService:
             )
         return bool(row)
 
-    def resolve_player_ref(self, text: str) -> str:
-        """把玩家输入的名称或 CQ/at 转成内部 client_id。"""
+    def recycle_location(self, location_name: str, recycle_type: str | None = None) -> dict[str, Any] | None:
+        """读取系统回收地点；可按类型过滤。"""
 
-        value = parse_player_ref(text)
-        if not value:
-            return ""
-        if self.player(value):
-            return value
-        row = self.db.fetch_one(
-            "SELECT client_id FROM players WHERE display_name = ?",
-            (value,),
+        name = location_name.strip()
+        if recycle_type is None:
+            return self.db.fetch_one("SELECT * FROM recycle_locations WHERE name = ?", (name,))
+        return self.db.fetch_one(
+            "SELECT * FROM recycle_locations WHERE name = ? AND recycle_type = ?",
+            (name, recycle_type),
         )
-        return str(row["client_id"]) if row else ""
 
     def require_player(self, client_id: str) -> tuple[dict[str, Any] | None, str | None]:
         """要求玩家已创建。"""
@@ -291,9 +334,11 @@ class CoreService:
 
     def create_player(self, client_id: str, display_name: str) -> str:
         """创建玩家。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
+
 
         if self.player(client_id):
-            return hint("你已经创建过用户了。", "发送：修仙信息 查看角色，或发送：改名 新名称")
+            return hint("你已经创建过用户了。", "发送：修仙信息 查看角色，或发送：改名 新名称<指南><探险><修仙帮助>")
         ok, result = validate_name(display_name)
         if not ok:
             return hint(result, "请换一个 2 到 12 个字符、且不含空白的名称。")
@@ -353,6 +398,7 @@ class CoreService:
 
     def rename_player(self, client_id: str, display_name: str) -> str:
         """修改展示名称。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -363,15 +409,15 @@ class CoreService:
         if not ok:
             return hint(result, "请换一个 2 到 12 个字符、且不含空白的名称。")
         if result == player["display_name"]:
-            return "名称没有变化。"
+            return "名称没有变化。<指南><探险><修仙帮助>"
         if self.player_name_taken(result, client_id):
-            return hint("这个名称已经被使用了。", "请换一个不重复的新名称。")
+            return hint("这个名称已经被使用了。", "请换一个不重复的新名称。<指南><探险><修仙帮助>")
 
         last = dt(player.get("last_rename_at"))
         if last and now() - last < timedelta(hours=RENAME_COOLDOWN_HOURS):
             left = timedelta(hours=RENAME_COOLDOWN_HOURS) - (now() - last)
             hours = max(1, int(left.total_seconds() // 3600) + 1)
-            return hint(f"改名太频繁，请约 {hours} 小时后再试。", "冷却结束后发送：改名 新名称")
+            return hint(f"改名太频繁，请约 {hours} 小时后再试。", "冷却结束后发送：改名 新名称<指南><探险><修仙帮助>")
 
         with self.db.transaction() as conn:
             cursor = conn.execute(
@@ -391,7 +437,7 @@ class CoreService:
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '改名', ?, ?)",
                 (client_id, result, ts()),
             )
-        return f"改名成功，现在叫 {result}。"
+        return f"改名成功，现在叫 {result}。<指南><探险><修仙帮助>"
 
     def log(self, client_id: str, action: str, detail: str = "") -> None:
         """写行为日志。"""
@@ -401,10 +447,73 @@ class CoreService:
             (client_id, action, detail, ts()),
         )
 
-    def equipment_bonuses(self, client_id: str) -> dict[str, float]:
-        """汇总固定装备和宝石加成。
+    def record_journal(
+        self,
+        client_id: str,
+        milestone_key: str,
+        text: str,
+        *,
+        created_at: str | None = None,
+        keep_first_time: bool = False,
+    ) -> None:
+        """写入或刷新一条玩家日记里程碑。"""
 
-        固定装备只给生存属性，宝石和体质按自身效果叠加。
+        with self.db.transaction() as conn:
+            self.record_journal_conn(
+                conn,
+                client_id,
+                milestone_key,
+                text,
+                created_at=created_at,
+                keep_first_time=keep_first_time,
+            )
+
+    def record_journal_conn(
+        self,
+        conn: sqlite3.Connection,
+        client_id: str,
+        milestone_key: str,
+        text: str,
+        *,
+        created_at: str | None = None,
+        keep_first_time: bool = False,
+    ) -> None:
+        """在事务里写入或刷新一条玩家日记里程碑。
+
+        player_journals 以 client_id + milestone_key 去重。
+        - keep_first_time=True：适合创建角色这类“第一次发生”的记录，只更新文字，不改时间。
+        - keep_first_time=False：适合等级、次数、资产等会变化的统计记录，每次刷新都会更新展示。
+        """
+
+        current = created_at or ts()
+        if keep_first_time:
+            conn.execute(
+                """
+                INSERT INTO player_journals
+                (client_id, milestone_key, text, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(client_id, milestone_key)
+                DO UPDATE SET text = excluded.text
+                """,
+                (client_id, milestone_key, text, current),
+            )
+            return
+
+        conn.execute(
+            """
+            INSERT INTO player_journals
+            (client_id, milestone_key, text, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(client_id, milestone_key)
+            DO UPDATE SET text = excluded.text, created_at = excluded.created_at
+            """,
+            (client_id, milestone_key, text, current),
+        )
+
+    def equipment_bonuses(self, client_id: str) -> dict[str, float]:
+        """汇总装备和宝石加成。
+
+        装备只给生存属性，宝石和体质按自身效果叠加。
         这里放在公共服务里，所有组件都能读取，不需要二级包互相引用。
         """
 
@@ -413,10 +522,10 @@ class CoreService:
             return self.equipment_bonuses_conn(conn, client_id)
 
     def equipment_bonuses_conn(self, conn: sqlite3.Connection, client_id: str) -> dict[str, float]:
-        """在事务里汇总固定装备、宝石和体质加成。
+        """在事务里汇总装备、宝石和体质加成。
 
         事务内不能调用 ensure_fixed_equipment()，否则会提前 commit 外层事务。
-        创建玩家时已经写入固定装备位，普通查询入口也会兜底补齐。
+        创建玩家时已经写入装备位，普通查询入口也会兜底补齐。
         """
 
         bonuses: dict[str, float] = {
@@ -472,7 +581,275 @@ class CoreService:
                 if isinstance(value, int | float):
                     bonus_key = "max_mp_bonus" if key == "mp_bonus" else key
                     bonuses[bonus_key] = bonuses.get(bonus_key, 0) + float(value)
+        fortune = conn.execute(
+            """
+            SELECT effect
+            FROM daily_fortunes
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, business_day()),
+        ).fetchone()
+        if fortune:
+            for key, value in load_json(fortune["effect"], {}).items():
+                if isinstance(value, int | float):
+                    bonuses[key] = bonuses.get(key, 0) + float(value)
         return bonuses
+
+    def ensure_daily_fortune(self, client_id: str) -> dict[str, Any]:
+        """生成或读取今日气运。"""
+
+        with self.db.transaction() as conn:
+            return self.ensure_daily_fortune_conn(conn, client_id)
+
+    def ensure_daily_fortune_conn(self, conn: sqlite3.Connection, client_id: str) -> dict[str, Any]:
+        """在事务里生成或读取今日气运。"""
+
+        day = business_day()
+        row = conn.execute(
+            """
+            SELECT * FROM daily_fortunes
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, day),
+        ).fetchone()
+        if row:
+            return dict(row)
+
+        fortune, flavor, effect = random.choice(FORTUNE_POOL)
+        conn.execute(
+            """
+            INSERT INTO daily_fortunes
+            (client_id, business_day, fortune, effect, flavor, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (client_id, day, fortune, dump_json(effect), flavor, ts()),
+        )
+        row = conn.execute(
+            """
+            SELECT * FROM daily_fortunes
+            WHERE client_id = ? AND business_day = ?
+            """,
+            (client_id, day),
+        ).fetchone()
+        assert row is not None
+        return dict(row)
+
+    def active_title(self, client_id: str) -> str:
+        """读取当前自动称号。"""
+
+        row = self.db.fetch_one(
+            """
+            SELECT title FROM player_titles
+            WHERE client_id = ? AND active = 1
+            LIMIT 1
+            """,
+            (client_id,),
+        )
+        return str(row["title"]) if row else ""
+
+    def refresh_titles(self, client_id: str, player: dict[str, Any] | None = None) -> str:
+        """按当前数据刷新称号，并自动佩戴当前最合适的一个。"""
+
+        with self.db.transaction() as conn:
+            if player is None:
+                row = conn.execute("SELECT * FROM players WHERE client_id = ?", (client_id,)).fetchone()
+                if not row:
+                    return ""
+                player = dict(row)
+            return self.refresh_titles_conn(conn, client_id, player)
+
+    def refresh_titles_conn(self, conn: sqlite3.Connection, client_id: str, player: dict[str, Any]) -> str:
+        """在事务里刷新称号，并返回自动佩戴的称号。"""
+
+        def count(table: str, where: str, params: tuple[Any, ...]) -> int:
+            return self._count_conn(conn, table, where, params)
+
+        def total(sql: str, params: tuple[Any, ...]) -> int:
+            row = conn.execute(sql, params).fetchone()
+            if not row:
+                return 0
+            return int(row["total"] or 0)
+
+        vault = conn.execute("SELECT balance FROM source_vaults WHERE client_id = ?", (client_id,)).fetchone()
+        vault_balance = int(vault["balance"]) if vault else 0
+        source_stones = int(player["source_stones"])
+        total_assets = source_stones + vault_balance
+        sign_count = count("game_logs", "client_id = ? AND action = '签到'", (client_id,))
+        explore_count = count("exploration_records", "client_id = ?", (client_id,))
+        trade_sell_count = count("trade_records", "client_id = ? AND action = 'sell'", (client_id,))
+        trade_net = total(
+            """
+            SELECT COALESCE(SUM(total_price - fee), 0) AS total
+            FROM trade_records
+            WHERE client_id = ? AND action = 'sell'
+            """,
+            (client_id,),
+        )
+        weapon_count = count("player_weapons", "owner_id = ?", (client_id,))
+        weapon_recycle_count = count("weapon_recycle_records", "client_id = ?", (client_id,))
+        gem_recycle_count = count("gem_recycle_records", "client_id = ?", (client_id,))
+        book_recycle_count = count("book_recycle_records", "client_id = ?", (client_id,))
+        wormhole_count = count("wormhole_participants", "client_id = ?", (client_id,))
+        wormhole_damage = total(
+            "SELECT COALESCE(SUM(damage), 0) AS total FROM wormhole_participants WHERE client_id = ?",
+            (client_id,),
+        )
+        boss_count = count("seasonal_boss_participants", "client_id = ?", (client_id,))
+        boss_damage = total(
+            "SELECT COALESCE(SUM(damage), 0) AS total FROM seasonal_boss_participants WHERE client_id = ?",
+            (client_id,),
+        )
+        duel_win_count = count("duel_records", "winner_id = ?", (client_id,))
+        inscription_count = count(
+            "game_logs",
+            "client_id = ? AND action IN ('铭刻装备', '铭刻武器', '铭刻附魔')",
+            (client_id,),
+        )
+        rare_weapon = self._exists_conn(
+            conn,
+            "player_weapons",
+            "owner_id = ? AND quality IN ('稀品', '珍品')",
+            (client_id,),
+        )
+        max_weapon = conn.execute(
+            """
+            SELECT max_level, level
+            FROM player_weapons
+            WHERE owner_id = ?
+            ORDER BY max_level DESC, level DESC
+            LIMIT 1
+            """,
+            (client_id,),
+        ).fetchone()
+        max_weapon_level = int(max_weapon["max_level"]) if max_weapon else 0
+        highest_weapon_level = int(max_weapon["level"]) if max_weapon else 0
+
+        rules = (
+            (10, "初入仙途", "已经创建修仙角色", True),
+            (18, "晨钟常客", f"累计签到 {sign_count} 次", sign_count >= 7),
+            (20, "小富即安", "随身源石达到 5 万", source_stones >= 50_000),
+            (24, "藏源有道", "源库余额达到 10 万", vault_balance >= 100_000),
+            (28, "财气盈门", "明面资产达到 30 万", total_assets >= 300_000),
+            (30, "探险常客", f"累计探险 {explore_count} 次", explore_count >= 5),
+            (34, "山河熟客", f"累计探险 {explore_count} 次", explore_count >= 30),
+            (35, "跑商老手", f"普通跑商出售 {trade_sell_count} 次", trade_sell_count >= 20),
+            (38, "商路识途", f"跑商净收入 {money(trade_net)}", trade_net >= 100_000),
+            (40, "兵器收藏家", f"拥有武器 {weapon_count} 把", weapon_count >= 5),
+            (43, "百炼持刃", f"最高武器等级 {highest_weapon_level}", highest_weapon_level >= 40),
+            (45, "铸剑客", f"回收武器 {weapon_recycle_count} 次", weapon_recycle_count >= 3),
+            (46, "藏经归客", f"回收技能书 {book_recycle_count} 次", book_recycle_count >= 3),
+            (47, "琢玉散人", f"回收宝石 {gem_recycle_count} 次", gem_recycle_count >= 3),
+            (50, "虫洞先锋", f"参与异界虫洞 {wormhole_count} 次", wormhole_count > 0),
+            (52, "虫洞鏖战者", f"虫洞累计伤害 {wormhole_damage}", wormhole_damage >= 20_000),
+            (55, "欧气外露", "拥有稀品或珍品武器", rare_weapon),
+            (58, "满锋候选", f"最高武器上限 {max_weapon_level}", max_weapon_level >= 80),
+            (60, "岁时赴约人", f"挑战岁时首领 {boss_count} 次", boss_count > 0),
+            (62, "情劫破阵者", f"首领累计伤害 {boss_damage}", boss_damage >= 20_000),
+            (64, "斗法胜手", f"对战胜利 {duel_win_count} 次", duel_win_count >= 3),
+            (66, "羽墨留名", f"铭刻 {inscription_count} 次", inscription_count >= 1),
+        )
+        current = ts()
+        valid: list[tuple[int, str]] = []
+        for score, title, reason, ok in rules:
+            if not ok:
+                continue
+            valid.append((score, title))
+            conn.execute(
+                """
+                INSERT INTO player_titles
+                (client_id, title, reason, active, obtained_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?)
+                ON CONFLICT(client_id, title)
+                DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at
+                """,
+                (client_id, title, reason, current, current),
+            )
+
+        conn.execute("UPDATE player_titles SET active = 0 WHERE client_id = ?", (client_id,))
+        if not valid:
+            return ""
+        active_title = max(valid, key=lambda item: item[0])[1]
+        conn.execute(
+            """
+            UPDATE player_titles
+            SET active = 1, updated_at = ?
+            WHERE client_id = ? AND title = ?
+            """,
+            (current, client_id, active_title),
+        )
+        return active_title
+
+    @staticmethod
+    def _count_conn(conn: sqlite3.Connection, table: str, where: str, params: tuple[Any, ...]) -> int:
+        """在事务里执行简单计数。"""
+
+        row = conn.execute(f"SELECT COUNT(*) AS count FROM {table} WHERE {where}", params).fetchone()
+        return int(row["count"]) if row else 0
+
+    @staticmethod
+    def _exists_conn(conn: sqlite3.Connection, table: str, where: str, params: tuple[Any, ...]) -> bool:
+        """在事务里判断数据是否存在。"""
+
+        return bool(conn.execute(f"SELECT 1 FROM {table} WHERE {where} LIMIT 1", params).fetchone())
+
+    def record_weapon_created_conn(self, conn: sqlite3.Connection, client_id: str, weapon_id: int) -> None:
+        """为新武器初始化传奇记录。"""
+
+        if int(weapon_id) <= 0:
+            return
+        current = ts()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO weapon_legends
+            (weapon_id, original_owner_id, current_owner_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(weapon_id), client_id, client_id, current, current),
+        )
+
+    def record_weapon_combat_conn(
+        self,
+        conn: sqlite3.Connection,
+        client_id: str,
+        weapon_id: int,
+        *,
+        monster_kill: bool = False,
+        boss_challenge: bool = False,
+        duel_win: bool = False,
+        damage: int = 0,
+    ) -> None:
+        """累积武器传奇数据。"""
+
+        if int(weapon_id) <= 0:
+            return
+        current = ts()
+        conn.execute(
+            """
+            INSERT INTO weapon_legends
+            (weapon_id, original_owner_id, current_owner_id, monster_kills, boss_challenges,
+             duel_wins, highest_damage, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(weapon_id)
+            DO UPDATE SET
+                current_owner_id = excluded.current_owner_id,
+                monster_kills = monster_kills + excluded.monster_kills,
+                boss_challenges = boss_challenges + excluded.boss_challenges,
+                duel_wins = duel_wins + excluded.duel_wins,
+                highest_damage = max(highest_damage, excluded.highest_damage),
+                updated_at = excluded.updated_at
+            """,
+            (
+                int(weapon_id),
+                client_id,
+                client_id,
+                1 if monster_kill else 0,
+                1 if boss_challenge else 0,
+                1 if duel_win else 0,
+                max(0, int(damage)),
+                current,
+                current,
+            ),
+        )
 
     def weapon_effects_from_ids(self, enchant_ids: object) -> dict[str, float]:
         """按附魔 id 列表汇总武器附魔效果。
@@ -540,7 +917,10 @@ class CoreService:
 
     @staticmethod
     def _skill_interval(skill: dict[str, Any] | None, weapon: dict[str, Any] | None, effects: dict[str, float]) -> int:
-        """计算武器技能实际触发间隔。"""
+        """计算武器技能速度基准。
+
+        数值越小，技能蓄力越快。它不再表示“固定每 N 回合触发一次”。
+        """
 
         if not skill:
             return 0
@@ -550,6 +930,148 @@ class CoreService:
         interval = round(int(skill["interval"]) * type_factor * rate)
         interval += int(effects.get("interval_delta", 0))
         return max(2, min(12, interval))
+
+    @staticmethod
+    def _weapon_attack_load(weapon: dict[str, Any] | None) -> float:
+        """计算武器攻击带来的速度负重。
+
+        高攻击武器可以打得疼，但技能条不能也无脑更快。
+        这里按武器等级做归一，避免正常升级被过度惩罚。
+        """
+
+        if not weapon:
+            return 0.0
+        attack = max(0, int(weapon.get("attack") or 0))
+        level = max(0, int(weapon.get("level") or 0))
+        base_line = 28 + level * 2.4
+        return max(0.0, (attack - base_line) / max(1.0, base_line))
+
+    @staticmethod
+    def _actor_speed(level: int, weapon: dict[str, Any] | None, effects: dict[str, float]) -> float:
+        """计算人物行动速度。
+
+        等级提供少量成长，轻武器更快，闪避/命中类效果也会让出手更顺。
+        高攻击武器会带来一点负重，避免高攻武器同时成为最快技能流。
+        """
+
+        weapon_type = str(weapon.get("weapon_type") if weapon else "")
+        type_factor = WEAPON_TYPE_INTERVAL_FACTORS.get(weapon_type, 1.0)
+        type_speed = (1.0 / max(0.75, type_factor) - 1.0) * 32
+        effect_speed = float(effects.get("dodge_bonus", 0)) * 90 + float(effects.get("hit_bonus", 0)) * 45
+        attack_load = CoreService._weapon_attack_load(weapon)
+        load_penalty = min(28.0, attack_load * 36.0)
+        speed = 96 + min(42, max(0, int(level)) * 0.42) + type_speed + effect_speed - load_penalty
+        return max(68.0, min(168.0, speed))
+
+    @staticmethod
+    def _skill_charge_gain(
+        skill: dict[str, Any] | None,
+        weapon: dict[str, Any] | None,
+        effects: dict[str, float],
+        actor_speed: float,
+    ) -> float:
+        """计算每次出手获得多少技能蓄力。
+
+        技能速度来自旧的 interval 字段：数值越小，蓄力越快。
+        人物速度越高，同样一次出手积累的蓄力也越多。
+        """
+
+        if not skill:
+            return 0.0
+        interval = CoreService._skill_interval(skill, weapon, effects)
+        speed_rate = max(0.7, min(1.7, actor_speed / 100))
+        attack_load = CoreService._weapon_attack_load(weapon)
+        load_rate = max(0.72, 1.0 - min(0.28, attack_load * 0.32))
+        gain = (0.78 / interval + 0.18) * speed_rate * load_rate
+        return max(0.22, min(0.72, gain))
+
+    @staticmethod
+    def _skill_initial_charge(
+        skill: dict[str, Any] | None,
+        weapon: dict[str, Any] | None,
+        effects: dict[str, float],
+        actor_speed: float,
+    ) -> float:
+        """开战时给一点初始蓄力，避免短战完全看不到武器技能。"""
+
+        gain = CoreService._skill_charge_gain(skill, weapon, effects, actor_speed)
+        return min(0.9, 0.45 + gain * 0.7)
+
+    @staticmethod
+    def _enemy_speed(level: int, kind: str, boss: bool = False) -> float:
+        """计算怪物或 Boss 的行动速度。
+
+        怪物没有武器，但也按类型区分打法：妖鬼更快，傀儡和重甲兵更慢。
+        Boss 略慢一点，但技能更重，给玩家留下反应空间。
+        """
+
+        kind = str(kind or "")
+        kind_bonus = {
+            "妖": 10,
+            "妖君": 10,
+            "鬼": 8,
+            "游魂": 9,
+            "兽": 2,
+            "龙": 0,
+            "龙影": 0,
+            "魔": 4,
+            "魔将": 2,
+            "兵": -3,
+            "古卫": -8,
+            "傀": -10,
+        }.get(kind, 0)
+        boss_penalty = -6 if boss else 0
+        speed = 88 + min(36, max(1, int(level)) * 0.36) + kind_bonus + boss_penalty
+        return max(62.0, min(150.0, speed))
+
+    @staticmethod
+    def _enemy_skill(kind: str, level: int, boss: bool = False) -> dict[str, Any]:
+        """生成怪物或 Boss 的技能配置。
+
+        不单独建表，避免为了技能速度重构数据库。
+        所有技能仍使用同一套蓄力条：interval 越小越快，power 越大越重。
+        """
+
+        kind = str(kind or "")
+        boss_bonus = 0.16 if boss else 0.0
+        level_bonus = min(0.18, max(1, int(level)) / 600)
+        configs = {
+            "妖": ("妖影撕咬", 4, 1.12, {"bleed_rate": 0.10}),
+            "妖君": ("妖君裂影", 4, 1.18, {"bleed_rate": 0.12}),
+            "兽": ("蛮兽冲撞", 5, 1.22, {"stun_rate": 0.08}),
+            "龙": ("龙息压顶", 6, 1.30, {"mp_suppress": 0.08}),
+            "龙影": ("龙影吐息", 6, 1.32, {"mp_suppress": 0.10}),
+            "鬼": ("阴魂噬念", 4, 1.08, {"mp_suppress": 0.10}),
+            "游魂": ("游魂缠身", 4, 1.10, {"mp_suppress": 0.08}),
+            "魔": ("魔焰灼心", 5, 1.18, {"burn_rate": 0.12}),
+            "魔将": ("魔将破阵", 5, 1.24, {"pierce_bonus": 0.08}),
+            "兵": ("残兵破甲", 5, 1.16, {"pierce_bonus": 0.06}),
+            "古卫": ("古卫镇压", 6, 1.20, {"damage_reduce": 0.08}),
+            "傀": ("傀儡重压", 6, 1.18, {"damage_reduce": 0.06}),
+        }
+        name, interval, power, effects = configs.get(kind, ("凶煞一击", 5, 1.16, {}))
+        return {
+            "name": name,
+            "cost_mp": 0,
+            "interval": max(3, int(interval) + (1 if boss and power >= 1.28 else 0)),
+            "power": power + boss_bonus + level_bonus,
+            "effects": effects,
+        }
+
+    @staticmethod
+    def _enemy_skill_charge_gain(skill: dict[str, Any], actor_speed: float) -> float:
+        """计算怪物或 Boss 每次出手获得多少技能蓄力。"""
+
+        interval = max(3, int(skill.get("interval", 5)))
+        speed_rate = max(0.7, min(1.55, actor_speed / 100))
+        return max(0.20, min(0.62, (0.66 / interval + 0.16) * speed_rate))
+
+    @staticmethod
+    def _enemy_skill_initial_charge(skill: dict[str, Any], actor_speed: float) -> float:
+        """怪物/Boss 开场技能条。"""
+
+        gain = CoreService._enemy_skill_charge_gain(skill, actor_speed)
+        return min(0.82, 0.30 + gain * 0.65)
 
     @staticmethod
     def _pierce_rate(effects: dict[str, float]) -> float:
@@ -974,6 +1496,41 @@ class CoreService:
             (client_id,),
         )
 
+    def resolve_gem_level_conn(
+        self,
+        conn: sqlite3.Connection,
+        client_id: str,
+        gem_id: str,
+        gem_name: str,
+        wanted_level: int | None,
+        example_template: str,
+    ) -> tuple[int | None, str | None]:
+        """确定要操作的宝石等级；同名多等级时要求用户写清等级。"""
+
+        if wanted_level is not None:
+            return wanted_level, None
+
+        rows = conn.execute(
+            """
+            SELECT level, quantity FROM gem_items
+            WHERE client_id = ? AND gem_id = ? AND quantity > 0
+            ORDER BY level
+            """,
+            (client_id, gem_id),
+        ).fetchall()
+        if not rows:
+            return 1, None
+        if len(rows) == 1:
+            return int(rows[0]["level"]), None
+
+        level = int(rows[-1]["level"])
+        example = example_template.format(name=gem_name, level=level)
+        options = "、".join(f"{row['level']}级x{row['quantity']}" for row in rows)
+        return None, hint(
+            f"纳戒里有多种等级的 {gem_name}。",
+            f"请写清等级，例如：{example}。现有：{options}",
+        )
+
     def format_player_name(self, client_id: str) -> str:
         """返回玩家展示名；对外回复不展示 client_id。"""
 
@@ -1009,10 +1566,7 @@ def format_effect(effect_text: str) -> str:
         for segment in effect["random_stones_segments"]:
             if not isinstance(segment, dict):
                 continue
-            texts.append(
-                f"{segment.get('min_level')}-{segment.get('max_level')}级:"
-                f"{segment.get('min')}-{segment.get('max')}"
-            )
+            texts.append(f"{segment.get('min_level')}-{segment.get('max_level')}级:" f"{segment.get('min')}-{segment.get('max')}")
         if texts:
             parts.append("源石按等级段随机(" + "；".join(texts) + ")")
     if effect.get("hp_delta"):
@@ -1067,7 +1621,8 @@ def format_effect(effect_text: str) -> str:
             parts.append(f"{label}{value * 100:+.1f}%")
     interval_delta = effect.get("interval_delta")
     if isinstance(interval_delta, int | float) and interval_delta:
-        parts.append(f"技能间隔{int(interval_delta):+d}")
+        direction = "变慢" if interval_delta > 0 else "变快"
+        parts.append(f"技能速度基准{int(interval_delta):+d}({direction})")
     trade_bonus = effect.get("trade_bonus")
     if isinstance(trade_bonus, int | float) and trade_bonus:
         if trade_bonus > 0:
@@ -1086,35 +1641,6 @@ def choose_one(rows: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
     return random.choice(values)
 
 
-def mark_request_once(client_id: str, request_id: object, raw_message: object = "") -> bool:
-    """记录 WS request_id，重复请求返回 False。"""
-
-    request_text = str(request_id or "").strip()
-    if not request_text:
-        return True
-
-    from .sql import db
-
-    with db.transaction() as conn:
-        exists = conn.execute(
-            """
-            SELECT 1 FROM request_idempotency
-            WHERE client_id = ? AND request_id = ?
-            """,
-            (client_id, request_text),
-        ).fetchone()
-        if exists:
-            return False
-        conn.execute(
-            """
-            INSERT INTO request_idempotency (client_id, request_id, raw_message, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (client_id, request_text, str(raw_message or ""), ts()),
-        )
-    return True
-
-
 __all__ = [
     "Any",
     "CoreService",
@@ -1129,10 +1655,8 @@ __all__ = [
     "hint",
     "load_json",
     "money",
-    "mark_request_once",
     "now",
     "parse_name_level",
-    "parse_player_ref",
     "quality_factor",
     "random",
     "random_quality",

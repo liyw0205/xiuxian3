@@ -1,4 +1,4 @@
-# xiuxianserver
+# back_ai
 
 FastAPI 后端服务，包含 HTTP 接口和 WebSocket 消息适配器。
 
@@ -22,7 +22,7 @@ http://127.0.0.1:7001
 本地开发可以复制 `.env.example` 为 `.env`，项目启动时会自动读取。
 项目配置入口只有 `.env` 一个。
 `.env` 只建议放经常变化的配置和自定义配置。
-日志这类系统默认配置已经写在 [launch/config.py](C:/Users/16841/Desktop/xiuxianserver/launch/config.py:1)，非必要不用写进 `.env`。
+日志这类系统默认配置已经写在 [launch/config.py](C:/Users/16841/Desktop/back_ai/launch/config.py:1)，非必要不用写进 `.env`。
 
 ```powershell
 Copy-Item .env.example .env
@@ -43,7 +43,7 @@ print(config.zdy1)
 项目基础配置：
 
 ```text
-APP_NAME=xiuxianserver
+APP_NAME=back_ai
 APP_DEBUG=false
 ```
 
@@ -92,7 +92,7 @@ config.get("abc.def")
 config.get("1name")
 ```
 
-长期使用、需要明确类型的参数，推荐像 `ProjectConfig` / `LogConfig` 一样写进 [launch/config.py](C:/Users/16841/Desktop/xiuxianserver/launch/config.py:1)，这样类型和用途更清楚。
+长期使用、需要明确类型的参数，推荐像 `ProjectConfig` / `LogConfig` 一样写进 [launch/config.py](C:/Users/16841/Desktop/back_ai/launch/config.py:1)，这样类型和用途更清楚。
 
 模块 / 路由加载配置：
 
@@ -291,29 +291,30 @@ from launch.adapter.ws import WsMessageHandler
 说明：当前连接模型是“一个 `client_id` 只保留最后一条连接”。
 同一个用户重复连接时，新连接会接管身份，旧连接会被关闭。
 业务里调用 `manager.send(message, client_id)` 会发送给这个 `client_id` 当前保留的连接。
-调用 `manager.send_all(message)` 会广播给所有在线 `client_id` 的当前连接。
 旧连接关闭时会带上原因：`同 client_id 新连接已接管`。
 
 ## WebSocket 消息格式
 
-WS 通讯统一使用三个字段：
+客户端请求统一使用四个字段：
 
 ```json
 {
   "code": 202,
   "type": "text",
-  "message": "你好 hello"
+  "message": "你好 hello",
+  "request_id": "本次请求唯一 id"
 }
 ```
 
 字段含义：
 
-- `code`: `202` 表示正常，`404` 表示异常。
+- `code`: 只允许整数 `202` 或 `404`；客户端主动请求必须是 `202`。
 - `type`: 自定义消息类型，默认用 `text`，客户端可自行判断。
 - `message`: 消息文本。
+- `request_id`: 本次请求唯一 id，客户端用它等待同一条回复。
 
-字段顺序固定为 `code -> type -> message`。
-`code` 兼容数字和字符串，例如 `202`、`"202"`、`404`、`"404"`。
+字段顺序固定为 `code -> type -> message -> request_id`。
+服务端回复同样使用 `code -> type -> message`，能拿到 `request_id` 时会原样带回。
 
 不使用业务层 `ping/pong` 心跳。
 
@@ -330,7 +331,7 @@ WS 通讯统一使用三个字段：
 ```python
 @WsMessageHandler.handler(cmd="你好", priority=10, block=False)
 async def hello(client_id, message, manager):
-    await manager.send({"message": "回复触发者"}, client_id)
+    await manager.send("回复触发者", client_id)
 ```
 
 正则命令：
@@ -385,24 +386,19 @@ await manager.send(message, client_id)
 ```
 
 如果同一个 `client_id` 重复连接，只有最后一次连接会收到消息。
-可查看 [replace_connection.py](C:/Users/16841/Desktop/xiuxianserver/src/ws/replace_connection.py:1) 示例。
-
-广播给所有在线客户端：
-
-```python
-await manager.send_all(message)
-```
+可查看 [replace_connection.py](C:/Users/16841/Desktop/back_ai/src/ws/replace_connection.py:1) 示例。
 
 当前业务函数默认只应期待“一条发送对应一条主要回复”。
 如果一个消息同时命中多个同优先级规则，服务端会逐条发送；像 `ws_test.py` 这种测试客户端只等待第一条回复。
 
-`manager.send(...)` 和 `manager.send_all(...)` 会自动把内容整理成：
+`manager.send(...)` 会自动把内容整理成：
 
 ```json
 {
   "code": 202,
   "type": "text",
-  "message": "文本内容"
+  "message": "文本内容",
+  "request_id": "本次请求唯一 id"
 }
 ```
 
@@ -418,18 +414,18 @@ await manager.send({"code": 404, "type": "text", "message": "错误原因"}, cli
 const clientId = "user001";
 const ws = new WebSocket(`ws://127.0.0.1:7001/ws/bot/${clientId}`);
 
-ws.onopen = () => {
+function send(message) {
   ws.send(JSON.stringify({
     code: 202,
     type: "text",
-    message: "你好 hello"
+    message,
+    request_id: crypto.randomUUID()
   }));
+}
 
-  ws.send(JSON.stringify({
-    code: 202,
-    type: "text",
-    message: "你好管委会-731"
-  }));
+ws.onopen = () => {
+  send("你好 hello");
+  send("你好管委会-731");
 };
 
 ws.onmessage = (event) => {

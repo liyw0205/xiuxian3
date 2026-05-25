@@ -9,6 +9,7 @@ from ..common import (
     hint,
     load_json,
     money,
+    parse_weapon_ref,
     quality_factor,
     split_words,
     to_int,
@@ -51,7 +52,7 @@ class WeaponService(WeaponCore):
             return error
         self.ensure_starter_weapon(client_id)
 
-        weapon_id = self._parse_weapon_id(message)
+        weapon_id = parse_weapon_ref(message)
         if weapon_id <= 0:
             return hint("查看武器格式不正确。", "发送：查看武器 武器ID，例如：查看武器 1")
 
@@ -62,8 +63,29 @@ class WeaponService(WeaponCore):
 
         return "\n".join(["☆武器详情☆", *self._weapon_detail_lines(weapon, len(rows))])
 
+    def legend(self, client_id: str, message: str) -> str:
+        """查看一把武器的完整传奇记录。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
+
+        _, error = self.require_player(client_id)
+        if error:
+            return error
+        self.ensure_starter_weapon(client_id)
+        weapon_id = parse_weapon_ref(message)
+        if weapon_id <= 0:
+            return hint("缺少武器 ID。", "发送：武器 查看编号，再发送：武器传奇 武器ID<武器>")
+        weapon = self.weapon(client_id, weapon_id)
+        if not weapon:
+            return hint(f"没有找到武器 #{weapon_id}。", "发送：武器 查看自己的武器列表。<武器>")
+        with self.db.transaction() as conn:
+            self.record_weapon_created_conn(conn, client_id, weapon_id)
+        legend = self.db.fetch_one("SELECT * FROM weapon_legends WHERE weapon_id = ?", (weapon_id,))
+        weapon["legend"] = dict(legend) if legend else {}
+        return self._weapon_legend_text(weapon)
+
     def switch(self, client_id: str, message: str) -> str:
         """切换武器。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -71,14 +93,19 @@ class WeaponService(WeaponCore):
         weapon_id = to_int(message)
         weapon = self.weapon(client_id, weapon_id)
         if not weapon:
-            return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。")
+            return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
         with self.db.transaction() as conn:
             conn.execute("UPDATE player_weapons SET equipped = 0 WHERE owner_id = ?", (client_id,))
             conn.execute("UPDATE player_weapons SET equipped = 1 WHERE owner_id = ? AND weapon_id = ?", (client_id, weapon_id))
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '切换武器', ?, ?)",
+                (client_id, f"weapon_id={weapon_id}, name={weapon_label_name(weapon)}", ts()),
+            )
         return f"已切换武器：{weapon_label_name(weapon)}。"
 
     def upgrade(self, client_id: str, message: str) -> str:
         """升级武器。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -95,13 +122,13 @@ class WeaponService(WeaponCore):
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
-                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。")
+                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
             if weapon["level"] >= weapon["max_level"]:
                 return hint("这把武器已经到达自身等级上限。", "可以切换或继续探险获取更高上限武器。")
             next_level = weapon["level"] + 1
             cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
             if not self.spend_stones_conn(conn, client_id, cost):
-                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。")
+                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<签到><探险>")
             attack = weapon["attack"] + max(1, int(weapon["attack"] * 0.04))
             slots = weapon_enchant_slots(weapon["max_level"], next_level)
             conn.execute(
@@ -112,6 +139,14 @@ class WeaponService(WeaponCore):
                 """,
                 (next_level, attack, slots, weapon_id, client_id),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级武器', ?, ?)",
+                (
+                    client_id,
+                    f"weapon_id={weapon_id}, level={next_level}, attack={attack}, cost={cost}, slots={slots}",
+                    ts(),
+                ),
+            )
         return (
             f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{weapon['max_level']}，"
             f"攻击 {attack}，附魔栏 {slots}。"
@@ -119,17 +154,18 @@ class WeaponService(WeaponCore):
 
     def recycle(self, client_id: str, message: str) -> str:
         """在武器回收地点处理备用武器。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
 
-        location = self._recycle_location(player["location_name"], "weapon")
+        location = self.recycle_location(player["location_name"], "weapon")
         if not location:
-            return hint("当前位置不是武器回收地点。", "发送：商场列表 查看地点，再发送：导航 铸剑阁")
+            return hint("当前位置不是武器回收地点。", "发送：商场列表 查看地点，再发送：导航 铸剑阁<导航 铸剑阁>")
 
-        weapon_id = self._parse_weapon_id(message)
+        weapon_id = parse_weapon_ref(message)
         if weapon_id <= 0:
             return self._recycle_preview(client_id, location)
 
@@ -206,15 +242,16 @@ class WeaponService(WeaponCore):
 
     def recycle_book(self, client_id: str, message: str) -> str:
         """在回收地点处理纳戒里的未附魔技能书。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
 
-        location = self._recycle_location(player["location_name"], "book")
+        location = self.recycle_location(player["location_name"], "book")
         if not location:
-            return hint("当前位置不是技能书回收地点。", "发送：商场列表 查看地点，再发送：导航 藏经阁")
+            return hint("当前位置不是技能书回收地点。", "发送：商场列表 查看地点，再发送：导航 藏经阁<导航 藏经阁>")
 
         text = message.strip()
         if not text:
@@ -288,6 +325,7 @@ class WeaponService(WeaponCore):
 
     def enchant(self, client_id: str, message: str) -> str:
         """给武器附魔。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -299,7 +337,7 @@ class WeaponService(WeaponCore):
         book_name = " ".join(parts[1:])
         book = self.equipment_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
-            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。")
+            return hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。<纳戒>")
         effect = load_json(book["effect"], {})
         enchant_id = effect.get("enchant_id")
         enchant = self.db.fetch_one("SELECT * FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
@@ -316,16 +354,20 @@ class WeaponService(WeaponCore):
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
-                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。")
+                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
             current = load_json(weapon["enchant_effects"], [])
             if len(current) >= weapon["enchant_slots"]:
                 return hint("这把武器没有空余附魔栏。", "升级武器可能解锁附魔栏，或换一把更高上限武器。")
             if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], 1):
-                return hint(f"纳戒里没有 {book['name']}。", "发送：纳戒 确认库存，或继续探险获取技能书。")
+                return hint(f"纳戒里没有 {book['name']}。", "发送：纳戒 确认库存，或继续探险获取技能书。<纳戒>")
             current.append(enchant_id)
             conn.execute(
                 "UPDATE player_weapons SET enchant_effects = ? WHERE weapon_id = ? AND owner_id = ?",
                 (dump_json(current), weapon_id, client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '附魔武器', ?, ?)",
+                (client_id, f"weapon_id={weapon_id}, book={book['equipment_item_id']}, enchant={enchant_id}", ts()),
             )
         return f"附魔成功：{weapon_label_name(weapon)} 获得 {book['name']}。"
 
@@ -384,13 +426,14 @@ class WeaponService(WeaponCore):
 
         mark = "已装备" if int(weapon["equipped"]) else "备用"
         skill = self.skill(weapon["skill_id"])
+        skill_name = self.weapon_skill_label(int(weapon["weapon_id"]), skill)
         enchant_ids = load_json(weapon["enchant_effects"], [])
         if not isinstance(enchant_ids, list):
             enchant_ids = []
         return (
-            f"#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] {mark} "
+            f"({weapon['weapon_id']}) {weapon_label_name(weapon)}[{weapon['quality']}] {mark} "
             f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{weapon['attack']} "
-            f"技能:{skill['name']} 附魔:{len(enchant_ids)}/{weapon['enchant_slots']}"
+            f"技能:{skill_name} 附魔:{len(enchant_ids)}/{weapon['enchant_slots']}"
             f"{self._enchant_text(int(weapon['weapon_id']), enchant_ids)}"
         )
 
@@ -408,6 +451,7 @@ class WeaponService(WeaponCore):
         status = "已装备" if int(weapon["equipped"]) else "备用"
         next_cost = self._next_upgrade_text(weapon)
         recycle_text = self._recycle_state_text(weapon, total_count)
+        legend_text = self._legend_text(int(weapon["weapon_id"]))
         return [
             f"#{weapon['weapon_id']} {weapon_label_name(weapon)}[{weapon['quality']}] {status}",
             (
@@ -424,8 +468,36 @@ class WeaponService(WeaponCore):
                 f"{self._next_slot_text(weapon, unlocked_slots, potential_slots)}"
             ),
             "  附魔:" + self._enchant_detail_text(int(weapon["weapon_id"]), enchant_ids),
+            f"  传奇:{legend_text}",
             f"  回收:{recycle_text}",
         ]
+
+    def _legend_text(self, weapon_id: int) -> str:
+        """展示武器轻量传奇记录。"""
+
+        row = self.db.fetch_one("SELECT * FROM weapon_legends WHERE weapon_id = ?", (weapon_id,))
+        if not row:
+            return "暂无记录"
+        return (
+            f"斩怪{row['monster_kills']} Boss{row['boss_challenges']} "
+            f"决斗胜{row['duel_wins']} 最高伤害{row['highest_damage']}"
+        )
+
+    def _weapon_legend_text(self, weapon: dict) -> str:
+        """格式化完整武器传奇记录。"""
+
+        legend = weapon.get("legend") or {}
+        original = self.format_player_name(legend.get("original_owner_id", weapon["owner_id"]))
+        current = self.format_player_name(legend.get("current_owner_id", weapon["owner_id"]))
+        return (
+            f"☆武器传奇·#{weapon['weapon_id']} {weapon_label_name(weapon)}☆\n"
+            f"品质:{weapon['quality']} 类型:{weapon['weapon_type']} 等级:{weapon['level']}/{weapon['max_level']}\n"
+            f"初主:{original} 现主:{current}\n"
+            f"斩怪:{legend.get('monster_kills', 0)} 次 "
+            f"Boss:{legend.get('boss_challenges', 0)} 战 "
+            f"决斗胜:{legend.get('duel_wins', 0)} 场\n"
+            f"最高单次伤害:{legend.get('highest_damage', 0)}"
+        )
 
     @staticmethod
     def _next_upgrade_text(weapon: dict) -> str:
@@ -466,9 +538,10 @@ class WeaponService(WeaponCore):
         interval = self._skill_interval(skill, weapon, effects)
         cost = self._skill_cost(skill, effects)
         power = self._skill_power(skill, effects)
-        desc = skill.get("desc", "")
+        name = self.weapon_skill_label(int(weapon["weapon_id"]), skill)
+        desc = skill.get("effect_desc") or skill.get("desc", "")
         text = (
-            f"{skill['name']} | 威力{power:.2f}倍 | 消耗精神{cost} | "
+            f"{name} | 威力{power:.2f}倍 | 消耗精神{cost} | "
             f"每{interval}次攻击触发"
         )
         return f"{text} | {desc}" if desc else text
@@ -527,25 +600,6 @@ class WeaponService(WeaponCore):
         if mp_delta:
             texts.append(f"精神消耗{mp_delta:+d}")
         return "、".join(texts) if texts else "无数值效果"
-
-    @staticmethod
-    def _parse_weapon_id(message: str) -> int:
-        """解析 武器ID / 武器#ID / #ID / ID。"""
-
-        value = message.strip()
-        for prefix in ("武器#", "武器ID", "武器", "#"):
-            if value.startswith(prefix):
-                value = value[len(prefix):]
-                break
-        return to_int(value)
-
-    def _recycle_location(self, location_name: str, recycle_type: str) -> dict | None:
-        """读取当前地点是否支持指定类型回收。"""
-
-        return self.db.fetch_one(
-            "SELECT * FROM recycle_locations WHERE name = ? AND recycle_type = ?",
-            (location_name.strip(), recycle_type),
-        )
 
     def _today_recycle_income(self, client_id: str) -> int:
         """读取玩家今日武器回收收入。"""

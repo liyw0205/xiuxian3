@@ -1,4 +1,4 @@
-"""固定装备组件服务。"""
+"""装备组件服务。"""
 
 from __future__ import annotations
 
@@ -24,10 +24,11 @@ HOLE_ITEM_ID = "kaikongqi"
 
 
 class EquipmentService(CoreService):
-    """固定装备升级和镶嵌。"""
+    """装备升级和镶嵌。"""
 
     def list_equipment(self, client_id: str) -> str:
-        """查看固定装备。"""
+        """查看装备。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -42,18 +43,21 @@ class EquipmentService(CoreService):
         lines.append(
             f"当前总生存加成：血气+{int(bonuses['max_hp_bonus'])} "
             f"精神+{int(bonuses['max_mp_bonus'])} 防御+{int(bonuses['defense_bonus'])}"
+            + "<升 左手><升 右手><升 左脚><升 右脚>"
+            + "<升 头部><升 护甲><升 饰品>"
         )
-        return "\n".join(lines)
+        return "\n".join(lines) 
 
     def upgrade(self, client_id: str, slot: str) -> str:
-        """升级固定装备。"""
+        """升级装备。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         slot = slot.strip()
         if slot not in EQUIPMENT_SLOTS:
-            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：固定装备 查看已有装备位。")
+            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：装备 查看已有装备位。<装备>")
         self.db.ensure_fixed_equipment(client_id)
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -65,23 +69,28 @@ class EquipmentService(CoreService):
                 return hint(f"{slot} 已满级。", "可以升级其他装备位，或继续镶嵌、升级宝石。")
             cost = equipment_upgrade_cost(level + 1, FIXED_EQUIPMENT_SLOT_FACTORS[slot])
             if not self.spend_stones_conn(conn, client_id, cost):
-                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。")
+                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<商场自动出售><特殊自动出售>")
             conn.execute(
                 "UPDATE fixed_equipment SET level = level + 1 WHERE client_id = ? AND slot = ?",
                 (client_id, slot),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级装备', ?, ?)",
+                (client_id, f"slot={slot}, level={level + 1}, cost={cost}", ts()),
             )
         self.recalc_player(client_id)
         return f"{fixed_equipment_label(row) if row else slot} 升级成功，当前 {level + 1} 级。"
 
     def holes(self, client_id: str, slot: str) -> str:
-        """查看固定装备孔位。"""
+        """查看装备孔位。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         slot = slot.strip()
         if slot not in EQUIPMENT_SLOTS:
-            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：固定装备 查看已有装备位。")
+            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：装备 查看已有装备位。<装备>")
         equipment = self._equipment_row(client_id, slot)
         hole_count = int(equipment["hole_count"]) if equipment else DEFAULT_HOLES
         rows = self.db.fetch_all(
@@ -104,14 +113,14 @@ class EquipmentService(CoreService):
         return "\n".join(lines)
 
     def open_hole(self, client_id: str, slot: str) -> str:
-        """消耗开孔器，为固定装备增加 1 个孔位。"""
+        """消耗开孔器，为装备增加 1 个孔位。"""
 
         _, error = self.require_player(client_id)
         if error:
             return error
         slot = slot.strip()
         if slot not in EQUIPMENT_SLOTS:
-            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：固定装备 查看已有装备位。")
+            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：装备 查看已有装备位。")
         self.db.ensure_fixed_equipment(client_id)
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -120,9 +129,9 @@ class EquipmentService(CoreService):
             ).fetchone()
             hole_count = int(row["hole_count"]) if row else DEFAULT_HOLES
             if hole_count >= MAX_HOLES:
-                return hint(f"{slot} 已经达到 {MAX_HOLES} 孔上限。", "可以给其他固定装备开孔，或继续镶嵌、升级宝石。")
+                return hint(f"{slot} 已经达到 {MAX_HOLES} 孔上限。", "可以给其他装备开孔，或继续镶嵌、升级宝石。")
             if not self.remove_ring_conn(conn, client_id, HOLE_ITEM_ID, 1):
-                return hint("纳戒里没有开孔器。", "开孔器只通过活动 Boss 掉落，获得后发送：开孔 装备位")
+                return hint("纳戒里没有开孔器。", "开孔器通过岁时情劫首领奖励获得，获得后发送：开孔 装备位")
             conn.execute(
                 """
                 UPDATE fixed_equipment
@@ -131,11 +140,16 @@ class EquipmentService(CoreService):
                 """,
                 (client_id, slot),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '装备开孔', ?, ?)",
+                (client_id, f"slot={slot}, holes={hole_count + 1}", ts()),
+            )
         equipment = self._equipment_row(client_id, slot)
         return f"开孔成功：{fixed_equipment_label(equipment) if equipment else slot} 当前孔位 {hole_count + 1}/{MAX_HOLES}。"
 
     def inlay(self, client_id: str, message: str) -> str:
-        """镶嵌固定装备。"""
+        """镶嵌装备。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -150,7 +164,7 @@ class EquipmentService(CoreService):
             return hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {MAX_HOLES}。")
         item = self.equipment_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
-            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。")
+            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。<宝石>")
         with self.db.transaction() as conn:
             equipment = conn.execute(
                 "SELECT hole_count FROM fixed_equipment WHERE client_id = ? AND slot = ?",
@@ -168,24 +182,29 @@ class EquipmentService(CoreService):
             ).fetchone()
             if exists:
                 return hint("该孔位已经有宝石。", "发送：拆卸 装备位 孔位号 后再重新镶嵌。")
-            gem_level, level_error = self._resolve_gem_level_conn(
+            gem_level, level_error = self.resolve_gem_level_conn(
                 conn,
                 client_id,
                 item["equipment_item_id"],
                 item["name"],
                 wanted_level,
+                "镶嵌 护甲 1 {name} {level}级",
             )
             if level_error:
                 return level_error
             assert gem_level is not None
             if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, 1):
-                return hint(f"纳戒里没有 {item['name']} {gem_level}级。", "发送：宝石 查看已有宝石等级，或继续探险获取。")
+                return hint(f"纳戒里没有 {item['name']} {gem_level}级。", "发送：宝石 查看已有宝石等级，或继续探险获取。<宝石><探险>")
             conn.execute(
                 """
                 INSERT INTO fixed_equipment_inlays (client_id, slot, hole_no, gem_id, level)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (client_id, slot, hole_no, item["equipment_item_id"], gem_level),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '镶嵌宝石', ?, ?)",
+                (client_id, f"slot={slot}, hole={hole_no}, gem={item['equipment_item_id']}, level={gem_level}", ts()),
             )
         self.recalc_player(client_id)
         equipment = self._equipment_row(client_id, slot)
@@ -219,6 +238,10 @@ class EquipmentService(CoreService):
                 "DELETE FROM fixed_equipment_inlays WHERE client_id = ? AND slot = ? AND hole_no = ?",
                 (client_id, slot, hole_no),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '拆卸宝石', ?, ?)",
+                (client_id, f"slot={slot}, hole={hole_no}, gem={row['gem_id']}, level={row['level']}", ts()),
+            )
         self.recalc_player(client_id)
         return f"拆卸成功：{row['name']} {row['level']}级已回到纳戒。"
 
@@ -235,15 +258,16 @@ class EquipmentService(CoreService):
 
     def recycle_gem(self, client_id: str, message: str) -> str:
         """在回收地点处理纳戒里的未镶嵌宝石。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
 
-        location = self._recycle_location(player["location_name"])
+        location = self.recycle_location(player["location_name"], "gem")
         if not location:
-            return hint("当前位置不是宝石回收地点。", "发送：商场列表 查看地点，再发送：导航 琢玉楼")
+            return hint("当前位置不是宝石回收地点。", "发送：商场列表 查看地点，再发送：导航 琢玉楼<导航 琢玉楼>")
 
         text = message.strip()
         if not text:
@@ -254,16 +278,16 @@ class EquipmentService(CoreService):
             return hint("宝石回收格式不正确。", "发送：回收宝石 宝石名 等级 数量，例如：回收宝石 护心玉 2级 1")
         item = self.equipment_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
-            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看纳戒里的宝石。")
+            return hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看纳戒里的宝石。<宝石>")
 
         with self.db.transaction() as conn:
-            gem_level, level_error = self._resolve_gem_level_conn(
+            gem_level, level_error = self.resolve_gem_level_conn(
                 conn,
                 client_id,
                 item["equipment_item_id"],
                 item["name"],
                 wanted_level,
-                "回收宝石",
+                "回收宝石 {name} {level}级 1",
             )
             if level_error:
                 return level_error
@@ -278,7 +302,7 @@ class EquipmentService(CoreService):
             ).fetchone()
             owned = int(row["quantity"]) if row else 0
             if owned < quantity:
-                return hint(f"纳戒里 {item['name']} {gem_level}级 只有 {owned} 个。", "发送：宝石 查看库存后再回收。")
+                return hint(f"纳戒里 {item['name']} {gem_level}级 只有 {owned} 个。", "发送：宝石 查看库存后再回收。<宝石>")
 
             today_income = self._today_gem_recycle_income_conn(conn, client_id)
             quote = self._gem_recycle_quote(
@@ -290,7 +314,7 @@ class EquipmentService(CoreService):
                 today_income,
             )
             if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, quantity):
-                return hint("宝石库存已变化，回收失败。", "发送：宝石 查看当前库存后再试。")
+                return hint("宝石库存已变化，回收失败。", "发送：宝石 查看当前库存后再试。<宝石>")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (quote["value"], client_id),
@@ -331,6 +355,7 @@ class EquipmentService(CoreService):
 
     def upgrade_inlay(self, client_id: str, message: str) -> str:
         """升级已镶嵌的宝石。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -348,7 +373,7 @@ class EquipmentService(CoreService):
             next_level = row["level"] + 1
             cost = 5000 * (next_level**2)
             if not self.spend_stones_conn(conn, client_id, cost):
-                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。")
+                return hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石<商场自动出售><特殊自动出售>。")
             conn.execute(
                 """
                 UPDATE fixed_equipment_inlays
@@ -356,6 +381,14 @@ class EquipmentService(CoreService):
                 WHERE client_id = ? AND slot = ? AND hole_no = ?
                 """,
                 (next_level, client_id, row["slot"], row["hole_no"]),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级宝石', ?, ?)",
+                (
+                    client_id,
+                    f"slot={row['slot']}, hole={row['hole_no']}, gem={row['gem_id']}, level={next_level}, cost={cost}",
+                    ts(),
+                ),
             )
         self.recalc_player(client_id)
         return f"{row['slot']} {row['hole_no']}号孔 {row['name']} 升级成功：{row['level']} -> {next_level}，消耗源石 {money(cost)}。"
@@ -400,43 +433,6 @@ class EquipmentService(CoreService):
             f"发送：宝石升级 装备位 孔位号，例如：宝石升级 {rows[0]['slot']} {rows[0]['hole_no']}。可选：{options}",
         )
 
-    @staticmethod
-    def _resolve_gem_level_conn(
-        conn,
-        client_id: str,
-        gem_id: str,
-        gem_name: str,
-        wanted_level: int | None,
-        example_command: str | None = None,
-    ):
-        """确定要操作的宝石等级；同名多等级时要求用户写清等级。"""
-
-        if wanted_level is not None:
-            return wanted_level, None
-
-        rows = conn.execute(
-            """
-            SELECT level, quantity FROM gem_items
-            WHERE client_id = ? AND gem_id = ? AND quantity > 0
-            ORDER BY level
-            """,
-            (client_id, gem_id),
-        ).fetchall()
-        if not rows:
-            return 1, None
-        if len(rows) == 1:
-            return int(rows[0]["level"]), None
-
-        options = "、".join(f"{row['level']}级x{row['quantity']}" for row in rows)
-        if example_command == "回收宝石":
-            example_text = f"回收宝石 {gem_name} {rows[-1]['level']}级 1"
-        else:
-            example_text = f"镶嵌 护甲 1 {gem_name} {rows[-1]['level']}级"
-        return None, hint(
-            f"纳戒里有多种等级的 {gem_name}。",
-            f"请写清等级，例如：{example_text}。现有：{options}",
-        )
-
     def _gem_recycle_preview(self, client_id: str, location: dict) -> str:
         """展示当前可回收宝石和估价。"""
 
@@ -465,14 +461,6 @@ class EquipmentService(CoreService):
                 f"单颗估价:{money(quote['value'])}"
             )
         return "\n".join(lines)
-
-    def _recycle_location(self, location_name: str) -> dict | None:
-        """读取当前地点是否支持宝石回收。"""
-
-        return self.db.fetch_one(
-            "SELECT * FROM recycle_locations WHERE name = ? AND recycle_type = 'gem'",
-            (location_name.strip(),),
-        )
 
     def _today_gem_recycle_income(self, client_id: str) -> int:
         """读取玩家今日宝石回收收入。"""
@@ -537,7 +525,7 @@ class EquipmentService(CoreService):
         return item_name, wanted_level, quantity
 
     def _equipment_row(self, client_id: str, slot: str) -> dict | None:
-        """读取某个固定装备位。"""
+        """读取某个装备位。"""
 
         self.db.ensure_fixed_equipment(client_id)
         return self.db.fetch_one(

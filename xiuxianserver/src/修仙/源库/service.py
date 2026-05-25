@@ -14,6 +14,7 @@ class SourceVaultService(CoreService):
 
     def info(self, client_id: str) -> str:
         """查看源库。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -26,6 +27,7 @@ class SourceVaultService(CoreService):
             f"随身源石:{money(player['source_stones'])}\n"
             f"源库存量:{money(vault['balance'])}/{money(level_conf['limit'])}\n"
             f"今日利息:{money(vault['daily_interest'])}/{money(level_conf['daily_interest_limit'])}"
+            f"<源库结息><升级源库>"
         )
 
     def settle(self, client_id: str) -> str:
@@ -36,6 +38,10 @@ class SourceVaultService(CoreService):
             return error
         with self.db.transaction() as conn:
             reward, hours = self._settle_conn(conn, client_id)
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '源库结息', ?, ?)",
+                (client_id, f"reward={reward}, hours={hours:.2f}", ts()),
+            )
         return f"源库结息完成，本次计算 {hours:.2f} 小时，获得源石 {money(reward)}。"
 
     def upgrade(self, client_id: str) -> str:
@@ -54,10 +60,15 @@ class SourceVaultService(CoreService):
             if not self.spend_stones_conn(conn, client_id, cost):
                 return hint(f"源石不足，升级需要 {money(cost)}。", "先签到、探险、出售物品，或从源库取出源石。")
             conn.execute("UPDATE source_vaults SET level = ? WHERE client_id = ?", (next_level, client_id))
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级源库', ?, ?)",
+                (client_id, f"level={next_level}, cost={cost}", ts()),
+            )
         return f"源库升级成功，当前为 {BANK_LEVELS[next_level]['name']}。"
 
     def deposit(self, client_id: str, amount: int) -> str:
         """存入源石。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -70,12 +81,16 @@ class SourceVaultService(CoreService):
             limit = BANK_LEVELS[vault["level"]]["limit"]
             can_deposit = min(amount, limit - vault["balance"])
             if can_deposit <= 0:
-                return hint("源库已经存满。", "可以发送：升级源库 提高容量，或发送：取出源石 数量。")
+                return hint("源库已经存满。", "可以发送：升级源库 提高容量，或发送：取出源石 数量。<升级源库>")
             if not self.spend_stones_conn(conn, client_id, can_deposit):
-                return hint("随身源石不足。", "发送：修仙信息 查看随身源石，或先签到、探险、出售物品。")
+                return hint("随身源石不足。", "发送：修仙信息 查看随身源石，或先签到、探险、出售物品。<签到><探险>")
             conn.execute(
                 "UPDATE source_vaults SET balance = balance + ? WHERE client_id = ?",
                 (can_deposit, client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '存入源石', ?, ?)",
+                (client_id, f"amount={can_deposit}", ts()),
             )
         return f"已存入源石 {money(can_deposit)}。"
 
@@ -102,6 +117,10 @@ class SourceVaultService(CoreService):
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (amount, client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '取出源石', ?, ?)",
+                (client_id, f"amount={amount}", ts()),
             )
         return f"已取出源石 {money(amount)}。"
 

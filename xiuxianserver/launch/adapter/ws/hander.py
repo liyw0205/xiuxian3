@@ -146,14 +146,6 @@ class WsMessageHandler(BaseMessageHandler):
                 split_message=message,
                 match=match,
             )
-            if not await WsMessageHandler._check_business_request_once(
-                rule=rule,
-                client_id=client_id,
-                raw_message=raw_message,
-                message_data=message_data,
-                manager=manager,
-            ):
-                return True
 
             await WsMessageHandler._call_rule(
                 rule,
@@ -170,35 +162,6 @@ class WsMessageHandler(BaseMessageHandler):
                 block_priority = rule.priority
 
         return True
-
-    @staticmethod
-    async def _check_business_request_once(
-        rule: HandlerRule,
-        client_id: str,
-        raw_message: str,
-        message_data: dict,
-        manager: ConnectionManager,
-    ) -> bool:
-        """给特定业务模块提供 request_id 幂等保护。"""
-
-        request_id = str(message_data.get("request_id") or "").strip()
-        if not request_id:
-            return True
-
-        module_name = getattr(rule.func, "__module__", "")
-        if not module_name.startswith("src.修仙"):
-            return True
-
-        try:
-            from src.修仙.common import mark_request_once
-        except Exception:
-            return True
-
-        if mark_request_once(client_id, request_id, raw_message):
-            return True
-
-        await manager.send("请求已处理，请勿重复提交。", client_id)
-        return False
 
     @staticmethod
     async def has_match(message_data: dict) -> bool:
@@ -254,75 +217,13 @@ class WsMessageHandler(BaseMessageHandler):
         """按第一个空格拆出 cmd 和 message。
 
         message 不再 split 成列表，避免打乱业务参数。
-        CQ/at 属于通讯层输入格式，会在这里统一替换成内部 id。
+        CQ/at 已经在 WS 接收层转成 client_id，这里只负责拆分。
         """
 
         cmd, separator, message = raw_message.partition(" ")
         if not separator:
-            cmd, message = WsMessageHandler._split_no_space_message(raw_message)
-            return cmd, WsMessageHandler._normalize_at_refs(message)
-
-        if "[CQ:at," in cmd:
-            split_cmd, split_message = WsMessageHandler._split_no_space_message(cmd)
-            if split_cmd != cmd:
-                tail = message.lstrip()
-                if tail:
-                    split_message = f"{split_message} {tail}"
-                return split_cmd, WsMessageHandler._normalize_at_refs(split_message)
-        return cmd, WsMessageHandler._normalize_at_refs(message)
-
-    @staticmethod
-    def _split_no_space_message(raw_message: str) -> Tuple[str, str]:
-        """处理没有空格的消息。
-
-        常见场景是：
-            温度[CQ:at,qq=1684193123]
-
-        这类消息的触发命令仍然是“温度”，后面的 CQ/at 是业务参数。
-        为了避免遍历全部命令，只按已注册命令长度切片，再走字典判断。
-        """
-
-        if "[CQ:at," not in raw_message:
             return raw_message, ""
-
-        lengths = WsMessageHandler.exact_cmd_lengths or {
-            len(cmd)
-            for cmd in WsMessageHandler.func_dict
-        }
-        for length in sorted(lengths, reverse=True):
-            cmd = raw_message[:length]
-            message = raw_message[length:]
-            if cmd in WsMessageHandler.func_dict and message.startswith("[CQ:at,"):
-                return cmd, message
-
-        return raw_message, ""
-
-    @staticmethod
-    def _normalize_at_refs(message: str) -> str:
-        """把 message 里的 CQ/at 统一替换成内部 id。
-
-        业务层只需要处理 id 或名称，不需要关心 CQ/at 的具体格式。
-        raw_message 仍保留完整原文，后续自定义功能需要时可以读取。
-
-        CQ/at 经常紧贴在前一个参数后面，例如：
-            赌约 1000[CQ:at,qq=abc]
-
-        替换时会在 id 两侧补空格，避免变成 1000abc。
-        """
-
-        if "[CQ:at," not in message:
-            return message
-
-        normalized = re.sub(
-            r"\[CQ:at,qq=(?P<id>[^\],\]]+)[^\]]*\]",
-            lambda match: f" {match.group('id').strip()} ",
-            message,
-        )
-        return re.sub(
-            r"\s+",
-            " ",
-            normalized,
-        ).strip()
+        return cmd, message.strip()
 
     @staticmethod
     def _message_after_match(

@@ -10,16 +10,15 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 from ..reply import send_reply
 from .service import service
 
-
 HELP_IMAGE = Path(__file__).with_name("help.png")
 
 
-@WsMessageHandler.handler(cmd="帮助", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("帮助", "修仙帮助"), priority=100, block=True)
 async def ws_xiuxian_guide(client_id: str, message: str) -> None:
     """查看新手指引。"""
 
     if not HELP_IMAGE.exists():
-        await send_reply(client_id, service.guide(), ws_manager, service)
+        await send_reply(client_id, service.command_guide(), ws_manager, service)
         return
 
     image_bytes = HELP_IMAGE.read_bytes()
@@ -36,7 +35,14 @@ async def ws_xiuxian_guide(client_id: str, message: str) -> None:
     )
 
 
-@WsMessageHandler.handler(cmd=("创建用户", "用户创建"), priority=100, block=True)
+@WsMessageHandler.handler(cmd="指南", priority=100, block=True)
+async def ws_command_guide(client_id: str, message: str) -> None:
+    """查看关键组件按钮导航。"""
+
+    await send_reply(client_id, service.command_guide(), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="创建用户", priority=100, block=True)
 async def ws_create_player(client_id: str, message: str) -> None:
     """创建修仙用户。"""
 
@@ -50,11 +56,18 @@ async def ws_rename_player(client_id: str, message: str) -> None:
     await send_reply(client_id, service.rename(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd=("修仙信息", "状态"), priority=100, block=True)
+@WsMessageHandler.handler(cmd=("修仙信息","状态"), priority=100, block=True)
 async def ws_profile(client_id: str, message: str) -> None:
     """查看玩家信息。"""
 
     await send_reply(client_id, service.profile(client_id), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="修仙日记", priority=100, block=True)
+async def ws_player_diary(client_id: str, message: str) -> None:
+    """查看个人修仙日记。"""
+
+    await send_reply(client_id, service.diary(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="自动用药", priority=100, block=True)
@@ -71,7 +84,7 @@ async def ws_sign(client_id: str, message: str) -> None:
     await send_reply(client_id, service.sign(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd=("新手礼包", "礼包"), priority=100, block=True)
+@WsMessageHandler.handler(cmd="新手礼包", priority=100, block=True)
 async def ws_newbie_gift(client_id: str, message: str) -> None:
     """领取新手礼包。"""
 

@@ -231,7 +231,7 @@ def weapon_upgrade_cost(next_level: int, quality_factor: float) -> int:
 
 
 def equipment_upgrade_cost(next_level: int, slot_factor: float) -> int:
-    """计算固定装备升级源石。"""
+    """计算装备升级源石。"""
 
     return floor(800 * (int(next_level) ** 1.55) * float(slot_factor))
 

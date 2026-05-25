@@ -32,6 +32,7 @@ class TradeService(CoreService):
 
     def current(self, client_id: str) -> str:
         """查看当前位置商场。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -39,7 +40,7 @@ class TradeService(CoreService):
         assert player is not None
         rows = self._location_goods(player["location_name"])
         if not rows:
-            return hint(f"{player['location_name']} 暂无商场商品。", "发送：商场列表 查看跑商地点，再发送：导航 地点名")
+            return hint(f"{player['location_name']} 暂无商场商品。", "发送：商场列表 查看跑商地点，再发送：导航 地点名<商场列表>")
         lines = [f"☆{player['location_name']}商场☆"]
         for row in rows[:12]:
             buy, sell = self.price(player["location_name"], row["item_id"])
@@ -47,7 +48,7 @@ class TradeService(CoreService):
         return "\n".join(lines)
 
     def locations(self, client_id: str) -> str:
-        """查看地点列表。"""
+        """查看跑商地点列表。"""
 
         _, error = self.require_player(client_id)
         if error:
@@ -60,14 +61,12 @@ class TradeService(CoreService):
         lines.append("☆特殊收购地点☆")
         lines.extend(f"{row['buyer_name']} ({row['x']},{row['y']})" for row in buyer_rows)
         lines.append("☆回收地点☆")
-        lines.extend(
-            f"{row['name']} ({row['x']},{row['y']}) {self._recycle_type_text(row['recycle_type'])}"
-            for row in recycle_rows
-        )
+        lines.extend(f"{row['name']} ({row['x']},{row['y']}) {self._recycle_type_text(row['recycle_type'])}" for row in recycle_rows)
         return "\n".join(lines)
 
     def detail(self, client_id: str, location_name: str) -> str:
         """查看地点详情。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -78,10 +77,10 @@ class TradeService(CoreService):
             buyer = self._special_buyer(name)
             if buyer:
                 return self._format_special_buyer(buyer)
-            recycle_location = self._recycle_location(name)
+            recycle_location = self.recycle_location(name)
             if recycle_location:
                 return self._format_recycle_location(recycle_location)
-            return hint(f"没有找到地点：{name}。", "发送：商场列表 查看可导航地点。")
+            return hint(f"没有找到地点：{name}。", "发送：商场列表 查看可导航地点。<商场列表>")
 
         demand = TRADE_LOCATION_DEMANDS.get(location["name"], {})
         goods = self._location_goods(location["name"])
@@ -95,15 +94,16 @@ class TradeService(CoreService):
 
     def market_price(self, client_id: str, item_name: str) -> str:
         """查看全图市价。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         item = self.item_def_by_name(item_name.strip())
         if not item:
-            return hint(f"没有找到商品：{item_name.strip()}。", "发送：商场 查看当前位置商品，或发送：商场详情 地点名")
+            return hint(f"没有找到商品：{item_name.strip()}。", "发送：商场 查看当前位置商品，或发送：商场详情 地点名<商场>")
         if not item["tradeable"]:
-            return hint(f"{item['name']} 不是跑商商品。", "跑商只能查询特产商品；其他物品可发送：背包 或 纳戒")
+            return hint(f"{item['name']} 不是跑商商品。", "跑商只能查询特产商品；其他物品可发送：背包 或 纳戒<背包><纳戒>")
         rows = self.db.fetch_all("SELECT name FROM trade_locations ORDER BY name")
         lines = [f"☆{item['name']}市价☆"]
         for row in rows:
@@ -113,6 +113,7 @@ class TradeService(CoreService):
 
     def buy(self, client_id: str, message: str) -> str:
         """商场购买。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -123,13 +124,13 @@ class TradeService(CoreService):
             return hint("购买格式不正确。", "发送：商场购买 商品名 数量，例如：商场购买 青木符纸 3")
         item = self.item_def_by_name(item_name)
         if not item or not item["tradeable"]:
-            return hint(f"{item_name} 不是可购买的跑商商品。", "发送：商场 查看当前位置可买商品。")
+            return hint(f"{item_name} 不是可购买的跑商商品。", "发送：商场 查看当前位置可买商品。<商场>")
         location = self._location(player["location_name"])
         if not location:
-            return hint("当前位置不是商场地点，无法购买跑商商品。", "发送：商场列表 查看地点，再发送：导航 地点名")
+            return hint("当前位置不是商场地点，无法购买跑商商品。", "发送：商场列表 查看地点，再发送：导航 地点名<商场列表>")
         home = self.db.fetch_one("SELECT home_location FROM trade_goods WHERE item_id = ?", (item["item_id"],))
         if not home or home["home_location"] != player["location_name"]:
-            return hint(f"{player['location_name']} 不出售 {item['name']}。", "发送：商场市价 商品名 查看各地价格，再导航到产地购买。")
+            return hint(f"{player['location_name']} 不出售 {item['name']}。", "发送：商场行情 商品名 查看各地价格，再导航到产地购买。")
         buy_price, _sell_price = self.price(player["location_name"], item["item_id"], save=True)
         total = buy_price * quantity
         fee = int(total * self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE))
@@ -138,7 +139,7 @@ class TradeService(CoreService):
             if not ok:
                 return reason
             if not self.spend_stones_conn(conn, client_id, total + fee):
-                return hint(f"源石不足，需要 {money(total + fee)}。", "发送：源库 或 取出源石 数量，或先签到、探险、出售物品。")
+                return hint(f"源石不足，需要 {money(total + fee)}。", "发送：源库 或 取出源石 数量，或先签到、探险、出售物品。<源库><签到><探险>")
             self.add_backpack_conn(conn, client_id, item["item_id"], quantity)
             conn.execute(
                 """
@@ -157,13 +158,17 @@ class TradeService(CoreService):
                 """,
                 (client_id, item["item_id"], player["location_name"], ts(), buy_price),
             )
-        return (
-            f"购买成功：{item['name']} x{quantity}，花费 {money(total)}，手续费 {money(fee)}。"
-            + self.wormhole.try_discover(client_id, "trade_buy", player["location_name"])
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '商场购买', ?, ?)",
+                (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}", ts()),
+            )
+        return f"购买成功：{item['name']} x{quantity}，花费 {money(total)}，手续费 {money(fee)}。" + self.wormhole.try_discover(
+            client_id, "trade_buy", player["location_name"]
         )
 
     def sell(self, client_id: str, message: str) -> str:
         """商场出售。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -176,21 +181,22 @@ class TradeService(CoreService):
             return hint("出售格式不正确。", "发送：商场出售 商品名 数量，例如：商场出售 青木符纸 3")
         item = self.item_def_by_name(item_name)
         if not item or not item["tradeable"]:
-            return hint(f"{item_name} 不是可出售的跑商商品。", "发送：背包 查看可出售的跑商货物。")
-        return self._sell_item(client_id, player["location_name"], item, quantity)
+            return hint(f"{item_name} 不是可出售的跑商商品。", "发送：背包 查看可出售的跑商货物。<背包>")
+        return self._sell_item(client_id, player["location_name"], item, quantity) + "<跑商奖励>"
 
     def auto_sell(self, client_id: str) -> str:
         """自动出售所有可跑商物品。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
         if not self._location(player["location_name"]):
-            return hint("当前位置不是商场地点，无法自动出售跑商商品。", "发送：商场列表 查看跑商地点，再发送：导航 地点名")
+            return hint("当前位置不是商场地点，无法自动出售跑商商品。", "发送：商场列表 查看跑商地点，再发送：导航 地点名<商场列表>")
         rows = [row for row in self.backpack_rows(client_id) if row["base_price"] and self.item_def(row["item_id"])["tradeable"]]
         if not rows:
-            return hint("背包里没有可出售的跑商商品。", "发送：商场购买 商品名 数量，或先去探险获取特产。")
+            return hint("背包里没有可出售的跑商商品。", "发送：商场购买 商品名 数量，或先去探险获取特产。<探险>")
         total_gain = 0
         texts: list[str] = []
         for row in rows:
@@ -201,12 +207,13 @@ class TradeService(CoreService):
             texts.append(text)
             total_gain += 1
         if not total_gain:
-            return hint("没有成功出售的商品。", "发送：背包 确认货物数量和类型。")
+            return hint("没有成功出售的商品。", "发送：背包 确认货物数量和类型。<背包>")
         notice = self.wormhole.try_discover(client_id, "trade_auto_sell", player["location_name"])
         return "自动出售完成：\n" + "\n".join(texts) + notice
 
     def recommend(self, client_id: str) -> str:
         """按单位负重收益推荐当前能买的跑商路线。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -214,21 +221,28 @@ class TradeService(CoreService):
         assert player is not None
         current = player["location_name"]
         if not self._location(current):
-            return hint("当前位置不是商场地点。", "发送：商场列表 查看跑商地点，再发送：导航 地点名")
+            return hint("当前位置不是商场地点。", "发送：商场列表 查看跑商地点，再发送：导航 地点名<商场列表>")
         options = self._trade_options(client_id, player)
         if not options:
             return hint("当前没有能购买且有利润的跑商路线。", "确认随身源石和背包空间足够，或换一个商场地点再试。")
         lines = [f"☆{current}跑商推荐☆"]
-        for index, option in enumerate(options[:5], start=1):
+        for index, option in enumerate(options[:3], start=1):
             lines.append(
-                f"{index}. 跑商购买 {option['item_name']} {option['quantity']} -> "
-                f"去 {option['target']} -> 跑商出售 {option['item_name']} {option['quantity']}\n"
+                f"{index}. 商场购买 {option['item_name']} {option['quantity']} -> "
+                f"导航 {option['target']} -> 商场出售 {option['item_name']} {option['quantity']}\n"
                 f"   预计净赚{money(option['total_profit'])}，单件{money(option['unit_profit'])}"
             )
-        return "\n".join(lines)
+        return (
+            "\n".join(lines)
+            + f"<商场购买 {options[0]['item_name']} {options[0]['quantity']}>"
+            + f"<导航 {options[0]['target']}>"
+            + f"<商场出售 {options[0]['item_name']} {options[0]['quantity']}>"
+            + f"<商场自动出售>"
+        )
 
     def records(self, client_id: str) -> str:
         """查看交易记录。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -245,14 +259,14 @@ class TradeService(CoreService):
             (client_id,),
         )
         if not rows:
-            return hint("暂无跑商记录。", "发送：商场推荐 查看路线，再发送：商场购买 商品名 数量")
+            return hint("暂无跑商记录。", "发送：商场推荐 查看路线，再发送：商场购买 商品名 数量<商场推荐>")
         return "\n".join(
-            f"{self._action_text(row['action'])} {row['name']} x{row['quantity']} {money(row['total_price'])} @ {row['location_name']}"
-            for row in rows
+            f"{self._action_text(row['action'])} {row['name']} x{row['quantity']} {money(row['total_price'])} @ {row['location_name']}" for row in rows
         )
 
     def limits(self, client_id: str) -> str:
         """查看交易限制。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -266,6 +280,7 @@ class TradeService(CoreService):
 
     def daily_reward(self, client_id: str) -> str:
         """领取每日普通跑商额外奖励。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -299,7 +314,7 @@ class TradeService(CoreService):
             quantity = int(stat["quantity"] if stat else 0)
             net_income = int(stat["net_income"] if stat else 0)
             if quantity <= 0:
-                return hint("今天还没有普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。")
+                return hint("今天还没有普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。<商场推荐>")
             if quantity < TRADE_DAILY_REWARD_MIN_QUANTITY and net_income < TRADE_DAILY_REWARD_MIN_NET:
                 return hint(
                     "今日普通跑商量还不够领取奖励。",
@@ -330,6 +345,7 @@ class TradeService(CoreService):
 
     def special_buyers(self, client_id: str) -> str:
         """查看特殊收购。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -340,14 +356,12 @@ class TradeService(CoreService):
         lines.append("自动出售：特殊自动出售")
         for row in rows:
             names = self._buyer_item_names(row)
-            lines.append(
-                f"{row['buyer_name']} ({row['x']},{row['y']})："
-                f"{'、'.join(names)}，倍率 {row['price_factor']}"
-            )
+            lines.append(f"{row['buyer_name']} ({row['x']},{row['y']})：" f"{'、'.join(names)}，倍率 {row['price_factor']}")
         return "\n".join(lines)
 
     def special_sell(self, client_id: str, message: str) -> str:
         """在特殊收购地点出售怪物战利品。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -356,17 +370,17 @@ class TradeService(CoreService):
 
         buyer = self._special_buyer(player["location_name"])
         if not buyer:
-            return hint("当前位置不是特殊收购地点。", "发送：特殊收购 查看收购地点，再发送：导航 地点名")
+            return hint("当前位置不是特殊收购地点。", "发送：特殊收购 查看收购地点，再发送：导航 地点名<特殊收购>")
 
         item_name, quantity = self._parse_name_quantity(message)
         if quantity <= 0:
             return hint("特殊出售格式不正确。", "发送：特殊出售 物品名 数量，例如：特殊出售 妖核 2")
         item = self.item_def_by_name(item_name)
         if not item:
-            return hint(f"没有找到物品：{item_name}。", "发送：背包 确认物品名称。")
+            return hint(f"没有找到物品：{item_name}。", "发送：背包 确认物品名称。<背包>")
         allowed = set(str(buyer["item_ids"]).split(","))
         if item["item_id"] not in allowed:
-            return hint(f"{buyer['buyer_name']} 不收 {item['name']}。", "发送：特殊收购 查看各地点收购物，再导航到对应地点。")
+            return hint(f"{buyer['buyer_name']} 不收 {item['name']}。", "发送：特殊收购 查看各地点收购物，再导航到对应地点。<特殊收购>")
 
         raw_total = int(item["base_price"] * float(buyer["price_factor"]) * quantity)
         with self.db.transaction() as conn:
@@ -374,7 +388,7 @@ class TradeService(CoreService):
             rate = special_sell_price_rate(player["level"], used + raw_total // 2)
             total = max(1, int(raw_total * rate))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
-                return hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险获取。")
+                return hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险获取。<背包>")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                 (total, client_id),
@@ -387,6 +401,10 @@ class TradeService(CoreService):
                 """,
                 (client_id, item["item_id"], quantity, total, buyer["buyer_name"], business_day(), ts()),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '特殊出售', ?, ?)",
+                (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, buyer={buyer['buyer_name']}", ts()),
+            )
         return (
             f"特殊出售成功：{item['name']} x{quantity}，"
             f"原价 {money(raw_total)}，当前倍率 {int(rate * 100)}%，收入 {money(total)}。"
@@ -395,6 +413,7 @@ class TradeService(CoreService):
 
     def special_auto_sell(self, client_id: str) -> str:
         """自动导航并出售背包里的所有特殊收购物。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -404,7 +423,7 @@ class TradeService(CoreService):
         buyers = self._special_buyers_ordered()
         sell_plan = self._special_auto_sell_plan(client_id, buyers)
         if not sell_plan:
-            return hint("背包里没有可特殊出售的物品。", "发送：特殊收购 查看收购物，或继续探险获取怪物战利品。")
+            return hint("背包里没有可特殊出售的物品。", "发送：特殊收购 查看收购物，或继续探险获取怪物战利品。<特殊收购>")
 
         total_gain = 0
         last_buyer: dict | None = None
@@ -436,10 +455,7 @@ class TradeService(CoreService):
                     )
                     used += total
                     total_gain += total
-                    sold_lines.append(
-                        f"{item['name']} x{quantity}，原价 {money(raw_total)}，"
-                        f"倍率 {int(rate * 100)}%，收入 {money(total)}"
-                    )
+                    sold_lines.append(f"{item['name']} x{quantity}，原价 {money(raw_total)}，" f"倍率 {int(rate * 100)}%，收入 {money(total)}")
 
                 if not sold_lines:
                     continue
@@ -448,10 +464,14 @@ class TradeService(CoreService):
                 lines.extend(sold_lines)
 
             if not last_buyer:
-                return hint("没有成功出售的特殊物品。", "发送：背包 确认可出售物品数量。")
+                return hint("没有成功出售的特殊物品。", "发送：背包 确认可出售物品数量。<背包>")
             conn.execute(
                 "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
                 (last_buyer["buyer_name"], last_buyer["x"], last_buyer["y"], client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '特殊自动出售', ?, ?)",
+                (client_id, f"total={total_gain}, location={last_buyer['buyer_name']}", ts()),
             )
 
         lines.append(f"合计收入：{money(total_gain)}")
@@ -463,13 +483,14 @@ class TradeService(CoreService):
 
     def navigate(self, client_id: str, message: str) -> str:
         """导航到最近地点。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         parts = split_words(message)
         if len(parts) == 1:
-            location = self._location(parts[0]) or self._special_buyer(parts[0]) or self._recycle_location(parts[0])
+            location = self._location(parts[0]) or self._special_buyer(parts[0]) or self.recycle_location(parts[0])
         elif len(parts) >= 2:
             x = to_int(parts[0])
             y = to_int(parts[1])
@@ -477,13 +498,18 @@ class TradeService(CoreService):
         else:
             return hint("导航格式不正确。", "发送：导航 地点名，或发送：导航 x y")
         if not location:
-            return hint("没有找到可导航地点。", "发送：商场列表 或 地点列表 查看地点名称。")
+            return hint("没有找到可导航地点。", "发送：商场列表 或 探险列表 查看地点名称。<商场列表><探险列表>")
         name = location.get("name") or location.get("buyer_name")
-        self.db.execute(
-            "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
-            (name, location["x"], location["y"], client_id),
-        )
-        return f"已到达 {name} ({location['x']},{location['y']})。" + self.wormhole.try_discover(client_id, "navigate", name)
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
+                (name, location["x"], location["y"], client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '导航', ?, ?)",
+                (client_id, f"location={name}, x={location['x']}, y={location['y']}", ts()),
+            )
+        return f"已到达 {name} ({location['x']},{location['y']})。" + self.wormhole.try_discover(client_id, "navigate", name) + "<探险><商场推荐>"
 
     def price(self, location_name: str, item_id: str, save: bool = False) -> tuple[int, int]:
         """获取当天价格。
@@ -511,22 +537,21 @@ class TradeService(CoreService):
         daily_wave = 0.95 + (seed % 13) / 100
         supply_factor = self._supply_factor(distance, location_name == home_name)
         demand_factor = self._demand_factor(location_name, trade_type)
-        heat = self.db.fetch_one(
-            """
+        heat = (
+            self.db.fetch_one(
+                """
             SELECT buy_count, sell_count FROM trade_heat
             WHERE location_name = ? AND item_id = ? AND business_day = ?
             """,
-            (location_name, item_id, day),
-        ) or {"buy_count": 0, "sell_count": 0}
+                (location_name, item_id, day),
+            )
+            or {"buy_count": 0, "sell_count": 0}
+        )
         market_price = item["base_price"] * supply_factor * demand_factor * daily_wave
         buy_price = max(1, int(market_price * min(1.5, 1.04 + heat["buy_count"] * 0.01)))
         sell_price = max(
             1,
-            int(
-                market_price
-                * 0.82
-                * max(0.65, 1.0 - heat["sell_count"] * 0.008)
-            ),
+            int(market_price * 0.82 * max(0.65, 1.0 - heat["sell_count"] * 0.008)),
         )
         if save:
             self.db.execute(
@@ -626,6 +651,7 @@ class TradeService(CoreService):
 
     def _sell_item(self, client_id: str, location_name: str, item: dict, quantity: int, discover: bool = True) -> str:
         """出售一类背包物品。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _buy, sell_price = self.price(location_name, item["item_id"], save=True)
         locked_text = self._resale_lock_text(client_id, item["item_id"], location_name)
@@ -650,6 +676,10 @@ class TradeService(CoreService):
                 (client_id, item["item_id"], quantity, total, fee, location_name, business_day(), ts()),
             )
             self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity)
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '商场出售', ?, ?)",
+                (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}", ts()),
+            )
         text = f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
         if discover:
             text += self.wormhole.try_discover(client_id, "trade_sell", location_name)
@@ -657,6 +687,7 @@ class TradeService(CoreService):
 
     def _resale_lock_text(self, client_id: str, item_id: str, location_name: str) -> str:
         """同地点刚买入的货物不能立刻原地卖出。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         row = self.db.fetch_one(
             """
@@ -734,11 +765,6 @@ class TradeService(CoreService):
 
         return self.db.fetch_one("SELECT * FROM special_buyers WHERE buyer_name = ?", (name.strip(),))
 
-    def _recycle_location(self, name: str) -> dict | None:
-        """读取系统回收地点。"""
-
-        return self.db.fetch_one("SELECT * FROM recycle_locations WHERE name = ?", (name.strip(),))
-
     def _nearest_location(self, x: int, y: int) -> dict | None:
         """按坐标找最近地点。"""
 
@@ -761,18 +787,15 @@ class TradeService(CoreService):
 
     def _format_special_buyer(self, buyer: dict) -> str:
         """格式化特殊收购地点详情。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         names = self._buyer_item_names(buyer)
-        return (
-            f"☆{buyer['buyer_name']}详情☆\n"
-            f"坐标：({buyer['x']},{buyer['y']})\n"
-            f"收购：{'、'.join(names)}\n"
-            f"倍率：{buyer['price_factor']}"
-        )
+        return f"☆{buyer['buyer_name']}详情☆\n" f"坐标：({buyer['x']},{buyer['y']})\n" f"收购：{'、'.join(names)}\n" f"倍率：{buyer['price_factor']}"
 
     @staticmethod
     def _format_recycle_location(location: dict) -> str:
         """格式化系统回收地点详情。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         return (
             f"☆{location['name']}详情☆\n"
@@ -785,6 +808,7 @@ class TradeService(CoreService):
     @staticmethod
     def _recycle_type_text(recycle_type: str) -> str:
         """把回收类型转成玩家能看懂的文字。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         return {
             "weapon": "武器",
@@ -794,6 +818,7 @@ class TradeService(CoreService):
 
     def _special_sell_rate_text(self, client_id: str, level: int) -> str:
         """读取今日特殊收购价格倍率展示。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         with self.db.transaction() as conn:
             used = self._special_sell_used_conn(conn, client_id)
@@ -853,11 +878,7 @@ class TradeService(CoreService):
     def _special_auto_sell_plan(self, client_id: str, buyers: list[dict]) -> list[tuple[dict, list[dict]]]:
         """按收购地点整理可自动出售的背包物品。"""
 
-        backpack = {
-            row["item_id"]: row
-            for row in self.backpack_rows(client_id)
-            if int(row["quantity"]) > 0
-        }
+        backpack = {row["item_id"]: row for row in self.backpack_rows(client_id) if int(row["quantity"]) > 0}
         plan: list[tuple[dict, list[dict]]] = []
         for buyer in buyers:
             items = []
@@ -872,6 +893,7 @@ class TradeService(CoreService):
     @staticmethod
     def _action_text(action: str) -> str:
         """把交易动作转成玩家能看懂的文字。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         return {
             "buy": "购买",

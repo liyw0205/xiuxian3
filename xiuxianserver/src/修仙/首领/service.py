@@ -20,8 +20,10 @@ from ..constants import (
     SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES,
     SEASONAL_BOSS_MAX_CHALLENGES,
 )
+from ..markdown_utils import append_suggest_commands
 from ..rules import damage_after_defense, monster_exp
 from ..sql import db
+from ..combat_core import service as combat_service
 from ..weapon_core import service as weapon_service
 
 
@@ -228,39 +230,283 @@ BOSS_DEFS: dict[str, BossDef] = {
 }
 
 
+DAILY_BOSS_DEFS: dict[str, BossDef] = {
+    "daily_01": _boss(
+        "daily_01",
+        "雨巷纸伞女",
+        "把旧伞撑到天明的少女",
+        "细雨落满青石巷，少女撑着一把破纸伞，伞沿滴下的水像没说出口的话。",
+        "她曾在雨夜等少年归来，伞下留了一半空位。后来巷口灯灭了很多年，她仍不肯收伞。",
+        ("伞骨轻响，像有人迟迟不敢敲门。", "她把伞往旁边偏了偏，仿佛身侧还站着一个人。", "雨水淌过青砖，洗不掉那一夜的等候。"),
+        "她终于合上纸伞，雨声也随之轻了下去。",
+        "纸伞下落下一枚潮湿的铭刻之羽，像一场等到天明也没有结果的雨。",
+        "青石雨巷",
+    ),
+    "daily_02": _boss(
+        "daily_02",
+        "荒亭听雪郎",
+        "在空亭听雪的少年",
+        "荒亭四面漏风，少年独坐石阶，听雪落在旧棋盘上。",
+        "他与同窗约好雪夜再下一局。那人赴京后再无音讯，棋盘上的白子便一颗也没落下。",
+        ("雪声很轻，却把亭子压得很低。", "他指尖捻着黑子，迟迟不肯落下。", "棋盘另一侧空着，像一个不会再回来的人。"),
+        "少年把黑子放回棋盒，亭中雪忽然停了。",
+        "棋盘边浮起一枚雪白铭刻之羽，像一局永远轮不到下一手的棋。",
+        "荒亭",
+    ),
+    "daily_03": _boss(
+        "daily_03",
+        "渡船无灯客",
+        "替亡人摆渡的年轻船客",
+        "雾水漫过渡口，年轻船客撑着无灯小舟，反复问你要去哪里。",
+        "他曾在大雾中错过最后一班归船，自此年年摆渡，只想把别人送到岸上。",
+        ("船桨划开水面，没有半点灯影。", "他笑得温和，却总是不敢回头看岸。", "雾中有旧铃声，一响便远了。"),
+        "小舟顺雾漂远，船客没有再问归处。",
+        "船头留下一枚灰青铭刻之羽，像一盏始终没被点亮的渡灯。",
+        "无灯渡口",
+    ),
+    "daily_04": _boss(
+        "daily_04",
+        "断琴梨花姬",
+        "守着断弦古琴的少女",
+        "梨花落满庭院，少女抱着断弦古琴，指尖按在一段再也弹不响的曲上。",
+        "她曾为远行少年学一首归来曲。琴练成那日，送回来的却只有一截断弦。",
+        ("梨花像雪，却没有雪那样干净。", "琴腹里藏着旧信，字迹早被泪水洇开。", "她每拨一下断弦，庭中便多一分寂静。"),
+        "她松开琴弦，满庭梨花一瞬归土。",
+        "琴身旁落下一枚梨白铭刻之羽，像一首再也无人听完的曲。",
+        "梨花旧庭",
+    ),
+    "daily_05": _boss(
+        "daily_05",
+        "红绳井畔郎",
+        "把红绳系进井水的少年",
+        "古井边垂着一截红绳，少年俯身望井，像想从水里捞回一句承诺。",
+        "他与姑娘把红绳系在井畔，说等绳结不褪便成亲。后来绳还红着，人却散了。",
+        ("井水倒映着他的脸，年轻得让人难过。", "红绳在风里晃，像谁迟迟不肯松手。", "井底偶尔传来水声，像很远的回信。"),
+        "少年把红绳剪断，半截沉进井底。",
+        "井沿浮起一枚暗红铭刻之羽，像一段终于放手的旧约。",
+        "古井",
+    ),
+    "daily_06": _boss(
+        "daily_06",
+        "药炉守火童",
+        "守着一炉冷药的少年",
+        "药庐炉火半明半灭，少年抱膝坐在炉前，药香苦得像一场旧病。",
+        "他替师姐守药三日，药成时人却已经远葬山后。自此炉火不熄，药再也无人喝。",
+        ("药烟盘在梁上，迟迟不肯散。", "少年掌心满是烫痕，却仍护着火口。", "窗外草木青了又枯，药味一年比一年淡。"),
+        "少年掀开药盖，把冷药倒进土里。",
+        "炉灰里浮起一枚苦香铭刻之羽，像一碗迟来的药。",
+        "药庐",
+    ),
+    "daily_07": _boss(
+        "daily_07",
+        "落梅书信女",
+        "在梅树下拆信的少女",
+        "梅枝斜出墙头，少女站在树下，一封旧信拆到一半便再也拆不动。",
+        "信中本该是少年报平安的话，可她怕看见别离，也怕看不见归期。",
+        ("梅香很冷，冷得像纸上没干的墨。", "她把信角抚平，又轻轻折回去。", "风一吹，梅瓣落得像没寄出的字。"),
+        "她把信放回袖中，转身时梅花尽落。",
+        "梅枝间落下一枚淡粉铭刻之羽，像一封终究没敢读完的信。",
+        "梅墙",
+    ),
+    "daily_08": _boss(
+        "daily_08",
+        "旧桥挑灯客",
+        "在断桥上挑灯的人",
+        "断桥只剩半截，挑灯客站在桥心，灯火照不到对岸。",
+        "他曾答应送妹妹过桥去看灯会。洪水断桥那夜，他把灯举了一生，也没照见她回来。",
+        ("灯火一晃，桥下水声便重一分。", "他的肩膀很瘦，灯杆却握得极稳。", "对岸空空，像所有热闹都与他无关。"),
+        "挑灯客把灯挂在桥头，自己随水雾散去。",
+        "灯穗上落下一枚昏黄铭刻之羽，像一盏照不到亲人的灯。",
+        "断桥",
+    ),
+    "daily_09": _boss(
+        "daily_09",
+        "寒窗墨影郎",
+        "在旧窗前磨墨的书生",
+        "寒窗外霜花凝结，书生低头磨墨，砚中墨色深得像一眼不见底的井。",
+        "他想写完功名信再去提亲，却把一生都写在了赶考路上。姑娘嫁衣旧了，信也没寄出。",
+        ("墨香很沉，压得灯芯直不起身。", "他写下她的名字，又用袖子轻轻擦掉。", "窗纸上有雪光，像多年后的白发。"),
+        "书生合上砚台，满屋墨色慢慢散开。",
+        "砚边留下一枚墨黑铭刻之羽，像一封迟到太久的功名信。",
+        "寒窗书屋",
+    ),
+    "daily_10": _boss(
+        "daily_10",
+        "空楼绣鞋娘",
+        "守着一双绣鞋的姑娘",
+        "空楼上红线绕梁，姑娘捧着一双未穿过的绣鞋，鞋面鸳鸯只绣成一半。",
+        "她给自己绣嫁鞋，等少年带她离开高楼。门锁换了一重又一重，鞋底却从未沾尘。",
+        ("红线垂下，像无数条不能走的路。", "她把鞋尖贴近耳边，像听见旧日脚步。", "楼外市声很远，远得像另一个人间。"),
+        "姑娘把绣鞋放在窗边，红线一寸寸断开。",
+        "鞋面上浮起一枚绯红铭刻之羽，像一双再也没能出门的嫁鞋。",
+        "空楼",
+    ),
+    "daily_11": _boss(
+        "daily_11",
+        "白鹤归山女",
+        "等白鹤传书的少女",
+        "山云低垂，少女站在崖边，掌心停着一根折断的白鹤羽。",
+        "少年说会托白鹤送信，她便每日来山口等。鹤群飞过了许多年，没有一只落下。",
+        ("崖风吹得衣袖鼓起，像一封空信。", "她抬头数鹤，数到后来忘了自己的年岁。", "云影落在她脚边，又匆匆离开。"),
+        "少女把断羽放进风里，白鹤声渐渐远去。",
+        "崖边落下一枚素白铭刻之羽，像一封终于承认不会抵达的信。",
+        "归鹤崖",
+    ),
+    "daily_12": _boss(
+        "daily_12",
+        "残荷采莲郎",
+        "在残荷间采莲的少年",
+        "池中残荷倾斜，少年赤脚下水，怀里抱着一捧早已枯黑的莲蓬。",
+        "他答应给病中的姑娘带第一颗莲子。等他回来，窗前药碗已经凉透。",
+        ("荷叶擦过水面，像很轻的叹息。", "少年把莲子一颗颗数过，生怕少了。", "池水没过膝盖，凉得像旧日病榻。"),
+        "少年把莲子撒进池中，残荷一瞬低头。",
+        "枯莲旁浮起一枚青褐铭刻之羽，像一颗再也送不到手里的莲子。",
+        "残荷池",
+    ),
+    "daily_13": _boss(
+        "daily_13",
+        "孤灯裁衣女",
+        "在灯下裁旧衣的少女",
+        "孤灯摇曳，少女拿着剪刀，把一件旧衣裁了又缝。",
+        "她想把少年留下的旧衣改成孩子衣裳，可少年没归，孩子也从未到来。",
+        ("剪刀开合声很轻，却像割开许多年。", "旧衣上还有尘土和远路味。", "她把袖口量了又量，始终舍不得剪下最后一寸。"),
+        "少女吹灭孤灯，旧衣伏在案上像终于睡去。",
+        "灯芯旁落下一枚灰蓝铭刻之羽，像一件没有等来主人的旧衣。",
+        "裁衣房",
+    ),
+    "daily_14": _boss(
+        "daily_14",
+        "沙洲望潮客",
+        "在退潮后等船的人",
+        "沙洲露出水面，望潮客站在贝壳碎影里，看一条早已不来的航线。",
+        "他送爱人出海采珠，说潮起时接她回家。那日以后，海潮年年来，船却再也没有。",
+        ("海风带着咸味，像被忍住的泪。", "他把贝壳排成航线，又被潮水冲乱。", "远处白浪翻起，总像一艘船的影子。"),
+        "望潮客蹲下身，把最后一枚贝壳埋进沙里。",
+        "沙中浮起一枚浅蓝铭刻之羽，像一片没有带回人的潮水。",
+        "望潮沙洲",
+    ),
+    "daily_15": _boss(
+        "daily_15",
+        "铜铃守门童",
+        "替旧宅守门的少年",
+        "旧宅铜铃无风自响，少年坐在门槛上，怀中抱着一把锈钥匙。",
+        "主人一家避祸远走，说三日便归。他守到钥匙生锈，也没敢把门锁上。",
+        ("铜铃声空空，像从空宅深处传来。", "少年把钥匙擦亮一点，又很快被泪水打湿。", "门内落满灰尘，却仍留着归人的位置。"),
+        "少年把钥匙放到门缝里，铜铃声终于停了。",
+        "门槛上落下一枚铜色铭刻之羽，像一把守到最后也没用上的钥匙。",
+        "旧宅门前",
+    ),
+    "daily_16": _boss(
+        "daily_16",
+        "霜林拾叶女",
+        "在霜林里拾叶的少女",
+        "霜林叶落成堆，少女把每片红叶翻过，像在找一行早已褪色的字。",
+        "少年曾把告别写在红叶背面，托风送来。她只收到满山红叶，却不知哪一片是他。",
+        ("霜很薄，薄得像纸上的遗憾。", "她指尖冻红，仍把叶脉看得仔细。", "风吹过林梢，带走一片又一片来不及读的叶。"),
+        "少女把红叶抱进怀里，整片霜林慢慢空了。",
+        "叶堆中浮起一枚赤金铭刻之羽，像一片终于被找到的告别。",
+        "霜林",
+    ),
+    "daily_17": _boss(
+        "daily_17",
+        "夜市卖花郎",
+        "在收摊后仍卖花的少年",
+        "夜市灯火将熄，少年守着一篮蔫花，仍问路人要不要买一枝。",
+        "他想攒钱给姑娘买药，却在药铺关门前倒下。花卖不完，病也没等人。",
+        ("花香淡得快要消失。", "他把最好的一枝藏在篮底，说那枝不卖。", "街上人声散尽，只剩零钱撞在碗里。"),
+        "少年把最后一枝花放在空药铺门前。",
+        "花篮里落下一枚淡紫铭刻之羽，像一枝没能换成药的花。",
+        "夜市",
+    ),
+    "daily_18": _boss(
+        "daily_18",
+        "月井捞影女",
+        "在井中捞月影的少女",
+        "月光落进古井，少女俯身用银勺捞影，勺中永远只有一片碎光。",
+        "她听说井月能照见亡人，便夜夜来捞。月亮圆了又缺，她只捞起自己的影子。",
+        ("银勺碰到井壁，响声清冷。", "她不敢眨眼，怕错过水面一瞬的旧脸。", "井口月光晃动，像有人轻轻转身。"),
+        "少女把银勺放进井里，月影碎成千万点。",
+        "井水上浮起一枚月银铭刻之羽，像一轮永远捞不上来的月。",
+        "月井",
+    ),
+    "daily_19": _boss(
+        "daily_19",
+        "竹窗等笛郎",
+        "在竹窗下等笛声的少年",
+        "竹影敲窗，少年倚着窗棂，手里握着一支没有吹响的短笛。",
+        "邻家姑娘说听见笛声便会翻墙来看他。后来墙拆了，人远嫁了，笛声也哑了。",
+        ("竹叶拍窗，像很轻的暗号。", "少年把笛孔擦了一遍又一遍。", "月色从窗格漏下，落在他空着的身侧。"),
+        "少年把短笛挂在竹枝上，竹影随风远去。",
+        "短笛旁落下一枚青绿铭刻之羽，像一段再也没人回应的暗号。",
+        "竹窗",
+    ),
+    "daily_20": _boss(
+        "daily_20",
+        "旧驿牵马客",
+        "在荒驿牵空马的人",
+        "荒驿门前拴着一匹空鞍马，牵马客拍着马颈，像安慰一个迟迟不归的旅人。",
+        "他替好友看马，说等人取回便饮一坛酒。后来马老了，酒封泥也碎了。",
+        ("马铃轻响，驿道上却没有尘。", "他把鞍子擦得发亮，像随时能出发。", "酒坛埋在墙根，香气早已散尽。"),
+        "牵马客解开缰绳，空鞍马慢慢走入暮色。",
+        "马鞍上落下一枚棕金铭刻之羽，像一场没有等到归人的饯别。",
+        "荒驿",
+    ),
+    "daily_21": _boss(
+        "daily_21",
+        "灯花照影女",
+        "数灯花到天明的少女",
+        "屋内油灯结花，少女伏在桌边，一朵一朵数着将落未落的灯花。",
+        "她听说灯花落几朵，远人便归几日。后来灯花落尽，远人也没有走近一步。",
+        ("灯油快干，火光却倔强地亮着。", "她数错了便重来，像只要认真就能改命。", "窗外天色泛白，屋里仍像昨夜。"),
+        "少女轻轻吹灯，最后一朵灯花落在掌心。",
+        "灯盏中浮起一枚暖黄铭刻之羽，像一夜数到尽头的盼望。",
+        "灯下小屋",
+    ),
+    "daily_22": _boss(
+        "daily_22",
+        "雪庙还愿郎",
+        "在雪庙前还愿的少年",
+        "破庙香灰被雪压住，少年跪在阶前，把三炷断香扶正。",
+        "他曾许愿让姑娘平安活下去，愿成之后，姑娘忘了他。他还是年年来还愿，不敢怨神。",
+        ("断香冒出一点青烟，转眼被雪吞没。", "少年额头贴着冰冷石阶，声音很轻。", "庙门半掩，神像也像不忍看他。"),
+        "少年把断香插进雪中，叩首后化作清烟。",
+        "香灰里落下一枚灰白铭刻之羽，像一个愿成之后无人记得的名字。",
+        "雪庙",
+    ),
+    "daily_23": _boss(
+        "daily_23",
+        "柳岸放舟女",
+        "在柳岸放纸舟的姑娘",
+        "柳岸水浅，姑娘蹲在岸边，一只只放走写满名字的纸舟。",
+        "她把没敢说的话折成纸舟，盼它漂到少年所在的城。可水太浅，舟总困在岸边。",
+        ("柳絮落在水上，像无数细小白字。", "她推舟时很轻，怕把名字弄皱。", "纸舟碰到岸石，便慢慢洇开。"),
+        "姑娘放开最后一只纸舟，柳影把它送得很远。",
+        "水边浮起一枚浅青铭刻之羽，像一只终于离岸的纸舟。",
+        "柳岸",
+    ),
+    "daily_24": _boss(
+        "daily_24",
+        "残月守碑客",
+        "在残月下擦碑的人",
+        "残月挂在荒陵上，守碑客用袖口擦拭无名石碑，擦到指节发白。",
+        "他答应替战死的朋友刻名，却在乱世里弄丢了名册。此后每座无名碑，他都当作那个人。",
+        ("碑面冰冷，映不出完整月色。", "他一遍遍擦去青苔，像能擦回一个名字。", "荒草起伏，似有很多人低声答应。"),
+        "守碑客停下手，向所有无名碑深深一礼。",
+        "碑影中落下一枚银灰铭刻之羽，像一个终于被记住的无名人。",
+        "荒陵",
+    ),
+}
+
+
+ALL_BOSS_DEFS: dict[str, BossDef] = {**BOSS_DEFS, **DAILY_BOSS_DEFS}
+
+
 class SeasonalBossService(CoreService):
     """按节令出现的岁时情劫首领。"""
 
-    def open_recent_past_event_for_today(self, lookback_days: int = 45) -> dict[str, Any] | None:
-        """为当前业务日补生成最近已过的岁时情劫。
-
-        这个函数默认不自动调用，只适合临时在启动回调里手动放开。
-        它不会覆盖已有首领，也不会在今天本来就是节气/节日时抢走原机制。
-        """
-
-        day = self._business_date()
-        self._close_expired_events()
-        event = self.db.fetch_one(
-            "SELECT * FROM seasonal_boss_events WHERE business_day = ?",
-            (day.isoformat(),),
-        )
-        if event:
-            return dict(event)
-
-        today_boss, _today_type, _today_weight = self._boss_for_date(day)
-        if today_boss:
-            return None
-
-        past = self._recent_past_boss_for_date(day, lookback_days)
-        if not past:
-            return None
-
-        source_day, boss_def, event_type, weight_type = past
-        echo_type = f"岁时回响·{source_day.isoformat()}·{event_type}"
-        return self._open_event(day, boss_def, echo_type, weight_type)
-
     def status(self, client_id: str) -> str:
         """查看今日岁时情劫。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -270,12 +516,13 @@ class SeasonalBossService(CoreService):
             pending = self._latest_rewardable(client_id)
             next_info = self._next_boss_text()
             if pending:
-                return hint("今日无岁时情劫，但你有首领奖励待领取。", "发送：首领奖励")
+                return hint("今日无岁时情劫，但你有首领奖励待领取。", "发送：首领奖励<首领奖励>")
             return f"今日无岁时情劫。\n{next_info}"
         return self._format_status(event)
 
     def ranking(self, client_id: str) -> str:
         """查看今日或最近首领排行。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -285,7 +532,7 @@ class SeasonalBossService(CoreService):
             return hint("暂无岁时情劫记录。", self._next_boss_text())
         rows = self._participants(event["event_id"])
         if not rows:
-            return hint(f"{event['boss_name']} 暂无挑战记录。", "发送：挑战首领 参与今日岁时情劫。")
+            return hint(f"{event['boss_name']} 暂无挑战记录。", "发送：挑战首领 参与今日岁时情劫。<挑战首领>")
         lines = [f"☆岁时情劫排行·{event['boss_name']}☆"]
         for index, row in enumerate(rows[:10], start=1):
             lines.append(
@@ -297,6 +544,7 @@ class SeasonalBossService(CoreService):
 
     def challenge(self, client_id: str) -> str:
         """挑战今日岁时情劫。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -308,7 +556,7 @@ class SeasonalBossService(CoreService):
         if not event:
             return hint("今日无岁时情劫。", self._next_boss_text())
         if event["status"] != "开启":
-            return hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：首领奖励 查看是否可以领取奖励。")
+            return hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：首领奖励 查看是否可以领取奖励。<首领奖励>")
         if player["status"] != "空闲":
             return self._busy_challenge_hint(player["status"])
         if int(player["hp"]) <= 0:
@@ -327,7 +575,7 @@ class SeasonalBossService(CoreService):
                 (event["event_id"],),
             ).fetchone()
             if not fresh:
-                return hint("今日岁时情劫已经结束。", "发送：首领奖励 查看是否可以领取奖励。")
+                return hint("今日岁时情劫已经结束。", "发送：首领奖励 查看是否可以领取奖励。<首领奖励>")
             current = conn.execute(
                 """
                 SELECT challenge_count, last_challenge_at
@@ -343,7 +591,7 @@ class SeasonalBossService(CoreService):
                 left = timedelta(minutes=SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES) - (now() - last) if last else timedelta()
                 if left > timedelta():
                     seconds = max(1, int(left.total_seconds()))
-                    return hint(f"岁时旧念尚未重新凝形，还需 {seconds // 60}分{seconds % 60}秒。", "稍后再发送：挑战首领")
+                    return hint(f"岁时旧念尚未重新凝形，还需 {seconds // 60}分{seconds % 60}秒。", "稍后再发送：挑战首领<挑战首领>")
 
             damage = min(damage, int(fresh["hp"]))
             left_hp = max(0, int(fresh["hp"]) - damage)
@@ -384,6 +632,13 @@ class SeasonalBossService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '挑战首领', ?, ?)",
                 (client_id, f"event={event['event_id']}, boss={event['boss_name']}, damage={damage}", ts()),
             )
+            self.record_weapon_combat_conn(
+                conn,
+                client_id,
+                int(result.get("weapon_id", 0)),
+                boss_challenge=True,
+                damage=int(result.get("highest_damage", damage)),
+            )
 
         atmosphere = random.choice(load_json(event["atmosphere"], [])) if event["atmosphere"] else event["scene"]
         return self._challenge_log_block(
@@ -396,13 +651,16 @@ class SeasonalBossService(CoreService):
             left_hp=left_hp,
             max_hp=int(event["max_hp"]),
             killed=killed,
-            killed_text=f"{event['boss_name']} 已被送回岁时深处，发送：首领奖励",
+            killed_text=f"{event['boss_name']} 已被送回岁时深处，可以领取首领奖励。",
             alive_text=f"再次挑战需等待 {SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES} 分钟。",
             hurt_text="你被旧念重伤，建议先休息。",
+            reward_command="首领奖励",
+            challenge_command="挑战首领",
         )
 
     def reward(self, client_id: str) -> str:
         """领取最近一次可领取的首领奖励。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -413,15 +671,15 @@ class SeasonalBossService(CoreService):
         if not event:
             active = self._today_event(create=False, update=False)
             if active:
-                return hint("今日岁时情劫还没有结束。", "继续挑战，或等其被击破/次日 04:00 退去后再发送：首领奖励")
-            return hint("没有可领取的首领奖励。", "发送：首领 查看今日是否有岁时情劫。")
+                return hint("今日岁时情劫还没有结束。", "继续挑战，或等其被击破/次日 04:00 退去后再发送：首领奖励<首领奖励>")
+            return hint("没有可领取的首领奖励。", "发送：首领 查看今日是否有岁时情劫。<首领>")
 
         participant = self.db.fetch_one(
             "SELECT * FROM seasonal_boss_participants WHERE event_id = ? AND client_id = ?",
             (event["event_id"], client_id),
         )
         if not participant:
-            return hint("你没有参与这次岁时情劫。", "下一次出现时发送：挑战首领")
+            return hint("你没有参与这次岁时情劫。", "下一次出现时发送：挑战首领<挑战首领>")
         if int(participant["reward_claimed"]):
             return participant["reward_text"] or "奖励已经领取。"
 
@@ -494,6 +752,18 @@ class SeasonalBossService(CoreService):
                 WHERE event_id = ? AND client_id = ?
                 """,
                 (text, ts(), event["event_id"], client_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '领取首领奖励', ?, ?)",
+                (
+                    client_id,
+                    (
+                        f"event_id={event['event_id']}, boss={event['boss_name']}, "
+                        f"rank={reward['rank']}, exp={reward['exp']}, stones={reward['stones']}, "
+                        f"feathers={reward['feathers']}"
+                    ),
+                    ts(),
+                ),
             )
         return text
 
@@ -642,89 +912,23 @@ class SeasonalBossService(CoreService):
         return hint(f"当前状态为 {status}，不能挑战首领。", "先结束当前状态，再发送：挑战首领")
 
     def _fight_boss(self, player: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-        """结算一次挑战；这里只算数值和逐回合日志，不写数据库。"""
+        """结算一次挑战；只算数值和逐次出手日志，不写数据库。"""
 
-        client_id = player["client_id"]
-        weapon_service.ensure_starter_weapon(client_id)
-        weapon = weapon_service.equipped_weapon(client_id)
-        skill = weapon_service.skill(weapon["skill_id"]) if weapon else None
-        bonuses = self._merge_effects(self.equipment_bonuses(client_id), self._weapon_effects(weapon))
-        player_attack = int(player["base_attack"]) + (int(weapon["attack"]) if weapon else 0)
-        hp = int(player["hp"])
-        mp = int(player["mp"])
-        total_damage = 0
-        skill_times = 0
-        rounds = 10 + min(4, int(player["level"]) // 25)
-        interval = self._skill_interval(skill, weapon, bonuses)
-        skill_cost = self._skill_cost(skill, bonuses)
-        boss_hp = int(event["hp"])
-        actions: list[dict[str, Any]] = []
+        action_limit = 10 + min(4, int(player["level"]) // 25)
+        return combat_service.fight_boss(
+            player,
+            event,
+            boss_kind=self._boss_kind(event),
+            action_limit=action_limit,
+        )
 
-        for round_no in range(1, rounds + 1):
-            raw = player_attack + random.randint(int(player["level"]), max(int(player["level"]) * 4, int(player["level"]) + 3))
-            raw = int(raw * (1 + float(bonuses.get("hit_bonus", 0)) * 0.5))
-            skill_used = False
-            skill_name = ""
-            if skill and interval and round_no % interval == 0 and mp >= skill_cost:
-                raw = int(raw * self._skill_power(skill, bonuses))
-                mp -= skill_cost
-                skill_times += 1
-                skill_used = True
-                skill_name = str(skill["name"])
-            damage = damage_after_defense(raw, int(event["defense"]), self._pierce_rate(bonuses))
-            combo_damage = self._combo_damage(raw, int(event["defense"]), bonuses)
-            round_damage = damage + combo_damage
-            total_damage += round_damage
-            boss_hp = max(0, boss_hp - round_damage)
-            hp_before_steal = hp
-            if bonuses.get("life_steal"):
-                hp = min(int(player["max_hp"]), hp + int(round_damage * float(bonuses["life_steal"])))
-            action = {
-                "round": round_no,
-                "raw": raw,
-                "damage": round_damage,
-                "base_damage": damage,
-                "combo_damage": combo_damage,
-                "life_steal": max(0, hp - hp_before_steal),
-                "skill_used": skill_used,
-                "skill_name": skill_name,
-                "mp_cost": skill_cost if skill_used else 0,
-                "boss_hp_left": boss_hp,
-                "boss_hp_max": int(event["max_hp"]),
-                "boss_attack": False,
-                "boss_damage": 0,
-                "player_hp_left": hp,
-                "player_mp_left": mp,
-                "dodged": False,
-            }
-            if boss_hp <= 0:
-                actions.append(action)
-                break
-            if random.random() >= min(0.45, float(bonuses.get("dodge_bonus", 0))):
-                hurt = damage_after_defense(
-                    random.randint(max(1, int(event["attack"] * 0.75)), max(1, int(event["attack"] * 1.18))),
-                    int(player["defense"]),
-                )
-                reduced_hurt = self._reduce_damage(hurt, bonuses, skill_used)
-                hp -= reduced_hurt
-                action["boss_attack"] = True
-                action["boss_hurt_raw"] = hurt
-                action["boss_damage"] = reduced_hurt
-            else:
-                action["dodged"] = True
-            action["player_hp_left"] = max(0, hp)
-            action["player_mp_left"] = 0 if hp <= 0 else max(0, mp)
-            actions.append(action)
-            if hp <= 0:
-                break
-        mp_left = 0 if hp <= 0 else max(0, mp)
-        return {
-            "damage": max(1, total_damage),
-            "hp_left": max(0, hp),
-            "mp_left": mp_left,
-            "skill_times": skill_times,
-            "actions": actions,
-        }
+    @staticmethod
+    def _boss_kind(event: dict[str, Any]) -> str:
+        """按首领 key 稳定映射战斗类型，不额外建表。"""
+
+        kinds = ("游魂", "鬼", "妖", "魔", "古卫")
+        key = str(event.get("boss_key") or event.get("boss_name") or "")
+        return kinds[sum(ord(char) for char in key) % len(kinds)]
 
     def _challenge_log_block(
         self,
@@ -741,6 +945,8 @@ class SeasonalBossService(CoreService):
         killed_text: str,
         alive_text: str,
         hurt_text: str,
+        reward_command: str,
+        challenge_command: str,
     ) -> str:
         """把首领挑战整理成包含逐次出手的代码块。"""
 
@@ -765,42 +971,51 @@ class SeasonalBossService(CoreService):
                 f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
                 f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
                 f"武器技能触发：{result['skill_times']} 次",
+                f"首领技能触发：{result.get('boss_skill_times', 0)} 次",
             ]
         )
+        suggestions: list[str] = []
         if int(result["hp_left"]) <= 0:
             lines.append(hurt_text)
+            suggestions.append("发送：休息，时间到后发送：结束休息")
         if killed:
             lines.append(killed_text)
+            suggestions.append(f"发送：{reward_command}")
         else:
             lines.append(f"剩余旧念：{left_hp}/{max_hp}")
             lines.append(alive_text)
-        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+            suggestions.append(f"稍后再发送：{challenge_command}")
+
+        block = "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+        return append_suggest_commands(block, "；".join(suggestions))
 
     @staticmethod
     def _boss_action_lines(action: dict[str, Any], boss_name: str, player: dict[str, Any]) -> list[str]:
-        """整理一回合首领战日志。"""
+        """整理一次首领战行动日志。"""
 
         round_no = int(action.get("round", 0))
-        damage = int(action.get("damage", 0))
-        combo_damage = int(action.get("combo_damage", 0))
-        life_steal = int(action.get("life_steal", 0))
         boss_hp_left = max(0, int(action.get("boss_hp_left", 0)))
         boss_hp_max = max(1, int(action.get("boss_hp_max", 1)))
-        skill_name = str(action.get("skill_name") or "")
-        if action.get("skill_used"):
-            attack_text = f"技能「{skill_name}」"
-            cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
-        else:
-            attack_text = "普通攻击"
-            cost_text = ""
-        combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
-        steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
-        lines = [
-            f"第 {round_no} 回合",
-            f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{cost_text}；{boss_name} 旧念 {boss_hp_left}/{boss_hp_max}",
-        ]
-        if boss_hp_left <= 0:
-            lines.append(f"  首领出手：{boss_name} 已消散。")
+        lines = [f"第 {round_no} 次行动"]
+        if action.get("actor") == "player":
+            damage = int(action.get("player_total_damage", action.get("damage", 0)))
+            combo_damage = int(action.get("combo_damage", 0))
+            life_steal = int(action.get("life_steal", 0))
+            skill_name = str(action.get("skill_name") or "")
+            if action.get("skill_used"):
+                attack_text = f"技能「{skill_name}」"
+                cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
+            else:
+                attack_text = "普通攻击"
+                cost_text = ""
+            combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
+            steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+            lines.append(
+                f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{cost_text}；"
+                f"{boss_name} 旧念 {boss_hp_left}/{boss_hp_max}"
+            )
+            if boss_hp_left <= 0:
+                lines.append(f"  首领出手：{boss_name} 已消散，未能出手。")
             return lines
 
         hp_left = max(0, int(action.get("player_hp_left", 0)))
@@ -815,8 +1030,10 @@ class SeasonalBossService(CoreService):
         hurt = int(action.get("boss_damage", 0))
         raw_hurt = int(action.get("boss_hurt_raw", hurt))
         reduce_text = f"，减免 {max(0, raw_hurt - hurt)}" if raw_hurt > hurt else ""
+        skill_name = str(action.get("boss_skill_name") or "")
+        attack_text = f"技能「{skill_name}」" if action.get("boss_skill_used") else "普通攻击"
         lines.append(
-            f"  首领出手：{boss_name} 造成 {hurt} 伤害{reduce_text}；"
+            f"  首领出手：{attack_text}，造成 {hurt} 伤害{reduce_text}；"
             f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
         )
         return lines
@@ -829,10 +1046,11 @@ class SeasonalBossService(CoreService):
         contribution = self._contribution(int(participant["damage"]), event)
         killed_factor = 1.0 if event["status"] == "已击破" else 0.55
         weight = str(event["weight_type"])
+        rates = self._reward_rates(weight)
         rank_factor = {1: 1.18, 2: 1.08, 3: 1.0}.get(rank, 0.92)
         stones = max(1, int((int(event["level"]) * 850 + int(event["max_hp"]) * 0.015) * killed_factor * (0.45 + contribution * 2.5) * rank_factor))
         exp = max(1, int(monster_exp(event["level"], 1.8, player["level"]) * killed_factor * (0.6 + contribution * 1.8)))
-        feathers = self._feather_count(weight, contribution, rank)
+        feathers = self._feather_count(weight, contribution, rank, rates)
         ring_items: list[tuple[str, int]] = []
         gems: list[tuple[str, int, int]] = []
         item_texts: list[str] = []
@@ -841,17 +1059,20 @@ class SeasonalBossService(CoreService):
         if recover:
             ring_items.append((recover["equipment_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
+        for item_id, quantity, text in self._boss_material_rewards(contribution, rank, rates):
+            ring_items.append((item_id, quantity))
+            item_texts.append(text)
         gem = self._random_equipment_item("宝石")
-        if gem and random.random() < 0.18 + contribution * 0.35:
+        if gem and random.random() < min(0.30, rates["gem_chance"] + contribution * 0.10):
             level = 1 + (1 if random.random() < min(0.25, contribution) else 0)
             gems.append((gem["equipment_item_id"], level, 1))
             item_texts.append(f"宝石获得 {gem['name']} {level}级 x1")
         book = self._random_equipment_item("技能书")
-        if book and random.random() < 0.08 + contribution * 0.25:
+        if book and random.random() < min(0.22, rates["book_chance"] + contribution * 0.08):
             ring_items.append((book["equipment_item_id"], 1))
             item_texts.append(f"纳戒获得 {book['name']} x1")
         weapon = None
-        if random.random() < 0.04 + contribution * 0.18:
+        if random.random() < min(0.16, rates["weapon_chance"] + contribution * 0.06):
             weapon = weapon_service.roll_weapon_drop(max(player["level"], event["level"]), "")
         return {
             "rank": rank,
@@ -865,23 +1086,63 @@ class SeasonalBossService(CoreService):
             "item_texts": item_texts,
         }
 
+    def _reward_rates(self, weight_type: str) -> dict[str, float]:
+        """从数据库读取首领掉落概率；缺失时用每日旧愿兜底。"""
+
+        row = self.db.fetch_one(
+            "SELECT * FROM seasonal_boss_reward_rates WHERE weight_type = ?",
+            (weight_type,),
+        ) or self.db.fetch_one(
+            "SELECT * FROM seasonal_boss_reward_rates WHERE weight_type = '每日旧愿'",
+        )
+        if not row:
+            return {
+                "feather_chance": 0.025,
+                "feather_rank_chance": 0.012,
+                "material_chance": 0.015,
+                "material_rank_chance": 0.010,
+                "gem_chance": 0.080,
+                "book_chance": 0.030,
+                "weapon_chance": 0.015,
+            }
+        return {
+            "feather_chance": float(row["feather_chance"]),
+            "feather_rank_chance": float(row["feather_rank_chance"]),
+            "material_chance": float(row["material_chance"]),
+            "material_rank_chance": float(row["material_rank_chance"]),
+            "gem_chance": float(row["gem_chance"]),
+            "book_chance": float(row["book_chance"]),
+            "weapon_chance": float(row["weapon_chance"]),
+        }
+
     @staticmethod
-    def _feather_count(weight_type: str, contribution: float, rank: int) -> int:
+    def _feather_count(weight_type: str, contribution: float, rank: int, rates: dict[str, float]) -> int:
         """计算铭刻之羽数量。"""
 
-        if weight_type == "高权重传统节日":
-            chance = 0.35
-        elif weight_type == "普通传统节日":
-            chance = 0.25
-        else:
-            chance = 0.20
-
-        count = 1 if contribution >= 0.03 or random.random() < chance else 0
+        chance = rates["feather_chance"] + contribution * 0.08
         if rank <= 3:
-            count += 2 if weight_type == "高权重传统节日" else 1
-            if rank == 1 and weight_type == "高权重传统节日":
-                count += 1
-        return count
+            chance += rates["feather_rank_chance"]
+        if rank == 1 and weight_type == "高权重传统节日":
+            chance += rates["feather_rank_chance"]
+        return 1 if random.random() < min(0.35, chance) else 0
+
+    def _boss_material_rewards(self, contribution: float, rank: int, rates: dict[str, float]) -> list[tuple[str, int, str]]:
+        """随机首领奖励材料：开孔器和洗髓液。"""
+
+        rewards = []
+        for item_id in ("kaikongqi", "xisuiye"):
+            item = self.equipment_item_def(item_id)
+            chance = self._material_chance(contribution, rank, rates)
+            if item and random.random() < chance:
+                rewards.append((item["equipment_item_id"], 1, f"纳戒获得 {item['name']} x1"))
+        return rewards
+
+    @staticmethod
+    def _material_chance(contribution: float, rank: int, rates: dict[str, float]) -> float:
+        """按贡献、排名和节日权重计算特殊材料概率。"""
+
+        rank_bonus = rates["material_rank_chance"] if rank <= 3 else 0
+        return min(0.22, rates["material_chance"] + contribution * 0.10 + rank_bonus)
 
     def _random_equipment_item(self, category: str) -> dict[str, Any] | None:
         """随机纳戒物品，不包含开孔器。"""
@@ -956,14 +1217,27 @@ class SeasonalBossService(CoreService):
 
         return (now() - timedelta(hours=DAY_RESET_HOUR)).date()
 
-    @staticmethod
-    def _boss_for_date(value: date) -> tuple[BossDef | None, str, str]:
-        """按公历节气和农历节日选择今日首领。"""
+    def _boss_for_date(self, value: date) -> tuple[BossDef | None, str, str]:
+        """选择指定日期的首领。
 
-        choices: list[tuple[int, str, str, BossDef]] = []
+        节气、传统节日优先；普通日从代码里的“每日旧愿”首领池稳定轮换。
+        """
+
+        special = self._special_boss_for_date(value)
+        if special[0]:
+            return special
+        boss_def = self._daily_boss_for_date(value)
+        if boss_def:
+            return boss_def, "每日旧愿", "每日旧愿"
+        return None, "", ""
+
+    def _special_boss_for_date(self, value: date) -> tuple[BossDef | None, str, str]:
+        """只选择节气或传统节日首领；普通日不会兜底。"""
+
+        choices: list[tuple[int, str, str, str]] = []
         term_key = _solar_term_key(value)
         if term_key:
-            choices.append((1, "二十四节气", "普通节气", BOSS_DEFS[term_key]))
+            choices.append((1, "二十四节气", "普通节气", term_key))
 
         try:
             lunar = LunarDate.fromSolarDate(value.year, value.month, value.day)
@@ -971,27 +1245,26 @@ class SeasonalBossService(CoreService):
             if festival_key:
                 weight = "高权重传统节日" if festival_key in HIGH_WEIGHT_FESTIVALS else "普通传统节日"
                 priority = 3 if festival_key in HIGH_WEIGHT_FESTIVALS else 2
-                choices.append((priority, "传统节日", weight, BOSS_DEFS[festival_key]))
+                choices.append((priority, "传统节日", weight, festival_key))
             tomorrow_lunar = LunarDate.fromSolarDate((value + timedelta(days=1)).year, (value + timedelta(days=1)).month, (value + timedelta(days=1)).day)
             if tomorrow_lunar.month == 1 and tomorrow_lunar.day == 1:
-                choices.append((2, "传统节日", "普通传统节日", BOSS_DEFS["chuxi"]))
+                choices.append((2, "传统节日", "普通传统节日", "chuxi"))
         except ValueError:
             pass
 
-        if not choices:
-            return None, "", ""
-        _priority, event_type, weight_type, boss_def = sorted(choices, key=lambda item: item[0], reverse=True)[0]
-        return boss_def, event_type, weight_type
-
-    def _recent_past_boss_for_date(self, value: date, lookback_days: int) -> tuple[date, BossDef, str, str] | None:
-        """从指定日期往前找最近一个已经过去的节气或传统节日首领。"""
-
-        for offset in range(1, max(1, lookback_days) + 1):
-            day = value - timedelta(days=offset)
-            boss_def, event_type, weight_type = self._boss_for_date(day)
+        for _priority, event_type, weight_type, boss_key in sorted(choices, key=lambda item: item[0], reverse=True):
+            boss_def = ALL_BOSS_DEFS.get(boss_key)
             if boss_def:
-                return day, boss_def, event_type, weight_type
-        return None
+                return boss_def, event_type, weight_type
+        return None, "", ""
+
+    def _daily_boss_for_date(self, value: date) -> BossDef | None:
+        """普通日按日期稳定轮换一只每日旧愿首领。"""
+
+        daily_bosses = [DAILY_BOSS_DEFS[key] for key in sorted(DAILY_BOSS_DEFS)]
+        if not daily_bosses:
+            return None
+        return daily_bosses[value.toordinal() % len(daily_bosses)]
 
     def _next_boss_text(self) -> str:
         """展示下一次岁时情劫。"""
@@ -1010,29 +1283,25 @@ class SeasonalBossService(CoreService):
         closes = dt(event["closes_at"])
         left = max(0, int((closes - now()).total_seconds() // 60) + 1) if closes else 0
         extra = "\n今日为人间重节，旧愿尤深，铭刻之羽更易遗落。" if event["weight_type"] == "高权重传统节日" else ""
-        source = self._echo_source_text(event)
-        return (
+        boss_def = ALL_BOSS_DEFS.get(str(event["boss_key"]))
+        location = boss_def.location if boss_def else "未知旧地"
+        lines = [
             f"☆今日岁时情劫·{event['boss_name']}☆\n"
-            f"{event['title']}，现于{BOSS_DEFS[event['boss_key']].location}。\n"
-            f"{source}"
+            f"{event['title']}，现于{location}。\n"
             f"{event['scene']}\n"
             f"等级:{event['level']} 血量:{event['hp']}/{event['max_hp']} 状态:{event['status']}\n"
             f"剩余约 {left} 分钟，挑战冷却 {SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES} 分钟，"
             f"每日最多 {SEASONAL_BOSS_MAX_CHALLENGES} 次。\n"
             f"{event['story']}{extra}"
-        )
-
-    @staticmethod
-    def _echo_source_text(event: dict[str, Any]) -> str:
-        """把岁时回响的来源补充到状态里。"""
-
-        event_type = str(event["event_type"])
-        if not event_type.startswith("岁时回响·"):
-            return ""
-        parts = event_type.split("·", 2)
-        if len(parts) < 3:
-            return "这是最近已过节令在今日留下的岁时回响。\n"
-        return f"回响来源:{parts[1]} · {parts[2]}。\n"
+        ]
+        status = str(event["status"])
+        if status == "开启":
+            lines.append("下一步：发送：挑战首领")
+            return append_suggest_commands("\n".join(lines), "发送：挑战首领")
+        if status in {"已击破", "已退去"}:
+            lines.append("下一步：发送：首领奖励")
+            return append_suggest_commands("\n".join(lines), "发送：首领奖励")
+        return "\n".join(lines)
 
 
 service = SeasonalBossService(db)

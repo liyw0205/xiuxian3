@@ -8,51 +8,51 @@ from ..sql import db
 
 
 class DuelService(CoreService):
-    """切磋和赌约决斗。"""
+    """切磋和押注决斗。"""
 
     def spar(self, client_id: str, message: str) -> str:
         """发起切磋。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-        return self._create_request(client_id, message, "spar", 0)
+        target_id = self._player_id_from_last_arg(message)
+        return self._create_request(client_id, target_id, "spar", 0)
 
     def accept_spar(self, client_id: str, message: str) -> str:
         """接受切磋。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         return self._accept(client_id, message, "spar")
 
     def reject_spar(self, client_id: str, message: str) -> str:
         """拒绝切磋。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         return self._reject(client_id, message, "spar")
 
-    def bet(self, client_id: str, message: str) -> str:
-        """发起赌约。"""
-
-        target_ref, stake = self._parse_bet_message(message)
-        if not target_ref or stake <= 0:
-            return hint("赌约格式不正确。", "发送：赌约 源石数量 对方名称，也可以把 CQ/at 放最后。")
-        return self._create_request(client_id, target_ref, "bet", stake)
-
     def duel(self, client_id: str, message: str) -> str:
-        """发起决斗；有金额走赌约，没有金额走无押注切磋。"""
+        """发起押注决斗。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-        target_ref, stake = self._parse_bet_message(message)
-        if target_ref and stake > 0:
-            return self._create_request(client_id, target_ref, "bet", stake)
-        return self._create_request(client_id, message, "spar", 0)
+        target_ref, stake = self._parse_duel_message(message)
+        if stake <= 0:
+            return hint("决斗格式不正确。", "发送：决斗 源石数量 对方名称，也可以直接@对方。")
+        return self._create_request(client_id, target_ref, "duel", stake)
 
-    def accept_bet(self, client_id: str, message: str) -> str:
-        """接受赌约。"""
+    def accept_duel(self, client_id: str, message: str) -> str:
+        """接受押注决斗。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-        return self._accept(client_id, message, "bet")
+        return self._accept(client_id, message, "duel")
 
-    def reject_bet(self, client_id: str, message: str) -> str:
-        """拒绝赌约。"""
+    def reject_duel(self, client_id: str, message: str) -> str:
+        """拒绝押注决斗。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
-        return self._reject(client_id, message, "bet")
+        return self._reject(client_id, message, "duel")
 
     def records(self, client_id: str) -> str:
-        """查看决斗记录。"""
+        """查看切磋和押注决斗记录。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -62,30 +62,33 @@ class DuelService(CoreService):
             """
             SELECT * FROM duel_records
             WHERE from_client_id = ? OR to_client_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, record_id DESC
             LIMIT 10
             """,
             (client_id, client_id),
         )
         if not rows:
-            return hint("暂无决斗记录。", "发送：切磋 对方名称，或发送：赌约 源石数量 对方名称。")
-        return "\n".join(row["summary"] for row in rows)
+            return hint("暂无切磋/决斗记录。", "发送：切磋 对方名称，或发送：决斗 源石数量 对方名称。")
+        lines = ["☆最近切磋/决斗记录☆"]
+        lines.extend(f"{row['mode']}：{row['summary']}" for row in rows)
+        return "\n".join(lines)
 
-    def _create_request(self, client_id: str, message: str, mode: str, stake: int) -> str:
+    def _create_request(self, client_id: str, target_id: str, mode: str, stake: int) -> str:
         """创建对战请求。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
-        target_id = self.resolve_player_ref(message)
         if not target_id:
-            return hint("没有找到对方。", "发送：切磋 对方名称，或使用 CQ/at 指定对方。")
+            command = "决斗 源石数量 对方名称" if mode == "duel" else "切磋 对方名称"
+            return hint("没有找到对方。", f"发送：{command}，也可以直接@对方。")
         target, error = self.require_player(target_id)
         if error:
             return hint("对方还没有创建用户。", "请对方先发送：创建用户 名称")
         if target_id == client_id:
-            return hint("不能挑战自己。", "请输入其他玩家名称，或使用 CQ/at 指定对方。")
+            return hint("不能挑战自己。", "请输入其他玩家名称，或直接@对方。")
         if player["status"] != "空闲" or target["status"] != "空闲":
             return hint("双方都需要处于空闲状态。", "双方可先发送：修仙信息 查看状态，处理探险或休息后再挑战。")
         with self.db.transaction() as conn:
@@ -101,8 +104,8 @@ class DuelService(CoreService):
             ).fetchone()
             if exists:
                 return hint("你或对方已有未处理的对战请求。", "先接受/拒绝当前请求，或等待请求超时后再发起。")
-            if mode == "bet" and not self.spend_stones_conn(conn, client_id, stake):
-                return hint(f"源石不足，赌约需要冻结 {money(stake)}。", "发送：源库 查看存量，或先取出源石、签到、探险、出售物品。")
+            if mode == "duel" and not self.spend_stones_conn(conn, client_id, stake):
+                return hint(f"源石不足，决斗需要冻结 {money(stake)}。", "发送：源库 查看存量，或先取出源石、签到、探险、出售物品。")
             conn.execute(
                 """
                 INSERT INTO duel_requests
@@ -111,9 +114,9 @@ class DuelService(CoreService):
                 """,
                 (mode, client_id, target_id, stake, ts()),
             )
-        mode_text = "切磋" if mode == "spar" else f"赌约 {money(stake)} 源石"
-        accept_cmd = "接受切磋" if mode == "spar" else "接受赌约"
-        reject_cmd = "拒绝切磋" if mode == "spar" else "拒绝赌约"
+        mode_text = "切磋" if mode == "spar" else f"决斗 {money(stake)} 源石"
+        accept_cmd = "接受切磋" if mode == "spar" else "接受决斗"
+        reject_cmd = "拒绝切磋" if mode == "spar" else "拒绝决斗"
         from_name = str(player["display_name"])
         return (
             f"已向 {self.format_player_name(target_id)} 发起{mode_text}，等待对方处理。\n"
@@ -123,14 +126,16 @@ class DuelService(CoreService):
 
     def _accept(self, client_id: str, message: str, mode: str) -> str:
         """接受对战请求并结算。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         self.cleanup_battle_records()
-        from_id = self.resolve_player_ref(message)
+        from_id = self._player_id_from_last_arg(message)
         if not from_id:
-            return hint("没有找到发起人。", "发送：接受切磋 发起人名称，或使用 CQ/at 指定发起人。")
+            command = "接受切磋" if mode == "spar" else "接受决斗"
+            return hint("没有找到发起人。", f"发送：{command} 发起人名称，也可以直接@发起人。")
         with self.db.transaction() as conn:
             self._expire_requests_conn(conn, client_id, from_id)
             request_row = conn.execute(
@@ -144,7 +149,7 @@ class DuelService(CoreService):
             ).fetchone()
             request = dict(request_row) if request_row else None
         if not request:
-            return hint("没有找到待接受的请求。", "确认对方名称是否正确，或让对方重新发起切磋/赌约。")
+            return hint("没有找到待接受的请求。", "确认对方名称是否正确，或让对方重新发起切磋/决斗。")
         result = combat_service.duel(from_id, client_id, write_log=False)
 
         with self.db.transaction() as conn:
@@ -159,7 +164,7 @@ class DuelService(CoreService):
             if not request_row:
                 return hint("没有找到待接受的请求。", "可能已超时或被处理，请让对方重新发起。")
             request = dict(request_row)
-            if mode == "bet" and not self.spend_stones_conn(conn, client_id, request["stake"]):
+            if mode == "duel" and not self.spend_stones_conn(conn, client_id, request["stake"]):
                 conn.execute(
                     "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                     (request["stake"], from_id),
@@ -168,7 +173,7 @@ class DuelService(CoreService):
                     "UPDATE duel_requests SET status = '已拒绝' WHERE duel_id = ? AND status = '等待'",
                     (request["duel_id"],),
                 )
-                return hint("你的源石不足，赌约已取消，发起人的冻结源石已退回。", "补足源石后让对方重新发起赌约。")
+                return hint("你的源石不足，决斗已取消，发起人的冻结源石已退回。", "补足源石后让对方重新发起决斗。")
 
             cursor = conn.execute(
                 "UPDATE duel_requests SET status = '已接受' WHERE duel_id = ? AND status = '等待'",
@@ -178,7 +183,7 @@ class DuelService(CoreService):
                 return hint("没有找到待接受的请求。", "可能已超时或被处理，请让对方重新发起。")
 
             fee = 0
-            if mode == "bet" and result["winner_id"]:
+            if mode == "duel" and result["winner_id"]:
                 pool = request["stake"] * 2
                 fee = int(pool * 0.03)
                 conn.execute(
@@ -193,7 +198,7 @@ class DuelService(CoreService):
                 """,
                 (
                     request["duel_id"],
-                    "切磋" if mode == "spar" else "赌约",
+                    "切磋" if mode == "spar" else "决斗",
                     from_id,
                     client_id,
                     result["winner_id"],
@@ -208,17 +213,55 @@ class DuelService(CoreService):
                 "INSERT INTO combat_logs (client_id, target, summary, created_at) VALUES (?, ?, ?, ?)",
                 (from_id, client_id, result["summary"], ts()),
             )
+            action = "切磋结束" if mode == "spar" else "决斗结束"
+            detail = (
+                f"duel_id={request['duel_id']}, opponent={client_id}, "
+                f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}"
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
+                (from_id, action, detail, ts()),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    client_id,
+                    action,
+                    (
+                        f"duel_id={request['duel_id']}, opponent={from_id}, "
+                        f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}"
+                    ),
+                    ts(),
+                ),
+            )
+            if result.get("winner_id") == result.get("left_id"):
+                self.record_weapon_combat_conn(
+                    conn,
+                    result["left_id"],
+                    int(result.get("left_weapon_id", 0)),
+                    duel_win=True,
+                    damage=int(result.get("left_highest_damage", 0)),
+                )
+            elif result.get("winner_id") == result.get("right_id"):
+                self.record_weapon_combat_conn(
+                    conn,
+                    result["right_id"],
+                    int(result.get("right_weapon_id", 0)),
+                    duel_win=True,
+                    damage=int(result.get("right_highest_damage", 0)),
+                )
         settlement = ""
-        if mode == "bet":
-            settlement = f"赌约结算：胜者获得 {money(request['stake'] * 2 - fee)}，手续费 {money(fee)}。"
+        if mode == "duel":
+            settlement = f"决斗结算：胜者获得 {money(request['stake'] * 2 - fee)}，手续费 {money(fee)}。"
         return self._duel_log_block(
-            title="切磋结束" if mode == "spar" else "赌约决斗结束",
+            title="切磋结束" if mode == "spar" else "决斗结束",
             result=result,
             settlement=settlement,
         )
 
     def _duel_log_block(self, *, title: str, result: dict, settlement: str = "") -> str:
-        """把切磋/赌约整理成逐回合代码块。"""
+        """把切磋/决斗整理成逐次出手代码块。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         lines = [
             title,
@@ -255,33 +298,35 @@ class DuelService(CoreService):
             lines.append(settlement)
         return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
 
-    def _parse_bet_message(self, message: str) -> tuple[str, int]:
-        """解析赌约参数；金额和对方顺序可以互换。"""
+    def _parse_duel_message(self, message: str) -> tuple[str, int]:
+        """解析决斗参数，返回对方 client_id 和押注金额。"""
 
         parts = split_words(message)
         if len(parts) < 2:
             return "", 0
 
-        fallback: tuple[str, int] = ("", 0)
+        fallback_stake = 0
         for index, part in enumerate(parts):
             stake = to_int(part)
             if stake <= 0:
                 continue
 
-            target_ref = " ".join(parts[:index] + parts[index + 1 :]).strip()
-            if not target_ref:
+            target_parts = parts[:index] + parts[index + 1 :]
+            if not target_parts:
                 continue
 
-            if not fallback[0]:
-                fallback = (target_ref, stake)
-            if self.resolve_player_ref(target_ref):
-                return target_ref, stake
-        return fallback
+            if fallback_stake <= 0:
+                fallback_stake = stake
+
+            target_id = self._player_id(target_parts[-1])
+            if target_id:
+                return target_id, stake
+        return "", fallback_stake
 
     def _duel_round_lines(self, action: dict) -> list[str]:
-        """整理一回合双方出手。"""
+        """整理一次行动条出手。"""
 
-        lines = [f"第 {int(action.get('round', 0))} 回合"]
+        lines = [f"第 {int(action.get('round', 0))} 次行动"]
         for side in ("left", "right"):
             attack = action.get(side)
             if not isinstance(attack, dict):
@@ -291,6 +336,7 @@ class DuelService(CoreService):
 
     def _duel_attack_text(self, attack: dict) -> str:
         """整理一次玩家出手。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         actor = self.format_player_name(str(attack.get("actor_id", "")))
         target = self.format_player_name(str(attack.get("target_id", "")))
@@ -317,13 +363,15 @@ class DuelService(CoreService):
 
     def _reject(self, client_id: str, message: str, mode: str) -> str:
         """拒绝对战请求。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
-        from_id = self.resolve_player_ref(message)
+        from_id = self._player_id_from_last_arg(message)
         if not from_id:
-            return hint("没有找到发起人。", "发送：拒绝切磋 发起人名称，或使用 CQ/at 指定发起人。")
+            command = "拒绝切磋" if mode == "spar" else "拒绝决斗"
+            return hint("没有找到发起人。", f"发送：{command} 发起人名称，也可以直接@发起人。")
         with self.db.transaction() as conn:
             self._expire_requests_conn(conn, client_id, from_id)
             request = conn.execute(
@@ -343,15 +391,35 @@ class DuelService(CoreService):
             )
             if cursor.rowcount <= 0:
                 return hint("没有找到待拒绝的请求。", "可能已超时或被处理，无需重复拒绝。")
-            if mode == "bet":
+            if mode == "duel":
                 conn.execute(
                     "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                     (request["stake"], from_id),
                 )
         return "已拒绝。"
 
+    def _player_id_from_last_arg(self, message: str) -> str:
+        """取最后一个参数，并按 client_id / 名称查玩家。"""
+
+        parts = split_words(message)
+        return self._player_id(parts[-1]) if parts else ""
+
+    def _player_id(self, value: str) -> str:
+        """把一个参数当作 client_id 或玩家名查询。"""
+
+        text = value.strip()
+        if not text:
+            return ""
+        if self.player(text):
+            return text
+        row = self.db.fetch_one(
+            "SELECT client_id FROM players WHERE display_name = ?",
+            (text,),
+        )
+        return str(row["client_id"]) if row else ""
+
     def _expire_requests_conn(self, conn, *client_ids: str) -> None:
-        """把已超时的等待请求标记为超时，并退回赌约冻结源石。"""
+        """把已超时的等待请求标记为超时，并退回决斗冻结源石。"""
 
         ids = [client_id for client_id in dict.fromkeys(client_ids) if client_id]
         if ids:
@@ -384,7 +452,7 @@ class DuelService(CoreService):
             )
             if cursor.rowcount <= 0:
                 continue
-            if row["mode"] == "bet" and row["stake"] > 0:
+            if row["mode"] == "duel" and row["stake"] > 0:
                 conn.execute(
                     "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
                     (row["stake"], row["from_client_id"]),

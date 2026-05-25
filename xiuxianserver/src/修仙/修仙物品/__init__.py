@@ -8,7 +8,7 @@ from ..reply import send_reply
 from .service import service
 
 
-@WsMessageHandler.handler(cmd="查看修仙物品", priority=100, block=True)
+@WsMessageHandler.handler(cmd=("查看修仙物品", "修仙物品查看", "查看"), priority=100, block=True)
 async def ws_treasure_info(client_id: str, message: str) -> None:
     """查看任意修仙物品详情。"""
 

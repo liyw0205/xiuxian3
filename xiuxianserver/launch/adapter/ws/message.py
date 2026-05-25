@@ -1,6 +1,10 @@
 import json
 import asyncio
-from typing import Any, Dict, Optional
+from html import unescape
+import re
+from collections import deque
+from time import monotonic
+from typing import Any, Deque, Dict, Optional, Tuple
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .manager import current_request_id, manager
@@ -32,6 +36,10 @@ WS_MESSAGE_TASK_TIMEOUT = 9.0
 WS_CONNECT_LIMIT = 1000
 WS_CONNECT_WINDOW_SECONDS = 60
 
+# request_id 短期幂等保护时间。
+# 客户端重连/重发通常发生在几十秒内，保留 2 分钟足够挡住重复投递。
+WS_REQUEST_ID_TTL_SECONDS = 120.0
+
 # 保存后台任务引用，避免任务还没执行完就被垃圾回收。
 background_tasks = set()
 
@@ -44,10 +52,30 @@ client_task_counts: Dict[str, int] = {}
 # 保护 client_task_locks / client_task_counts。
 client_task_guard = asyncio.Lock()
 
+# 记录近期已经处理过的 request_id。
+# key 是 (client_id, request_id)，保证不同用户可以使用自己的 request_id。
+request_id_records: Dict[Tuple[str, str], float] = {}
+
+# 按写入顺序保存 request_id，清理过期记录时只从队首弹出。
+request_id_order: Deque[Tuple[float, Tuple[str, str]]] = deque()
+
+# 保护 request_id_records / request_id_order。
+request_id_guard = asyncio.Lock()
+
 # 所有正常消息共用一个并发限制器。
 task_limiter = TaskLimiter(
     max_concurrent=WS_MAX_CONCURRENT_TASKS,
     max_waiting=WS_MAX_WAITING_TASKS,
+)
+
+# 平台 at 码：只取 qq 的值作为内部 client_id。
+# 写得宽松一些，兼容不同系统/客户端可能出现的大小写和字段空格：
+#   [CQ:at,qq=abc]
+#   [cq:at, qq=abc]
+#   [CQ:at,qq=abc,name=xxx]
+CQ_AT_PATTERN = re.compile(
+    r"\[\s*cq\s*:\s*at\s*,\s*qq\s*=\s*([^,\]\s]+)[^\]]*\]",
+    re.IGNORECASE,
 )
 
 
@@ -96,16 +124,39 @@ async def _handle_raw_message(client_id: str, data: str) -> None:
 
 
 def _loads_message(data: str) -> Optional[Dict[str, Any]]:
-    """把客户端文本解析成 dict；失败时返回 None。"""
+    """把客户端文本解析成 dict；失败时返回 None。
+
+    JSON 成功解析后，立刻把 message 里的 CQ/at 转成内部 client_id。
+    后面的匹配和业务分发只处理普通文本，不再理解 CQ 格式。
+    """
 
     try:
-        message_data = json.loads(data)
+        message_data = json.loads(data.lstrip("\ufeff"))
     except json.JSONDecodeError:
         return None
 
     if not isinstance(message_data, dict):
         return None
+
+    if "message" in message_data:
+        message_data["message"] = _normalize_message_text(message_data.get("message"))
+
     return message_data
+
+
+def _normalize_message_text(message: Any) -> str:
+    """把客户端 message 统一成业务层好处理的普通文本。
+
+    只做三件事：
+    1. 非字符串也转成字符串，避免不同客户端传数字/None 时出错。
+    2. 把 HTML 转义还原，例如 &#91;CQ:at,qq=abc&#93;。
+    3. 把 CQ/at 替换成前后带空格的 id，再压平多余空白。
+    """
+
+    text = "" if message is None else str(message)
+    text = unescape(text).replace("\ufeff", "")
+    text = CQ_AT_PATTERN.sub(lambda match: f" {match.group(1).strip()} ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 async def _dispatch_message(client_id: str, message_data: Dict[str, Any]) -> None:
@@ -117,12 +168,15 @@ async def _dispatch_message(client_id: str, message_data: Dict[str, Any]) -> Non
         return
 
     logger.opt(colors=True).success(f"{C.yellow('收到消息')} {C.kv('client', client_id)} {C.kv('body', message_data)}")
+    if not await _remember_request_once(client_id, message_data):
+        await _send_duplicate_request(client_id, message_data)
+        return
+
     if not await WsMessageHandler.has_match(message_data):
         await _send_unmatched_message(client_id, message_data)
         return
 
     await _create_message_task(client_id, message_data)
-
 
 def _validate_message_data(message_data: Dict[str, Any]) -> Optional[str]:
     """校验新的 WS 通讯格式；格式不对就不进入业务分发。
@@ -187,6 +241,21 @@ async def _send_unmatched_message(client_id: str, message_data: Dict[str, Any]) 
             "code": 404,
             "type": "text",
             "message": "未命中任何触发器",
+        },
+        client_id,
+        is_log=False,
+        request_id=_message_request_id(message_data),
+    )
+
+
+async def _send_duplicate_request(client_id: str, message_data: Dict[str, Any]) -> None:
+    """同一个 client_id 重复提交同一个 request_id 时直接返回。"""
+
+    await manager.send(
+        {
+            "code": 202,
+            "type": "text",
+            "message": "请求已处理，请勿重复提交。",
         },
         client_id,
         is_log=False,
@@ -312,6 +381,41 @@ def _message_request_id(message_data: Dict[str, Any]) -> Optional[str]:
     return value or None
 
 
+async def _remember_request_once(client_id: str, message_data: Dict[str, Any]) -> bool:
+    """记录本次 request_id，重复请求返回 False。
+
+    这是 WS 通讯层的短期幂等保护：
+    - 只使用 client_id + request_id 判断重复。
+    - 不写业务数据库，也不要求业务函数传递 request_id。
+    - 过期记录会在后续请求到来时顺手清理。
+    """
+
+    request_id = _message_request_id(message_data)
+    if request_id is None:
+        return True
+
+    now_value = monotonic()
+    key = (client_id, request_id)
+    async with request_id_guard:
+        _clear_expired_request_ids(now_value)
+        if key in request_id_records:
+            return False
+
+        request_id_records[key] = now_value
+        request_id_order.append((now_value, key))
+        return True
+
+
+def _clear_expired_request_ids(now_value: float) -> None:
+    """清理过期 request_id，避免内存一直增长。"""
+
+    expires_before = now_value - WS_REQUEST_ID_TTL_SECONDS
+    while request_id_order and request_id_order[0][0] <= expires_before:
+        created_at, key = request_id_order.popleft()
+        if request_id_records.get(key) == created_at:
+            request_id_records.pop(key, None)
+
+
 async def _reserve_client_task(client_id: str) -> bool:
     """为单个 client_id 预占一个待处理名额。"""
 
@@ -373,5 +477,9 @@ async def shutdown() -> None:
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async with request_id_guard:
+        request_id_records.clear()
+        request_id_order.clear()
 
     await manager.close_all()

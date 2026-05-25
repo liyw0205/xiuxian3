@@ -7,6 +7,7 @@ from datetime import timedelta
 from ..combat_core import service as combat_service
 from ..common import CoreService, dump_json, hint, load_json, now, random, ts
 from ..constants import ENCOUNTER_SECONDS, EXPLORE_MINUTES
+from ..markdown_utils import append_suggest_commands
 from ..sql import db
 from ..weapon_core import service as weapon_service
 
@@ -16,24 +17,27 @@ class ExplorationService(CoreService):
 
     def locations(self, client_id: str) -> str:
         """查看探险地点。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         rows = self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level")
-        return "\n".join(
-            f"{row['name']}：推荐{row['recommended_level']}级，怪物{row['min_level']}-{row['max_level']}级，{row['desc']}"
-            for row in rows
-        )
+        return "\n".join(f"{row['name']}：推荐{row['recommended_level']}级，怪物{row['min_level']}-{row['max_level']}级，{row['desc']}" for row in rows)
 
     def current_location(self, client_id: str) -> str:
         """查看当前位置。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
-        return f"当前位置：{player['location_name']} ({player['x']},{player['y']})"
+        return (
+            f"当前位置：{player['location_name']} ({player['x']},{player['y']})"
+            + "<去 天枢城><去 青岚坊><去 赤霞港><去 玄铁岭><去 万药谷><去 云梦泽><去 流沙海市>"
+            "<去 寒霜关><去 雷泽城><去 碧潮岛><去 星陨墟>"
+        )
 
     def start(self, client_id: str, location_name: str = "") -> str:
         """开始探险。
@@ -41,6 +45,7 @@ class ExplorationService(CoreService):
         不带地点时使用玩家当前位置；带地点时先切到该探险地点再开始。
         移动没有时间成本，所以这里直接更新位置，避免用户还要先发一次导航。
         """
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -49,17 +54,17 @@ class ExplorationService(CoreService):
         assert player is not None
         active = self._active_record(client_id)
         if active:
-            return hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险")
+            return hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险<探险状态><结束探险>")
         if player["status"] != "空闲":
-            return hint(f"当前状态为 {player['status']}，不能开始探险。", "先处理当前状态，例如：结束休息 / 探险状态 / 结束探险")
+            return hint(f"当前状态为 {player['status']}，不能开始探险。", "先处理当前状态")
         if player["hp"] <= 0:
             return hint("血气不足，不能开始探险。", "发送：休息，时间到后发送：结束休息")
         target_name = location_name.strip() or player["location_name"]
         location = self._exploration_location(target_name)
         if not location:
             if location_name.strip():
-                return hint(f"没有找到探险地点：{target_name}。", "发送：地点列表 查看可探险地点。")
-            return hint("当前位置不是探险地点。", "发送：地点列表 查看可探险地点，或发送：探险 地点名")
+                return hint(f"没有找到探险地点：{target_name}。", "发送：探险列表 查看可探险地点。<探险列表>")
+            return hint("当前位置不是探险地点。", "发送：探险列表 查看可探险地点，或发送：探险 地点名<探险列表>")
 
         weapon_service.ensure_starter_weapon(client_id)
         explore_player = dict(player)
@@ -79,14 +84,14 @@ class ExplorationService(CoreService):
                 (client_id,),
             ).fetchone()
             if active:
-                return hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险")
+                return hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险<探险状态><结束探险>")
             for item_id, quantity in result.get("medicine_used", {}).items():
                 row = conn.execute(
                     "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
                     (client_id, item_id),
                 ).fetchone()
                 if not row or int(row["quantity"]) < int(quantity):
-                    return hint("自动用药库存已变化，无法开始探险。", "发送：纳戒 确认恢复药数量后，再发送：探险")
+                    return hint("自动用药库存已变化，无法开始探险。", "发送：纳戒 确认恢复药数量后，再发送：探险<纳戒>")
             cursor = conn.execute(
                 """
                 UPDATE players
@@ -96,7 +101,7 @@ class ExplorationService(CoreService):
                 (location["name"], location["x"], location["y"], client_id),
             )
             if cursor.rowcount <= 0:
-                return hint("当前状态已变化，不能开始探险。", "发送：修仙信息 查看当前状态后再操作。")
+                return hint("当前状态已变化，不能开始探险。", "发送：修仙信息 查看当前状态后再操作。<修仙信息>")
             for item_id, quantity in result.get("medicine_used", {}).items():
                 self.remove_ring_conn(conn, client_id, item_id, int(quantity))
             conn.execute(
@@ -108,10 +113,11 @@ class ExplorationService(CoreService):
                 (client_id, location["name"], ts(started), ts(ready), dump_json(result)),
             )
         auto_state = "开启" if player["auto_use_medicine"] else "关闭"
-        return f"开始探险：{location['name']}。自动用药：{auto_state}。30 分钟后可结算。"
+        return f"开始探险：{location['name']}。自动用药：{auto_state}。30 分钟后可结算。<探险状态>"
 
     def status(self, client_id: str) -> str:
         """查看探险状态。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -119,7 +125,7 @@ class ExplorationService(CoreService):
         assert player is not None
         record = self._active_record(client_id)
         if not record:
-            return hint("当前没有探险。", "发送：地点列表 选地点，再发送：探险")
+            return hint("当前没有探险。", "发送：探险列表 选地点，再发送：探险<探险列表>")
         result = load_json(record["result"], {})
         events = list(result.get("events", []))
         current = now()
@@ -164,11 +170,12 @@ class ExplorationService(CoreService):
             lines.append("预计收获：暂无掉落")
         if summary["medicine_text"]:
             lines.append(f"自动用药：{summary['medicine_text']}")
-        lines.append(f"下一步：{action}")
-        return "\n".join(lines)
+        lines.append(f"下一步：{action}<结束探险>")
+        return append_suggest_commands("\n".join(lines), action)
 
     def claim(self, client_id: str) -> str:
         """领取探险结果。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -176,11 +183,11 @@ class ExplorationService(CoreService):
         assert player is not None
         record = self._active_record(client_id)
         if not record:
-            return hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：掉落记录 查看历史。")
+            return hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：探险记录 查看历史。<探险>")
         ready_at = self._time(record["ready_at"])
         if ready_at and now() < ready_at:
             left = max(1, int((ready_at - now()).total_seconds() // 60) + 1)
-            return hint(f"探险还没有到 30 分钟冷却，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。")
+            return hint(f"探险还没有到 30 分钟冷却，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。<探险状态>")
         result = load_json(record["result"], {})
         events = list(result.get("events", []))
 
@@ -213,17 +220,25 @@ class ExplorationService(CoreService):
                 (record["record_id"],),
             ).fetchone()
             if not active:
-                return hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：掉落记录 查看历史。")
+                return hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：探险记录 查看历史。<探险>")
             for item_id, quantity in drops.items():
                 ok, reason = self.can_add_backpack_conn(conn, client_id, item_id, quantity)
                 if not ok:
-                    return f"背包空间不足，无法领取探险结果。\n{reason}"
+                    return f"背包空间不足，无法领取探险结果。\n{reason}<特殊自动出售>"
             old_level, new_level = self.add_exp_conn(conn, client_id, exp_total)
             for item_id, quantity in drops.items():
                 self.add_backpack_conn(conn, client_id, item_id, quantity)
             for item_id, quantity in ring_drops.items():
                 self.add_ring_conn(conn, client_id, item_id, quantity)
-            for drop in (event.get("weapon_drop") for event in events):
+            for event in events:
+                self.record_weapon_combat_conn(
+                    conn,
+                    client_id,
+                    int(event.get("weapon_id", 0)),
+                    monster_kill=bool(event.get("win")),
+                    damage=int(event.get("highest_damage", 0)),
+                )
+            for drop in self._weapon_drops_from_result(result):
                 if not drop:
                     continue
                 weapon_id = weapon_service.create_weapon_conn(
@@ -247,6 +262,19 @@ class ExplorationService(CoreService):
                 """,
                 (ts(), record["record_id"]),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '领取探险', ?, ?)",
+                (
+                    client_id,
+                    (
+                        f"record_id={record['record_id']}, location={record['location_name']}, "
+                        f"exp={exp_total}, level={old_level}->{new_level}, "
+                        f"items={sum(drops.values()) + sum(ring_drops.values())}, "
+                        f"weapons={len(weapon_drops)}, dead={int(dead)}"
+                    ),
+                    ts(),
+                ),
+            )
 
         final_player = self.player(client_id) or player
         return self._claim_log_block(
@@ -266,6 +294,7 @@ class ExplorationService(CoreService):
 
     def records(self, client_id: str) -> str:
         """查看最近探险记录。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -281,7 +310,7 @@ class ExplorationService(CoreService):
             (client_id,),
         )
         if not rows:
-            return hint("暂无探险记录。", "发送：探险 开始第一次探险。")
+            return hint("暂无探险记录。", "发送：探险 开始第一次探险。<探险>")
         return "\n".join(f"#{row['record_id']} {row['location_name']} {row['status']} {row['started_at']}" for row in rows)
 
     def _precompute(self, client_id: str, player: dict) -> dict:
@@ -311,12 +340,9 @@ class ExplorationService(CoreService):
         item_kinds = {row["item_id"] for row in self.backpack_rows(client_id)}
         pending_drops: dict[str, int] = {}
         explore_bonus = min(0.2, self.equipment_bonuses(client_id).get("explore_bonus", 0))
-        # 武器按整轮探险判定一次，避免 20 场战斗把掉率放大。
-        weapon_drop_chance = max(0.0, min(0.55, 0.35 + explore_bonus))
-        weapon_drop_index = random.randrange(fight_count) if random.random() < weapon_drop_chance else -1
         medicine_stock = self._medicine_stock(client_id) if player["auto_use_medicine"] else {}
         medicine_used: dict[str, int] = {}
-        for event_index in range(fight_count):
+        for _event_index in range(fight_count):
             hp_left, mp_left = self._auto_use_medicine(
                 hp_left,
                 mp_left,
@@ -337,7 +363,14 @@ class ExplorationService(CoreService):
             event["mp_left"] = mp_left
             if hp_left <= 0:
                 events.append(event)
-                return {"dead": True, "bag_full": False, "medicine_used": medicine_used, "events": events}
+                return self._precompute_result(
+                    player,
+                    events,
+                    medicine_used,
+                    explore_bonus,
+                    dead=True,
+                    bag_full=False,
+                )
             hp_left, mp_left = self._auto_use_medicine(
                 hp_left,
                 mp_left,
@@ -359,7 +392,14 @@ class ExplorationService(CoreService):
                     event["drop_item_id"] = ""
                     event["bag_full"] = True
                     events.append(event)
-                    return {"dead": False, "bag_full": True, "medicine_used": medicine_used, "events": events}
+                    return self._precompute_result(
+                        player,
+                        events,
+                        medicine_used,
+                        explore_bonus,
+                        dead=False,
+                        bag_full=True,
+                    )
             if random.random() < 0.22 + explore_bonus * 0.5:
                 location_drop = self._roll_location_drop(player["location_name"])
                 if location_drop:
@@ -373,14 +413,58 @@ class ExplorationService(CoreService):
                     if not can_take:
                         event["bag_full"] = True
                         events.append(event)
-                        return {"dead": False, "bag_full": True, "medicine_used": medicine_used, "events": events}
+                        return self._precompute_result(
+                            player,
+                            events,
+                            medicine_used,
+                            explore_bonus,
+                            dead=False,
+                            bag_full=True,
+                        )
                     event["location_drop_item_id"] = location_drop
             if random.random() < 0.16 + explore_bonus * 0.3:
                 event["ring_drop_id"] = self._roll_ring_drop()
-            if event_index == weapon_drop_index:
-                event["weapon_drop"] = weapon_service.roll_weapon_drop(player["level"], player["location_name"])
             events.append(event)
-        return {"dead": False, "bag_full": False, "medicine_used": medicine_used, "events": events}
+        return self._precompute_result(
+            player,
+            events,
+            medicine_used,
+            explore_bonus,
+            dead=False,
+            bag_full=False,
+        )
+
+    def _precompute_result(
+        self,
+        player: dict,
+        events: list[dict],
+        medicine_used: dict[str, int],
+        explore_bonus: float,
+        *,
+        dead: bool,
+        bag_full: bool,
+    ) -> dict:
+        """整理预计算结果，并按整轮探险判定武器掉落。
+
+        武器不再提前绑定到某一场战斗，避免玩家在随机武器场次之前死亡时
+        把整轮武器机会吞掉。只要本轮至少胜利过，就按整轮概率抽一次。
+        """
+
+        result = {
+            "dead": dead,
+            "bag_full": bag_full,
+            "medicine_used": medicine_used,
+            "events": events,
+        }
+        if any(event.get("win") for event in events) and random.random() < self._weapon_drop_chance(explore_bonus):
+            result["weapon_drop"] = weapon_service.roll_weapon_drop(player["level"], player["location_name"])
+        return result
+
+    @staticmethod
+    def _weapon_drop_chance(explore_bonus: float) -> float:
+        """整轮探险武器掉落概率。"""
+
+        return max(0.0, min(0.55, 0.35 + explore_bonus))
 
     def _monster_level_range(self, player: dict) -> tuple[int, int]:
         """按当前探险地点决定怪物等级段。"""
@@ -478,13 +562,11 @@ class ExplorationService(CoreService):
         恢复类、宝石和技能书都进纳戒，所以探险获得时直接写入纳戒。
         """
 
-        rows = self.db.fetch_all(
-            """
+        rows = self.db.fetch_all("""
             SELECT equipment_item_id, category
             FROM equipment_item_defs
             WHERE category IN ('恢复类', '宝石', '技能书')
-            """
-        )
+            """)
         if not rows:
             return ""
 
@@ -689,49 +771,46 @@ class ExplorationService(CoreService):
         return lines
 
     def _action_log_lines(self, action: dict, event: dict, player: dict) -> list[str]:
-        """整理一回合内玩家出手和怪物反击。"""
+        """整理一次行动条出手日志。"""
 
         round_no = int(action.get("round", 0))
         monster_name = str(event.get("monster") or "怪物")
         monster_hp_left = max(0, int(action.get("monster_hp_left", 0)))
         monster_hp_max = max(1, int(action.get("monster_hp_max", 1)))
-        total_damage = int(action.get("player_total_damage", 0))
-        combo_damage = int(action.get("combo_damage", 0))
-        skill_name = str(action.get("skill_name") or "")
-        if action.get("skill_used"):
-            attack_text = f"技能「{skill_name}」"
-            cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
-        else:
-            attack_text = "普通攻击"
-            cost_text = ""
-        combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
-        life_steal = int(action.get("life_steal", 0))
-        steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
-        lines = [
-            f"  第 {round_no} 回合",
-            (
+        lines = [f"  第 {round_no} 次行动"]
+        if action.get("actor") == "player":
+            total_damage = int(action.get("player_total_damage", action.get("damage", 0)))
+            combo_damage = int(action.get("combo_damage", 0))
+            skill_name = str(action.get("skill_name") or "")
+            if action.get("skill_used"):
+                attack_text = f"技能「{skill_name}」"
+                cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
+            else:
+                attack_text = "普通攻击"
+                cost_text = ""
+            combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
+            life_steal = int(action.get("life_steal", 0))
+            steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+            lines.append(
                 f"    我方出手：{attack_text}，造成 {total_damage} 伤害"
                 f"{combo_text}{steal_text}{cost_text}；"
                 f"{monster_name} 血气 {monster_hp_left}/{monster_hp_max}"
-            ),
-        ]
-        if monster_hp_left <= 0:
-            lines.append(f"    敌方出手：{monster_name} 已倒下。")
+            )
+            if monster_hp_left <= 0:
+                lines.append(f"    敌方出手：{monster_name} 已倒下，未能出手。")
             return lines
 
         player_hp_left = max(0, int(action.get("player_hp_left", 0)))
         player_mp_left = max(0, int(action.get("player_mp_left", 0)))
         if action.get("dodged"):
-            lines.append(
-                f"    敌方出手：{monster_name} 攻击落空；"
-                f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
-            )
+            lines.append(f"    敌方出手：{monster_name} 攻击落空；" f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}")
             return lines
 
         hurt = int(action.get("monster_damage", 0))
+        skill_name = str(action.get("monster_skill_name") or "")
+        attack_text = f"技能「{skill_name}」" if action.get("monster_skill_used") else "普通攻击"
         lines.append(
-            f"    敌方出手：{monster_name} 造成 {hurt} 伤害；"
-            f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
+            f"    敌方出手：{attack_text}，造成 {hurt} 伤害；" f"我方血气 {player_hp_left}/{player['max_hp']}，精神 {player_mp_left}/{player['max_mp']}"
         )
         return lines
 
@@ -749,6 +828,19 @@ class ExplorationService(CoreService):
             drop = event["weapon_drop"]
             texts.append(f"武器预掉落 {drop['name']}[{drop['quality']}] 上限{drop['max_level']}")
         return "、".join(texts) if texts else "无"
+
+    @staticmethod
+    def _weapon_drops_from_result(result: dict) -> list[dict]:
+        """读取本轮武器掉落。
+
+        武器按整轮探险奖励结算，只读取 result["weapon_drop"]。
+        """
+
+        drops = []
+        result_drop = result.get("weapon_drop")
+        if result_drop:
+            drops.append(result_drop)
+        return drops
 
     def _format_backpack_awards(self, drops: dict[str, int]) -> str:
         """整理背包最终获得。"""
@@ -817,11 +909,8 @@ class ExplorationService(CoreService):
             ring_id = event.get("ring_drop_id")
             if ring_id:
                 ring_drops[ring_id] = ring_drops.get(ring_id, 0) + 1
-            weapon_drop = event.get("weapon_drop")
-            if weapon_drop:
-                weapon_drops.append(
-                    f"{weapon_drop['name']}[{weapon_drop['quality']}]上限{weapon_drop['max_level']}"
-                )
+        for weapon_drop in self._weapon_drops_from_result(result):
+            weapon_drops.append(f"{weapon_drop['name']}[{weapon_drop['quality']}]上限{weapon_drop['max_level']}")
 
         drop_parts = []
         if backpack_drops:

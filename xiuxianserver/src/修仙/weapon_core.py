@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from .common import CoreService, dump_json, quality_factor, random, random_quality, ts
+from .common import CoreService, dump_json, enchant_label_name, quality_factor, random, random_quality, ts
 from .sql import db
 
 
@@ -38,6 +38,7 @@ class WeaponCore(CoreService):
         """只随机出掉落结果，不写入数据库。
 
         探险预计算阶段会先记录掉落结果，等玩家发送“结束探险”时再真正发放。
+        传入地点时优先从该地点武器里抽；不传地点时从全部武器里抽。
         """
 
         rows = self.db.fetch_all("SELECT * FROM weapon_defs")
@@ -107,7 +108,9 @@ class WeaponCore(CoreService):
                 ts(),
             ),
         )
-        return int(cursor.lastrowid)
+        weapon_id = int(cursor.lastrowid)
+        self.record_weapon_created_conn(conn, client_id, weapon_id)
+        return weapon_id
 
     def equipped_weapon(self, client_id: str) -> dict | None:
         """读取玩家当前装备的武器。"""
@@ -160,6 +163,20 @@ class WeaponCore(CoreService):
             "interval": 99,
             "power": 1.0,
         }
+
+    def weapon_skill_label(self, weapon_id: int, skill: dict) -> str:
+        """读取某把武器的自带技能显示名。
+
+        `weapon_enchant_names.slot_no = 0` 专门表示自带技能铭刻名。
+        `slot_no = 1..n` 继续表示已附魔技能书的铭刻名，所以不需要新增表。
+        """
+
+        base_name = str(skill.get("name", "普通攻击"))
+        row = self.db.fetch_one(
+            "SELECT custom_name FROM weapon_enchant_names WHERE weapon_id = ? AND slot_no = 0",
+            (weapon_id,),
+        )
+        return enchant_label_name(base_name, row["custom_name"] if row else "")
 
     @staticmethod
     def random_max_level(player_level: int) -> int:

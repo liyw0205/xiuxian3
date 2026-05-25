@@ -22,22 +22,29 @@ async def ws_inscription_feathers(client_id: str, message: str) -> None:
     await send_reply(client_id, service.feathers(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd=("铭刻固定装备", "固定装备铭刻", "铭刻装备", "装备铭刻"), priority=100, block=True)
+@WsMessageHandler.handler(cmd="铭刻装备", priority=100, block=True)
 async def ws_inscription_fixed_equipment(client_id: str, message: str) -> None:
-    """铭刻固定装备。"""
+    """铭刻装备。"""
 
     await send_reply(client_id, service.fixed_equipment(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd=("铭刻武器", "武器铭刻"), priority=100, block=True)
+@WsMessageHandler.handler(cmd="铭刻武器", priority=100, block=True)
 async def ws_inscription_weapon(client_id: str, message: str) -> None:
     """铭刻武器。"""
 
     await send_reply(client_id, service.weapon(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd=("铭刻附魔", "附魔铭刻", "铭刻技能", "技能铭刻"), priority=100, block=True)
+@WsMessageHandler.handler(cmd="铭刻附魔", priority=100, block=True)
 async def ws_inscription_enchant(client_id: str, message: str) -> None:
     """铭刻武器上已附魔的技能书。"""
 
     await send_reply(client_id, service.enchant(client_id, message), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="铭刻技能", priority=100, block=True)
+async def ws_inscription_skill(client_id: str, message: str) -> None:
+    """铭刻武器自带技能；带附魔序号时仍可铭刻附魔。"""
+
+    await send_reply(client_id, service.skill_or_enchant(client_id, message), ws_manager, service)

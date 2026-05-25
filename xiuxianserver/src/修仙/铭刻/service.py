@@ -7,6 +7,7 @@ from ..common import (
     enchant_label_name,
     hint,
     load_json,
+    parse_weapon_ref,
     split_words,
     to_int,
     ts,
@@ -30,11 +31,13 @@ class InscriptionService(CoreService):
             return error
         return (
             "☆铭刻☆\n"
-            "铭刻 固定装备 头部 新名字\n"
+            "铭刻 装备 头部 新名字\n"
             "铭刻 武器 武器#12 新名字\n"
+            "铭刻 技能 武器#12 新名字\n"
             "铭刻 附魔 武器#12 1 新名字\n"
             "也可在末尾指定铭刻之羽编号，例如：铭刻武器 武器#12 青云剑 #1\n"
             "铭刻之羽只由岁时情劫首领产出，每枚都有自己的文案，铭刻后直接消散。"
+            "<岁时情劫><铭刻之羽>"
         )
 
     def feathers(self, client_id: str) -> str:
@@ -52,7 +55,7 @@ class InscriptionService(CoreService):
             (client_id,),
         )
         if not rows:
-            return hint("你还没有铭刻之羽。", "铭刻之羽只能由岁时情劫首领产出，发送：首领 查看今日是否有岁时情劫。")
+            return hint("你还没有铭刻之羽。", "铭刻之羽只能由岁时情劫首领产出，发送：首领 查看今日是否有岁时情劫。<首领>")
         lines = ["☆铭刻之羽☆"]
         for row in rows:
             lines.append(f"#{row['feather_id']} {row['title']}\n{row['flavor_text']}")
@@ -67,23 +70,26 @@ class InscriptionService(CoreService):
 
         target = parts[0]
         rest = " ".join(parts[1:])
-        if target in {"固定装备", "装备"}:
+        if target == "装备":
             return self.fixed_equipment(client_id, rest)
         if target == "武器":
             return self.weapon(client_id, rest)
-        if target in {"附魔", "技能", "技能书"}:
+        if target in {"附魔", "技能书"}:
             return self.enchant(client_id, rest)
-        return hint("铭刻目标不正确。", "发送：铭刻 固定装备/武器/附魔 目标 新名字")
+        if target in {"技能", "武器技能", "自带技能"}:
+            return self.skill_or_enchant(client_id, rest)
+        return hint("铭刻目标不正确。", "发送：铭刻 装备/武器/技能/附魔 目标 新名字")
 
     def fixed_equipment(self, client_id: str, message: str) -> str:
-        """铭刻固定装备：装备位 + 新名字。"""
+        """铭刻装备：装备位 + 新名字。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
             return error
         parts = split_words(message)
         if len(parts) < 2:
-            return hint("固定装备铭刻格式不正确。", "发送：铭刻 固定装备 头部 新名字")
+            return hint("铭刻装备格式不正确。", "发送：铭刻 装备 头部 新名字")
 
         slot = parts[0]
         new_name_text, feather_id = self._split_feather_ref(" ".join(parts[1:]))
@@ -91,7 +97,7 @@ class InscriptionService(CoreService):
         if name_error:
             return hint(name_error, "换一个 1 到 12 个字符、且不含空白的名字。")
         if slot not in EQUIPMENT_SLOTS:
-            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：固定装备 查看已有装备位。")
+            return hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：装备 查看已有装备位。<装备>")
         if new_name == slot:
             return hint("新名字和原装备位一样。", "换一个更有辨识度的名字再铭刻。")
 
@@ -102,9 +108,9 @@ class InscriptionService(CoreService):
                 (client_id, slot),
             ).fetchone()
             if not row:
-                return hint("没有找到这个固定装备位。", "发送：固定装备 查看已有装备位。")
+                return hint("没有找到这个装备位。", "发送：装备 查看已有装备位。<装备>")
             if row["custom_name"] == new_name:
-                return hint("这个固定装备已经叫这个名字了。", "换一个新名字后再铭刻。")
+                return hint("这个装备已经叫这个名字了。", "换一个新名字后再铭刻。")
             feather, feather_error = self._take_feather_conn(conn, client_id, feather_id)
             if feather_error:
                 return feather_error
@@ -113,13 +119,14 @@ class InscriptionService(CoreService):
                 (new_name, client_id, slot),
             )
             conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻固定装备', ?, ?)",
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻装备', ?, ?)",
                 (client_id, f"{slot}->{new_name},feather={feather['feather_id']}", ts()),
             )
         return f"铭刻成功：{slot} -> {new_name}。\n{self._feather_fade_text(feather)}"
 
     def weapon(self, client_id: str, message: str) -> str:
         """铭刻武器：武器实例 ID + 新名字。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -145,7 +152,7 @@ class InscriptionService(CoreService):
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
-                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。")
+                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
             if name == weapon["name"]:
                 return hint("新名字和武器原名一样。", "换一个更有辨识度的名字再铭刻。")
             if weapon["custom_name"] == name:
@@ -165,6 +172,7 @@ class InscriptionService(CoreService):
 
     def enchant(self, client_id: str, message: str) -> str:
         """铭刻武器附魔：武器实例 ID + 附魔槽位序号 + 新名字。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -173,7 +181,7 @@ class InscriptionService(CoreService):
         if parse_error:
             return hint(parse_error, "发送：铭刻 附魔 武器#12 1 新名字")
         if weapon_id <= 0 or slot_no <= 0:
-            return hint("武器 ID 或附魔序号不正确。", "发送：武器 查看自己的武器 ID 和附魔序号。")
+            return hint("武器 ID 或附魔序号不正确。", "发送：武器 查看自己的武器 ID 和附魔序号。<武器>")
         new_name, feather_id = self._split_feather_ref(new_name)
         name, name_error = self._clean_name(new_name)
         if name_error:
@@ -190,10 +198,10 @@ class InscriptionService(CoreService):
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
-                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。")
+                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
             enchant_ids = load_json(weapon["enchant_effects"], [])
             if not isinstance(enchant_ids, list) or slot_no < 1 or slot_no > len(enchant_ids):
-                return hint("这把武器没有这个已附魔槽位。", "发送：武器 查看附魔序号后再铭刻。")
+                return hint("这把武器没有这个已附魔槽位。", "发送：武器 查看附魔序号后再铭刻。<武器>")
             enchant_id = enchant_ids[slot_no - 1]
             enchant = conn.execute(
                 "SELECT name FROM weapon_enchants WHERE enchant_id = ?",
@@ -223,6 +231,70 @@ class InscriptionService(CoreService):
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻附魔', ?, ?)",
                 (client_id, f"weapon={weapon_id},slot={slot_no},{base_name}->{name},feather={feather['feather_id']}", ts()),
+            )
+        return f"铭刻成功：{weapon_label_name(weapon)} 的 {enchant_label_name(base_name)} -> {name}。\n{self._feather_fade_text(feather)}"
+
+    def skill_or_enchant(self, client_id: str, message: str) -> str:
+        """铭刻技能入口：带槽位号时铭刻附魔，不带槽位号时铭刻自带技能。"""
+
+        if self._message_has_enchant_slot(message):
+            return self.enchant(client_id, message)
+        return self.skill(client_id, message)
+
+    def skill(self, client_id: str, message: str) -> str:
+        """铭刻武器自带技能：武器实例 ID + 新名字。"""
+        #TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
+
+        _, error = self.require_player(client_id)
+        if error:
+            return error
+        weapon_id, new_name, parse_error = self._parse_weapon_name(message)
+        if parse_error:
+            return hint(parse_error, "发送：铭刻 技能 武器#12 新名字<武器>")
+        if weapon_id <= 0:
+            return hint("武器 ID 不正确。", "发送：武器 查看自己的武器 ID。<武器>")
+        new_name, feather_id = self._split_feather_ref(new_name)
+        name, name_error = self._clean_name(new_name)
+        if name_error:
+            return hint(name_error, "换一个 1 到 12 个字符、且不含空白的名字。")
+
+        with self.db.transaction() as conn:
+            weapon = conn.execute(
+                """
+                SELECT w.*, d.name, s.name AS skill_name
+                FROM player_weapons w
+                JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
+                LEFT JOIN weapon_skill_defs s ON s.skill_id = w.skill_id
+                WHERE w.owner_id = ? AND w.weapon_id = ?
+                """,
+                (client_id, weapon_id),
+            ).fetchone()
+            if not weapon:
+                return hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
+            base_name = weapon["skill_name"] or "普通攻击"
+            current = conn.execute(
+                "SELECT custom_name FROM weapon_enchant_names WHERE weapon_id = ? AND slot_no = 0",
+                (weapon_id,),
+            ).fetchone()
+            if name == base_name:
+                return hint("新名字和自带技能原名一样。", "换一个更有辨识度的名字再铭刻。")
+            if current and current["custom_name"] == name:
+                return hint("这个自带技能已经叫这个名字了。", "换一个新名字后再铭刻。")
+            feather, feather_error = self._take_feather_conn(conn, client_id, feather_id)
+            if feather_error:
+                return feather_error
+            conn.execute(
+                """
+                INSERT INTO weapon_enchant_names (weapon_id, slot_no, custom_name)
+                VALUES (?, 0, ?)
+                ON CONFLICT(weapon_id, slot_no)
+                DO UPDATE SET custom_name = excluded.custom_name
+                """,
+                (weapon_id, name),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻自带技能', ?, ?)",
+                (client_id, f"weapon={weapon_id},{base_name}->{name},feather={feather['feather_id']}", ts()),
             )
         return f"铭刻成功：{weapon_label_name(weapon)} 的 {enchant_label_name(base_name)} -> {name}。\n{self._feather_fade_text(feather)}"
 
@@ -300,8 +372,8 @@ class InscriptionService(CoreService):
         if parts[0] in {"武器", "武器ID"}:
             if len(parts) < 3:
                 return 0, "", "武器铭刻格式不正确。"
-            return InscriptionService._parse_weapon_ref(parts[1]), " ".join(parts[2:]), None
-        return InscriptionService._parse_weapon_ref(parts[0]), " ".join(parts[1:]), None
+            return parse_weapon_ref(parts[1]), " ".join(parts[2:]), None
+        return parse_weapon_ref(parts[0]), " ".join(parts[1:]), None
 
     @staticmethod
     def _parse_enchant_name(message: str) -> tuple[int, int, str, str | None]:
@@ -313,19 +385,19 @@ class InscriptionService(CoreService):
         if parts[0] in {"武器", "武器ID"}:
             if len(parts) < 4:
                 return 0, 0, "", "附魔铭刻格式不正确。"
-            return InscriptionService._parse_weapon_ref(parts[1]), to_int(parts[2]), " ".join(parts[3:]), None
-        return InscriptionService._parse_weapon_ref(parts[0]), to_int(parts[1]), " ".join(parts[2:]), None
+            return parse_weapon_ref(parts[1]), to_int(parts[2]), " ".join(parts[3:]), None
+        return parse_weapon_ref(parts[0]), to_int(parts[1]), " ".join(parts[2:]), None
 
     @staticmethod
-    def _parse_weapon_ref(text: str) -> int:
-        """把 武器#12 / #12 / 12 转成武器实例 ID。"""
+    def _message_has_enchant_slot(message: str) -> bool:
+        """判断“铭刻技能”是否写了附魔槽位号。"""
 
-        value = text.strip()
-        for prefix in ("武器#", "武器ID", "武器", "#"):
-            if value.startswith(prefix):
-                value = value[len(prefix):]
-                break
-        return to_int(value)
+        parts = split_words(message)
+        if not parts:
+            return False
+        if parts[0] in {"武器", "武器ID"}:
+            return len(parts) >= 3 and to_int(parts[2]) > 0
+        return len(parts) >= 2 and to_int(parts[1]) > 0
 
 
 service = InscriptionService(db)

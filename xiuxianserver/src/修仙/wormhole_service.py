@@ -23,10 +23,11 @@ from .constants import (
     WORMHOLE_DURATION_MINUTES,
     WORMHOLE_NOTICE_COOLDOWN_MINUTES,
 )
+from .markdown_utils import append_suggest_commands
 from .rules import damage_after_defense, monster_exp
 from .sql import db
+from .combat_core import service as combat_service
 from .weapon_core import service as weapon_service
-
 
 BOSS_POOL = (
     ("裂天游魂", "游魂", 0.95),
@@ -52,6 +53,8 @@ class WormholeService(CoreService):
 
     def status(self, client_id: str) -> str:
         """查看当前异界虫洞。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
+
 
         _, error = self.require_player(client_id)
         if error:
@@ -60,7 +63,7 @@ class WormholeService(CoreService):
         if not event:
             pending = self._latest_rewardable(client_id)
             if pending:
-                return hint("当前没有开启的异界虫洞，但你有虫洞奖励待领取。", "发送：虫洞奖励")
+                return hint("当前没有开启的异界虫洞，但你有虫洞奖励待领取。", "发送：虫洞奖励<虫洞奖励>")
             snapshot = self._world_snapshot()
             opened_today = self._today_opened_count()
             daily_limit = self._daily_event_limit(snapshot["active_count"])
@@ -77,6 +80,7 @@ class WormholeService(CoreService):
 
     def challenge(self, client_id: str) -> str:
         """挑战当前虫洞 Boss。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -88,13 +92,13 @@ class WormholeService(CoreService):
         if not event:
             return hint("当前没有开启的异界虫洞。", "跑商、导航或特殊出售时有概率发现虫洞。")
         if event["status"] != "开启":
-            return hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：虫洞奖励 查看是否可以领取奖励。")
+            return hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：虫洞奖励 查看是否可以领取奖励。<虫洞奖励>")
         if player["status"] != "空闲":
             return self._busy_challenge_hint(player["status"])
         if player["location_name"] != event["location_name"]:
             return hint(
                 f"虫洞位于 {event['location_name']}，你当前在 {player['location_name']}。",
-                f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞",
+                f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞"+ f"<导航 {event['location_name']}><挑战虫洞><虫洞奖励>",
             )
         if int(player["hp"]) <= 0:
             return hint("血气不足，无法挑战虫洞。", "发送：休息，时间到后发送：结束休息")
@@ -126,7 +130,7 @@ class WormholeService(CoreService):
                 left = timedelta(minutes=WORMHOLE_CHALLENGE_COOLDOWN_MINUTES) - (now() - last) if last else timedelta()
                 if left > timedelta():
                     seconds = max(1, int(left.total_seconds()))
-                    return hint(f"挑战虫洞冷却中，还需 {seconds // 60}分{seconds % 60}秒。", "稍后再发送：挑战虫洞")
+                    return hint(f"挑战虫洞冷却中，还需 {seconds // 60}分{seconds % 60}秒。", "<挑战虫洞>")
 
             damage = min(max(1, int(result["damage"])), int(fresh["hp"]))
             left_hp = max(0, int(fresh["hp"]) - damage)
@@ -167,6 +171,13 @@ class WormholeService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '挑战虫洞', ?, ?)",
                 (client_id, f"wormhole={event['wormhole_id']}, damage={damage}", ts()),
             )
+            self.record_weapon_combat_conn(
+                conn,
+                client_id,
+                int(result.get("weapon_id", 0)),
+                boss_challenge=True,
+                damage=int(result.get("highest_damage", damage)),
+            )
 
         return self._challenge_log_block(
             title=f"挑战虫洞：{event['boss_name']}",
@@ -177,13 +188,16 @@ class WormholeService(CoreService):
             left_hp=left_hp,
             max_hp=int(event["max_hp"]),
             killed=killed,
-            killed_text="Boss 已被击杀，发送：虫洞奖励",
+            killed_text="Boss 已被击杀，可以领取虫洞奖励。",
             alive_text=f"再次挑战需等待 {WORMHOLE_CHALLENGE_COOLDOWN_MINUTES} 分钟。",
             hurt_text="你被虫洞反震重伤，建议先休息。",
+            reward_command="虫洞奖励",
+            challenge_command="挑战虫洞",
         )
 
     def ranking(self, client_id: str) -> str:
         """查看当前或最近虫洞排行。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         _, error = self.require_player(client_id)
         if error:
@@ -193,7 +207,7 @@ class WormholeService(CoreService):
             return hint("暂无异界虫洞记录。", "跑商、导航或特殊出售时有概率发现虫洞。")
         rows = self._participants(event["wormhole_id"])
         if not rows:
-            return hint(f"{event['boss_name']} 暂无挑战记录。", "发送：挑战虫洞 参与本次虫洞。")
+            return hint(f"{event['boss_name']} 暂无挑战记录。", "发送：挑战虫洞 参与本次虫洞。<挑战虫洞>")
         lines = [f"☆异界虫洞排行·{event['boss_name']}☆"]
         for index, row in enumerate(rows[:10], start=1):
             lines.append(
@@ -205,6 +219,7 @@ class WormholeService(CoreService):
 
     def reward(self, client_id: str) -> str:
         """领取最近一次可领取的虫洞奖励。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         player, error = self.require_player(client_id)
         if error:
@@ -216,7 +231,7 @@ class WormholeService(CoreService):
             active = self._active_event()
             if active:
                 return hint("当前异界虫洞还没有结束。", "继续挑战，或等 Boss 被击杀/虫洞退去后再发送：虫洞奖励")
-            return hint("没有可领取的虫洞奖励。", "发送：虫洞 查看当前是否有异界虫洞。")
+            return hint("没有可领取的虫洞奖励。", "发送：虫洞 查看当前是否有异界虫洞。<虫洞>")
 
         participant = self.db.fetch_one(
             "SELECT * FROM wormhole_participants WHERE wormhole_id = ? AND client_id = ?",
@@ -278,6 +293,17 @@ class WormholeService(CoreService):
                 """,
                 (text, ts(), event["wormhole_id"], client_id),
             )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '领取虫洞奖励', ?, ?)",
+                (
+                    client_id,
+                    (
+                        f"wormhole_id={event['wormhole_id']}, boss={event['boss_name']}, "
+                        f"rank={reward['rank']}, exp={reward['exp']}, stones={reward['stones']}"
+                    ),
+                    ts(),
+                ),
+            )
         return text
 
     def try_discover(self, client_id: str, source: str, location_name: str) -> str:
@@ -302,6 +328,7 @@ class WormholeService(CoreService):
 
     def notice(self, client_id: str, event: dict[str, Any] | None = None, force: bool = False) -> str:
         """给玩家追加虫洞提示；同一玩家有提示冷却，避免刷屏。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         event = event or self._active_event()
         if not event:
@@ -328,10 +355,8 @@ class WormholeService(CoreService):
                 """,
                 (event["wormhole_id"], client_id, ts()),
             )
-        return (
-            f"\n异界虫洞撕开：{event['boss_name']} 出现在 {event['location_name']}。"
-            f"发送：导航 {event['location_name']}，再发送：挑战虫洞"
-        )
+        text = f"\n异界虫洞撕开：{event['boss_name']} 出现在 {event['location_name']}。"
+        return append_suggest_commands(text, f"发送：导航 {event['location_name']}，再发送：挑战虫洞" + f"<导航 {event['location_name']}><挑战虫洞>")
 
     def _open_event(self, opened_by: str, source: str, location_name: str) -> dict[str, Any]:
         """按当前服务器生态生成一只动态 Boss。"""
@@ -389,15 +414,13 @@ class WormholeService(CoreService):
         """读取当前仍开启的虫洞。"""
 
         self._close_expired_events()
-        row = self.db.fetch_one(
-            """
+        row = self.db.fetch_one("""
             SELECT *
             FROM wormholes
             WHERE status = '开启'
             ORDER BY opened_at DESC
             LIMIT 1
-            """
-        )
+            """)
         return row
 
     def _latest_event(self) -> dict[str, Any] | None:
@@ -454,103 +477,30 @@ class WormholeService(CoreService):
         if left <= timedelta():
             return ""
         seconds = max(1, int(left.total_seconds()))
-        return hint(f"挑战虫洞冷却中，还需 {seconds // 60}分{seconds % 60}秒。", "稍后再发送：挑战虫洞")
+        return hint(f"挑战虫洞冷却中，还需 {seconds // 60}分{seconds % 60}秒。", "<挑战虫洞>")
 
     @staticmethod
     def _busy_challenge_hint(status: str) -> str:
         """玩家本体忙碌时，解释为什么不能挑战虫洞。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         if status == "探险中":
             return hint(
                 "本体正在探险，不能挑战虫洞。",
-                "行商化身仍可跑商；先发送：探险状态，30 分钟后发送：结束探险，再发送：挑战虫洞",
+                "行商化身仍可跑商；先发送：探险状态，30 分钟后发送：结束探险，再发送：挑战虫洞<探险状态>",
             )
         return hint(f"当前状态为 {status}，不能挑战虫洞。", "先结束当前状态，再发送：挑战虫洞")
 
     def _fight_boss(self, player: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-        """结算一次虫洞挑战；这里只算数值和逐回合日志，不写数据库。"""
+        """结算一次虫洞挑战；只算数值和逐次出手日志，不写数据库。"""
 
-        client_id = player["client_id"]
-        weapon_service.ensure_starter_weapon(client_id)
-        weapon = weapon_service.equipped_weapon(client_id)
-        skill = weapon_service.skill(weapon["skill_id"]) if weapon else None
-        bonuses = self._merge_effects(self.equipment_bonuses(client_id), self._weapon_effects(weapon))
-        player_attack = int(player["base_attack"]) + (int(weapon["attack"]) if weapon else 0)
-        hp = int(player["hp"])
-        mp = int(player["mp"])
-        total_damage = 0
-        skill_times = 0
-        rounds = 10 + min(4, int(player["level"]) // 25)
-        interval = self._skill_interval(skill, weapon, bonuses)
-        skill_cost = self._skill_cost(skill, bonuses)
-        boss_hp = int(event["hp"])
-        actions: list[dict[str, Any]] = []
-
-        for round_no in range(1, rounds + 1):
-            raw = player_attack + random.randint(int(player["level"]), max(int(player["level"]) * 4, int(player["level"]) + 3))
-            raw = int(raw * (1 + float(bonuses.get("hit_bonus", 0)) * 0.5))
-            skill_used = False
-            skill_name = ""
-            if skill and interval and round_no % interval == 0 and mp >= skill_cost:
-                raw = int(raw * self._skill_power(skill, bonuses))
-                mp -= skill_cost
-                skill_times += 1
-                skill_used = True
-                skill_name = str(skill["name"])
-            damage = damage_after_defense(raw, int(event["defense"]), self._pierce_rate(bonuses))
-            combo_damage = self._combo_damage(raw, int(event["defense"]), bonuses)
-            round_damage = damage + combo_damage
-            total_damage += round_damage
-            boss_hp = max(0, boss_hp - round_damage)
-            hp_before_steal = hp
-            if bonuses.get("life_steal"):
-                hp = min(int(player["max_hp"]), hp + int(round_damage * float(bonuses["life_steal"])))
-            action = {
-                "round": round_no,
-                "raw": raw,
-                "damage": round_damage,
-                "base_damage": damage,
-                "combo_damage": combo_damage,
-                "life_steal": max(0, hp - hp_before_steal),
-                "skill_used": skill_used,
-                "skill_name": skill_name,
-                "mp_cost": skill_cost if skill_used else 0,
-                "boss_hp_left": boss_hp,
-                "boss_hp_max": int(event["max_hp"]),
-                "boss_attack": False,
-                "boss_damage": 0,
-                "player_hp_left": hp,
-                "player_mp_left": mp,
-                "dodged": False,
-            }
-            if boss_hp <= 0:
-                actions.append(action)
-                break
-            if random.random() >= min(0.45, float(bonuses.get("dodge_bonus", 0))):
-                hurt = damage_after_defense(
-                    random.randint(max(1, int(event["attack"] * 0.75)), max(1, int(event["attack"] * 1.18))),
-                    int(player["defense"]),
-                )
-                reduced_hurt = self._reduce_damage(hurt, bonuses, skill_used)
-                hp -= reduced_hurt
-                action["boss_attack"] = True
-                action["boss_hurt_raw"] = hurt
-                action["boss_damage"] = reduced_hurt
-            else:
-                action["dodged"] = True
-            action["player_hp_left"] = max(0, hp)
-            action["player_mp_left"] = 0 if hp <= 0 else max(0, mp)
-            actions.append(action)
-            if hp <= 0:
-                break
-        mp_left = 0 if hp <= 0 else max(0, mp)
-        return {
-            "damage": max(1, total_damage),
-            "hp_left": max(0, hp),
-            "mp_left": mp_left,
-            "skill_times": skill_times,
-            "actions": actions,
-        }
+        action_limit = 10 + min(4, int(player["level"]) // 25)
+        return combat_service.fight_boss(
+            player,
+            event,
+            boss_kind=str(event["boss_kind"]),
+            action_limit=action_limit,
+        )
 
     def _challenge_log_block(
         self,
@@ -566,6 +516,8 @@ class WormholeService(CoreService):
         killed_text: str,
         alive_text: str,
         hurt_text: str,
+        reward_command: str,
+        challenge_command: str,
     ) -> str:
         """把 Boss 挑战整理成包含逐次出手的代码块。"""
 
@@ -589,60 +541,62 @@ class WormholeService(CoreService):
                 f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
                 f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
                 f"武器技能触发：{result['skill_times']} 次",
+                f"Boss 技能触发：{result.get('boss_skill_times', 0)} 次",
             ]
         )
+        suggestions: list[str] = []
         if int(result["hp_left"]) <= 0:
             lines.append(hurt_text)
+            suggestions.append("发送：休息，时间到后发送：结束休息")
         if killed:
             lines.append(killed_text)
+            suggestions.append(f"发送：{reward_command}")
         else:
             lines.append(f"剩余血量：{left_hp}/{max_hp}")
             lines.append(alive_text)
-        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+            suggestions.append(f"稍后再发送：{challenge_command}")
+
+        block = "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+        return append_suggest_commands(block, "；".join(suggestions))
 
     @staticmethod
     def _boss_action_lines(action: dict[str, Any], boss_name: str, player: dict[str, Any]) -> list[str]:
-        """整理一回合 Boss 战日志。"""
+        """整理一次 Boss 战行动日志。"""
 
         round_no = int(action.get("round", 0))
-        damage = int(action.get("damage", 0))
-        combo_damage = int(action.get("combo_damage", 0))
-        life_steal = int(action.get("life_steal", 0))
         boss_hp_left = max(0, int(action.get("boss_hp_left", 0)))
         boss_hp_max = max(1, int(action.get("boss_hp_max", 1)))
-        skill_name = str(action.get("skill_name") or "")
-        if action.get("skill_used"):
-            attack_text = f"技能「{skill_name}」"
-            cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
-        else:
-            attack_text = "普通攻击"
-            cost_text = ""
-        combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
-        steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
-        lines = [
-            f"第 {round_no} 回合",
-            f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{cost_text}；{boss_name} 血气 {boss_hp_left}/{boss_hp_max}",
-        ]
-        if boss_hp_left <= 0:
-            lines.append(f"  Boss 出手：{boss_name} 已倒下。")
+        lines = [f"第 {round_no} 次行动"]
+        if action.get("actor") == "player":
+            damage = int(action.get("player_total_damage", action.get("damage", 0)))
+            combo_damage = int(action.get("combo_damage", 0))
+            life_steal = int(action.get("life_steal", 0))
+            skill_name = str(action.get("skill_name") or "")
+            if action.get("skill_used"):
+                attack_text = f"技能「{skill_name}」"
+                cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
+            else:
+                attack_text = "普通攻击"
+                cost_text = ""
+            combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
+            steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
+            lines.append(f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{cost_text}；" f"{boss_name} 血气 {boss_hp_left}/{boss_hp_max}")
+            if boss_hp_left <= 0:
+                lines.append(f"  Boss 出手：{boss_name} 已倒下，未能出手。")
             return lines
 
         hp_left = max(0, int(action.get("player_hp_left", 0)))
         mp_left = max(0, int(action.get("player_mp_left", 0)))
         if action.get("dodged"):
-            lines.append(
-                f"  Boss 出手：{boss_name} 攻击落空；"
-                f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
-            )
+            lines.append(f"  Boss 出手：{boss_name} 攻击落空；" f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}")
             return lines
 
         hurt = int(action.get("boss_damage", 0))
         raw_hurt = int(action.get("boss_hurt_raw", hurt))
         reduce_text = f"，减免 {max(0, raw_hurt - hurt)}" if raw_hurt > hurt else ""
-        lines.append(
-            f"  Boss 出手：{boss_name} 造成 {hurt} 伤害{reduce_text}；"
-            f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
-        )
+        skill_name = str(action.get("boss_skill_name") or "")
+        attack_text = f"技能「{skill_name}」" if action.get("boss_skill_used") else "普通攻击"
+        lines.append(f"  Boss 出手：{attack_text}，造成 {hurt} 伤害{reduce_text}；" f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}")
         return lines
 
     def _roll_reward(self, event: dict[str, Any], participant: dict[str, Any], player: dict[str, Any]) -> dict[str, Any]:
@@ -683,7 +637,7 @@ class WormholeService(CoreService):
 
         weapon = None
         if random.random() < 0.03 + contribution * 0.16:
-            weapon = weapon_service.roll_weapon_drop(max(player["level"], event["level"]), event["location_name"])
+            weapon = weapon_service.roll_weapon_drop(max(player["level"], event["level"]), "")
 
         return {
             "rank": rank,
@@ -780,7 +734,7 @@ class WormholeService(CoreService):
     def _active_players(self) -> list[dict[str, Any]]:
         """读取近期活跃玩家。
 
-        近 7 天内创建、发过 WS 请求、跑商、探险、挑战或对战，都算活跃。
+        近 7 天内创建、跑商、探险、挑战或对战，都算活跃。
         这个人数只用于虫洞刷新和动态难度，不改变玩家数据。
         """
 
@@ -790,7 +744,6 @@ class WormholeService(CoreService):
             SELECT *
             FROM players p
             WHERE p.created_at >= ?
-               OR EXISTS (SELECT 1 FROM request_idempotency r WHERE r.client_id = p.client_id AND r.created_at >= ?)
                OR EXISTS (SELECT 1 FROM game_logs g WHERE g.client_id = p.client_id AND g.created_at >= ?)
                OR EXISTS (SELECT 1 FROM trade_records t WHERE t.client_id = p.client_id AND t.created_at >= ?)
                OR EXISTS (SELECT 1 FROM exploration_records e WHERE e.client_id = p.client_id AND e.started_at >= ?)
@@ -799,7 +752,7 @@ class WormholeService(CoreService):
                OR EXISTS (SELECT 1 FROM duel_records d WHERE (d.from_client_id = p.client_id OR d.to_client_id = p.client_id) AND d.created_at >= ?)
                OR EXISTS (SELECT 1 FROM combat_logs c WHERE c.client_id = p.client_id AND c.created_at >= ?)
             """,
-            (cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff),
+            (cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff),
         )
 
     def _today_opened_count(self) -> int:
@@ -855,20 +808,22 @@ class WormholeService(CoreService):
 
     def _format_status(self, event: dict[str, Any]) -> str:
         """格式化虫洞状态。"""
+        # TODO 按钮审查：这里会生成回复文本，按需把命令写成 <命令>。
 
         closes = dt(event["closes_at"])
         left = max(0, int((closes - now()).total_seconds() // 60) + 1) if closes else 0
         snapshot = self._world_snapshot()
         opened_today = self._today_opened_count()
         daily_limit = self._daily_event_limit(snapshot["active_count"])
-        return (
+        text = (
             f"☆异界虫洞·{event['boss_name']}☆\n"
             f"位置：{event['location_name']} ({event['x']},{event['y']})\n"
             f"等级:{event['level']} 血量:{event['hp']}/{event['max_hp']} 状态:{event['status']}\n"
             f"今日出现：{opened_today}/{daily_limit}，近{WORMHOLE_ACTIVE_WINDOW_DAYS}天活跃：{snapshot['active_count']}人\n"
             f"剩余约 {left} 分钟，挑战冷却 {WORMHOLE_CHALLENGE_COOLDOWN_MINUTES} 分钟。\n"
-            f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞"
+            f"下一步：发送：导航 {event['location_name']}，到达后发送：挑战虫洞"
         )
+        return append_suggest_commands(text, f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞")
 
 
 service = WormholeService(db)
