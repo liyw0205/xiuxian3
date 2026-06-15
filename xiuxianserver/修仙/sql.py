@@ -14,6 +14,7 @@ from threading import RLock
 from typing import Any, Iterable, Iterator
 
 from .constants import DEFAULT_LOCATION, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
+from .rules import weapon_exp_for_level, weapon_level_from_exp
 
 
 PHYSIQUE_DEFS = (
@@ -88,7 +89,7 @@ ITEM_DEFS = (
 )
 
 
-EQUIPMENT_ITEM_DEFS = (
+RING_ITEM_DEFS = (
     (
         "fudai",
         "福袋",
@@ -787,7 +788,56 @@ class XiuxianDB:
             migrated_version = 2026052602
         if migrated_version == 2026052602 and SCHEMA_VERSION >= 2026060101:
             migrated_version = 2026060101
+        if migrated_version == 2026060302 and SCHEMA_VERSION >= 2026061201:
+            self._add_column_if_missing(
+                "player_weapons",
+                "exp",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            migrated_version = 2026061201
+        if migrated_version == 2026061201 and SCHEMA_VERSION >= 2026061202:
+            self._migrate_weapon_level_exp()
+            migrated_version = 2026061202
+        if migrated_version == 2026061202 and SCHEMA_VERSION >= 2026061601:
+            self._add_column_if_missing(
+                "players",
+                "rest_window_started_at",
+                "TEXT",
+            )
+            self._add_column_if_missing(
+                "players",
+                "rest_window_hp",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            self._add_column_if_missing(
+                "players",
+                "rest_window_mp",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            self._add_column_if_missing(
+                "players",
+                "rest_window_elapsed_seconds",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            migrated_version = 2026061601
+        if migrated_version == 2026061601 and SCHEMA_VERSION >= 2026061602:
+            self._migrate_naming_schema()
+            migrated_version = 2026061602
         return migrated_version == SCHEMA_VERSION
+
+    def _migrate_weapon_level_exp(self) -> None:
+        """把旧武器等级反灌为累计经验，并按经验刷新等级。"""
+
+        assert self.conn is not None
+        rows = self.conn.execute("SELECT weapon_id, level, exp, max_level FROM player_weapons").fetchall()
+        for row in rows:
+            exp = max(int(row["exp"]), weapon_exp_for_level(int(row["level"])))
+            level = weapon_level_from_exp(exp, int(row["max_level"]))
+            self.conn.execute(
+                "UPDATE player_weapons SET exp = ?, level = ? WHERE weapon_id = ?",
+                (exp, level, int(row["weapon_id"])),
+            )
+        self.conn.commit()
 
     def _add_column_if_missing(self, table: str, column: str, column_def: str) -> None:
         """表字段不存在时补列。"""
@@ -797,6 +847,58 @@ class XiuxianDB:
         if any(row["name"] == column for row in rows):
             return
         self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+        self.conn.commit()
+
+    def _table_exists(self, table: str) -> bool:
+        """判断表是否存在。"""
+
+        assert self.conn is not None
+        row = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+        return bool(row)
+
+    def _column_exists(self, table: str, column: str) -> bool:
+        """判断表字段是否存在。"""
+
+        assert self.conn is not None
+        if not self._table_exists(table):
+            return False
+        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(row["name"] == column for row in rows)
+
+    def _rename_table_if_exists(self, old_name: str, new_name: str) -> None:
+        """旧表存在且新表不存在时改名。"""
+
+        assert self.conn is not None
+        if not self._table_exists(old_name) or self._table_exists(new_name):
+            return
+        self.conn.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
+
+    def _rename_column_if_exists(self, table: str, old_name: str, new_name: str) -> None:
+        """旧字段存在且新字段不存在时改名。"""
+
+        assert self.conn is not None
+        if not self._column_exists(table, old_name) or self._column_exists(table, new_name):
+            return
+        self.conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old_name} TO {new_name}")
+
+    def _migrate_naming_schema(self) -> None:
+        """把过渡期表名和字段名迁移成当前业务语义。"""
+
+        assert self.conn is not None
+        self.conn.execute("DROP INDEX IF EXISTS idx_player_weapons_one_equipped")
+        self._rename_table_if_exists("equipment_item_defs", "ring_item_defs")
+        self._rename_table_if_exists("trade_limits", "trade_buy_locks")
+        self._rename_column_if_exists("ring_item_defs", "equipment_item_id", "ring_item_id")
+        self._rename_column_if_exists("ring_items", "equipment_item_id", "ring_item_id")
+        self._rename_column_if_exists("trade_daily_rewards", "net_income", "net_profit")
+        self._rename_column_if_exists("players", "status_until_at", "rest_full_at")
+        self._rename_column_if_exists("players", "physique", "physique_value")
+        self._rename_column_if_exists("source_vaults", "level", "star_level")
+        self._rename_column_if_exists("source_vaults", "daily_interest", "daily_interest_claimed")
+        self._rename_column_if_exists("player_weapons", "owner_id", "holder_id")
         self.conn.commit()
 
     def _drop_tables(self) -> None:
@@ -816,6 +918,7 @@ class XiuxianDB:
             DROP TABLE IF EXISTS vault_weapons;
             DROP TABLE IF EXISTS item_defs;
             DROP TABLE IF EXISTS equipment_item_defs;
+            DROP TABLE IF EXISTS ring_item_defs;
             DROP TABLE IF EXISTS second_hand_listings;
             DROP TABLE IF EXISTS second_hand_records;
             DROP TABLE IF EXISTS world_locations;
@@ -826,6 +929,7 @@ class XiuxianDB:
             DROP TABLE IF EXISTS trade_records;
             DROP TABLE IF EXISTS trade_daily_rewards;
             DROP TABLE IF EXISTS trade_limits;
+            DROP TABLE IF EXISTS trade_buy_locks;
             DROP TABLE IF EXISTS special_buyers;
             DROP TABLE IF EXISTS recycle_locations;
             DROP TABLE IF EXISTS weapon_recycle_locations;
@@ -905,12 +1009,16 @@ class XiuxianDB:
                 mp INTEGER NOT NULL DEFAULT 60,
                 max_mp INTEGER NOT NULL DEFAULT 60,
                 physique_id TEXT NOT NULL DEFAULT 'fanti',
-                physique INTEGER NOT NULL DEFAULT 0,
+                physique_value INTEGER NOT NULL DEFAULT 0,
                 base_attack INTEGER NOT NULL DEFAULT 5,
                 defense INTEGER NOT NULL DEFAULT 0,
                 source_stones INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT '空闲',
-                status_until_at TEXT,
+                rest_full_at TEXT,
+                rest_window_started_at TEXT,
+                rest_window_hp INTEGER NOT NULL DEFAULT 0,
+                rest_window_mp INTEGER NOT NULL DEFAULT 0,
+                rest_window_elapsed_seconds INTEGER NOT NULL DEFAULT 0,
                 location_name TEXT NOT NULL DEFAULT '天枢城',
                 x INTEGER NOT NULL DEFAULT 0,
                 y INTEGER NOT NULL DEFAULT 0,
@@ -926,11 +1034,11 @@ class XiuxianDB:
 
             CREATE TABLE IF NOT EXISTS source_vaults (
                 client_id TEXT PRIMARY KEY,
-                level INTEGER NOT NULL DEFAULT 1,
+                star_level INTEGER NOT NULL DEFAULT 1,
                 balance INTEGER NOT NULL DEFAULT 0,
                 last_settle_at TEXT NOT NULL,
                 last_interest_day TEXT,
-                daily_interest INTEGER NOT NULL DEFAULT 0
+                daily_interest_claimed INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS backpack_items (
@@ -942,9 +1050,9 @@ class XiuxianDB:
 
             CREATE TABLE IF NOT EXISTS ring_items (
                 client_id TEXT NOT NULL,
-                equipment_item_id TEXT NOT NULL,
+                ring_item_id TEXT NOT NULL,
                 quantity INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (client_id, equipment_item_id)
+                PRIMARY KEY (client_id, ring_item_id)
             );
 
             CREATE TABLE IF NOT EXISTS gem_items (
@@ -986,8 +1094,8 @@ class XiuxianDB:
                 desc TEXT NOT NULL DEFAULT ''
             );
 
-            CREATE TABLE IF NOT EXISTS equipment_item_defs (
-                equipment_item_id TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS ring_item_defs (
+                ring_item_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 category TEXT NOT NULL,
                 quality TEXT NOT NULL,
@@ -1079,13 +1187,13 @@ class XiuxianDB:
                 client_id TEXT NOT NULL,
                 business_day TEXT NOT NULL,
                 sell_quantity INTEGER NOT NULL,
-                net_income INTEGER NOT NULL,
+                net_profit INTEGER NOT NULL,
                 reward INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (client_id, business_day)
             );
 
-            CREATE TABLE IF NOT EXISTS trade_limits (
+            CREATE TABLE IF NOT EXISTS trade_buy_locks (
                 client_id TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
@@ -1217,9 +1325,10 @@ class XiuxianDB:
 
             CREATE TABLE IF NOT EXISTS player_weapons (
                 weapon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                owner_id TEXT NOT NULL,
+                holder_id TEXT NOT NULL,
                 weapon_def_id TEXT NOT NULL,
                 level INTEGER NOT NULL DEFAULT 0,
+                exp INTEGER NOT NULL DEFAULT 0,
                 max_level INTEGER NOT NULL,
                 quality TEXT NOT NULL,
                 enchant_effects TEXT NOT NULL DEFAULT '[]',
@@ -1492,7 +1601,7 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_vault_items_client ON vault_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_vault_weapons_client ON vault_weapons(client_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_player_weapons_one_equipped
-            ON player_weapons(owner_id)
+            ON player_weapons(holder_id)
             WHERE equipped = 1;
             CREATE INDEX IF NOT EXISTS idx_physique_level ON physique_defs(level, physique_value);
             CREATE INDEX IF NOT EXISTS idx_trade_records_client ON trade_records(client_id, created_at);
@@ -1619,11 +1728,11 @@ class XiuxianDB:
         )
         self.conn.executemany(
             """
-            INSERT OR REPLACE INTO equipment_item_defs
-            (equipment_item_id, name, category, quality, usable, target_type, effect, desc)
+            INSERT OR REPLACE INTO ring_item_defs
+            (ring_item_id, name, category, quality, usable, target_type, effect, desc)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in EQUIPMENT_ITEM_DEFS],
+            [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in RING_ITEM_DEFS],
         )
         self.conn.executemany(
             """
@@ -1782,7 +1891,7 @@ class XiuxianDB:
         }
         equipment_names = {
             row["name"]
-            for row in self.conn.execute("SELECT name FROM equipment_item_defs").fetchall()
+            for row in self.conn.execute("SELECT name FROM ring_item_defs").fetchall()
         }
         duplicated_names = names & equipment_names
         if duplicated_names:
@@ -1812,7 +1921,7 @@ class XiuxianDB:
             check_point(name, x, y, "回收")
 
         gem_rows = self.conn.execute(
-            "SELECT name, effect FROM equipment_item_defs WHERE category = '宝石'"
+            "SELECT name, effect FROM ring_item_defs WHERE category = '宝石'"
         ).fetchall()
         for row in gem_rows:
             try:
@@ -1864,7 +1973,7 @@ class XiuxianDB:
             for row in self.conn.execute("SELECT enchant_id FROM weapon_enchants").fetchall()
         }
         rows = self.conn.execute(
-            "SELECT equipment_item_id, name, effect FROM equipment_item_defs WHERE category = '技能书'"
+            "SELECT ring_item_id, name, effect FROM ring_item_defs WHERE category = '技能书'"
         ).fetchall()
         for row in rows:
             try:

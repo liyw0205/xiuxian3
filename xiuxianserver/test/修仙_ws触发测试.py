@@ -214,7 +214,7 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "休息")
             _must_reply(manager, "player_ws", "开始休息")
             db.execute(
-                "UPDATE players SET status = '休息中', status_until_at = ? WHERE client_id = ?",
+                "UPDATE players SET status = '休息中', rest_full_at = ? WHERE client_id = ?",
                 ("2000-01-01T00:00:00", "player_ws"),
             )
             await _dispatch(manager, "player_ws", "休息结束")
@@ -254,11 +254,11 @@ async def main_async() -> None:
                 _add_feathers_conn(conn, "player_ws", 4)
                 RingService(db).add_ring_conn(conn, "player_ws", "fengren_shu", 1)
                 conn.execute(
-                    "UPDATE player_weapons SET level = 20, max_level = 45 WHERE owner_id = ?",
+                    "UPDATE player_weapons SET level = 20, max_level = 45 WHERE holder_id = ?",
                     ("player_ws",),
                 )
             first_weapon = db.fetch_one(
-                "SELECT weapon_id FROM player_weapons WHERE owner_id = ? ORDER BY weapon_id LIMIT 1",
+                "SELECT weapon_id FROM player_weapons WHERE holder_id = ? ORDER BY weapon_id LIMIT 1",
                 ("player_ws",),
             )
             assert first_weapon is not None
@@ -414,6 +414,7 @@ async def main_async() -> None:
             assert "我方出手" in body, payload
             assert "敌方出手" in body, payload
             assert "二、最终结算" in body, payload
+            assert "武器经验" in body, payload
         finally:
             _restore_modules(old_state)
             db.close()

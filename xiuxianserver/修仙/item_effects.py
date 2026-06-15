@@ -153,7 +153,7 @@ class ItemEffectService(CoreService):
         """使用洗髓液重置体质。
 
         规则很直接：大概率从更高体质里抽，小概率从更低体质里抽。
-        抽完后同步写入 physique_id 和 physique，再重算玩家面板数值。
+        抽完后同步写入 physique_id 和 physique_value，再重算玩家面板数值。
         """
         rows = [
             dict(row)
@@ -169,7 +169,7 @@ class ItemEffectService(CoreService):
             return False, "体质库为空，暂时无法洗髓。"
 
         player = conn.execute(
-            "SELECT physique_id, physique FROM players WHERE client_id = ?",
+            "SELECT physique_id, physique_value FROM players WHERE client_id = ?",
             (client_id,),
         ).fetchone()
         if not player:
@@ -181,7 +181,7 @@ class ItemEffectService(CoreService):
         new_value = int(target["physique_value"])
 
         conn.execute(
-            "UPDATE players SET physique_id = ?, physique = ? WHERE client_id = ?",
+            "UPDATE players SET physique_id = ?, physique_value = ? WHERE client_id = ?",
             (target["physique_id"], new_value, client_id),
         )
         self.recalc_player_conn(conn, client_id)

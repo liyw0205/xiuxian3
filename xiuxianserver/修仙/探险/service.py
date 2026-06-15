@@ -115,7 +115,7 @@ class ExplorationService(CoreService):
                 return T.hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险<探险状态><结束探险>")
             for item_id, quantity in result.get("medicine_used", {}).items():
                 row = conn.execute(
-                    "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+                    "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
                     (client_id, item_id),
                 ).fetchone()
                 if not row or int(row["quantity"]) < int(quantity):
@@ -172,7 +172,7 @@ class ExplorationService(CoreService):
         else:
             state = "探险中"
             reason = f"预计算已经完成，但本体仍需等 {self._seconds_text(total)} 冷却到点。"
-        ready_at = self._time(record["ready_at"])
+        ready_at = self._effective_ready_at(record, result)
         can_claim = not (ready_at and current < ready_at)
         if can_claim:
             action = "现在可以发送：结束探险"
@@ -194,6 +194,7 @@ class ExplorationService(CoreService):
         panel.line(f"原因：{reason}")
         panel.line(f"战斗：{summary['fight_text']}")
         panel.line(f"预计经验：**+{summary['exp_total']}**")
+        panel.line(f"预计武器经验：**+{summary['weapon_exp_total']}**")
         panel.line(f"最后状态：血气 **{summary['hp_left']}/{display_player['max_hp']}**｜精神 **{summary['mp_left']}/{display_player['max_mp']}**")
         if summary["drop_text"]:
             panel.line(f"预计收获：{summary['drop_text']}")
@@ -214,7 +215,11 @@ class ExplorationService(CoreService):
         if not record:
             return T.hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：探险记录 查看历史。<探险>")
         result = load_json(record["result"], {})
-        ready_at = self._time(record["ready_at"])
+        stored_ready_at = self._time(record["ready_at"])
+        ready_at = self._effective_ready_at(record, result)
+        if ready_at < stored_ready_at:
+            record = dict(record)
+            record["ready_at"] = ts(ready_at)
         if ready_at and now() < ready_at:
             left = max(1, int((ready_at - now()).total_seconds() // 60) + 1)
             if result.get("secret_realm"):
@@ -223,6 +228,7 @@ class ExplorationService(CoreService):
         events = list(result.get("events", []))
 
         exp_total = sum(int(event.get("exp", 0)) for event in events)
+        weapon_exp_total = self._weapon_exp_total(events)
         drops: dict[str, int] = {}
         ring_drops: dict[str, int] = {}
         weapon_drops: list[str] = []
@@ -253,6 +259,11 @@ class ExplorationService(CoreService):
             ).fetchone()
             if not active:
                 return T.hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：探险记录 查看历史。<探险>")
+            if active["ready_at"] != record["ready_at"]:
+                conn.execute(
+                    "UPDATE exploration_records SET ready_at = ? WHERE record_id = ? AND claimed = 0",
+                    (record["ready_at"], record["record_id"]),
+                )
             for item_id, quantity in drops.items():
                 ok, reason = self.can_add_backpack_conn(conn, client_id, item_id, quantity)
                 if not ok:
@@ -273,6 +284,7 @@ class ExplorationService(CoreService):
                     int(event.get("weapon_id", 0)),
                     monster_kill=bool(event.get("win")),
                     damage=int(event.get("highest_damage", 0)),
+                    weapon_exp=int(event.get("weapon_exp", 0)),
                 )
             for drop in self._weapon_drops_from_result(result):
                 if not drop:
@@ -286,10 +298,13 @@ class ExplorationService(CoreService):
                     equipped=False,
                 )
                 weapon_drops.append(f"{weapon_id_label(weapon_id)} {drop['name']}[{drop['quality']}] 上限{drop['max_level']}")
+            final_hp = max(1, hp_left)
+            final_mp = 0 if hp_left <= 0 else max(0, mp_left)
             conn.execute(
                 "UPDATE players SET hp = ?, mp = ?, status = '空闲' WHERE client_id = ?",
-                (max(1, hp_left), 0 if hp_left <= 0 else max(0, mp_left), client_id),
+                (final_hp, final_mp, client_id),
             )
+            self.reset_rest_window_conn(conn, client_id, final_hp, final_mp)
             conn.execute(
                 """
                 UPDATE exploration_records
@@ -304,7 +319,7 @@ class ExplorationService(CoreService):
                     client_id,
                     (
                         f"record_id={record['record_id']}, location={record['location_name']}, "
-                        f"exp={exp_total}, level={old_level}->{new_level}, "
+                        f"exp={exp_total}, weapon_exp={weapon_exp_total}, level={old_level}->{new_level}, "
                         f"items={sum(drops.values()) + sum(ring_drops.values())}, "
                         f"weapons={len(weapon_drops)}, dead={int(dead)}"
                     ),
@@ -320,6 +335,7 @@ class ExplorationService(CoreService):
             result=result,
             events=events,
             exp_total=exp_total,
+            weapon_exp_total=weapon_exp_total,
             old_level=old_level,
             new_level=new_level,
             drops=drops,
@@ -714,6 +730,16 @@ class ExplorationService(CoreService):
 
         return self._seconds_text(self._result_duration_seconds(result))
 
+    def _effective_ready_at(self, record: dict, result: dict):
+        """读取有效领取时间，避免异常 ready_at 超过本轮规则时长。"""
+
+        ready_at = self._time(record["ready_at"])
+        started_at = self._time(record["started_at"])
+        expected_ready_at = started_at + timedelta(seconds=self._result_duration_seconds(result))
+        if ready_at > expected_ready_at:
+            return expected_ready_at
+        return ready_at
+
     @staticmethod
     def _seconds_text(seconds: int) -> str:
         """把秒数格式化成短时间文本。"""
@@ -931,15 +957,15 @@ class ExplorationService(CoreService):
 
         rows = self.db.fetch_all(
             """
-            SELECT equipment_item_id
-            FROM equipment_item_defs
+            SELECT ring_item_id
+            FROM ring_item_defs
             WHERE category = '宝石'
             """
         )
         if not rows:
             return None
         return {
-            "gem_id": random.choice(rows)["equipment_item_id"],
+            "gem_id": random.choice(rows)["ring_item_id"],
             "level": random.choices(SECRET_REALM_GEM_LEVELS, weights=SECRET_REALM_GEM_LEVEL_WEIGHTS, k=1)[0],
         }
 
@@ -979,8 +1005,8 @@ class ExplorationService(CoreService):
         """
 
         rows = self.db.fetch_all("""
-            SELECT equipment_item_id, category
-            FROM equipment_item_defs
+            SELECT ring_item_id, category
+            FROM ring_item_defs
             WHERE category IN ('恢复类', '宝石', '技能书')
             """)
         if not rows:
@@ -993,12 +1019,12 @@ class ExplorationService(CoreService):
         }
         roll = random.random()
         if roll < 0.62 and groups["恢复类"]:
-            return random.choice(groups["恢复类"])["equipment_item_id"]
+            return random.choice(groups["恢复类"])["ring_item_id"]
         if roll < 0.86 and groups["宝石"]:
-            return random.choice(groups["宝石"])["equipment_item_id"]
+            return random.choice(groups["宝石"])["ring_item_id"]
         if groups["技能书"]:
-            return random.choice(groups["技能书"])["equipment_item_id"]
-        return random.choice(rows)["equipment_item_id"]
+            return random.choice(groups["技能书"])["ring_item_id"]
+        return random.choice(rows)["ring_item_id"]
 
     def _medicine_stock(self, client_id: str) -> dict[str, dict]:
         """读取可自动消耗的恢复药。
@@ -1009,9 +1035,9 @@ class ExplorationService(CoreService):
 
         rows = self.db.fetch_all(
             """
-            SELECT r.equipment_item_id, r.quantity, e.name, e.effect
+            SELECT r.ring_item_id, r.quantity, e.name, e.effect
             FROM ring_items r
-            JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+            JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
             WHERE r.client_id = ?
               AND r.quantity > 0
               AND e.category = '恢复类'
@@ -1025,7 +1051,7 @@ class ExplorationService(CoreService):
             has_recovery = any(effect.get(key) for key in ("hp_delta", "hp_ratio", "mp_delta", "mp_ratio"))
             if not has_recovery:
                 continue
-            stock[row["equipment_item_id"]] = {
+            stock[row["ring_item_id"]] = {
                 "name": row["name"],
                 "quantity": int(row["quantity"]),
                 "effect": effect,
@@ -1100,7 +1126,7 @@ class ExplorationService(CoreService):
 
         texts = []
         for item_id, quantity in medicine_used.items():
-            item = self.equipment_item_def(item_id)
+            item = self.ring_item_def(item_id)
             texts.append(f"{item['name'] if item else item_id} x{quantity}")
         return "、".join(texts)
 
@@ -1112,6 +1138,7 @@ class ExplorationService(CoreService):
         result: dict,
         events: list[dict],
         exp_total: int,
+        weapon_exp_total: int,
         old_level: int,
         new_level: int,
         drops: dict[str, int],
@@ -1130,6 +1157,7 @@ class ExplorationService(CoreService):
                 result=result,
                 events=events,
                 exp_total=exp_total,
+                weapon_exp_total=weapon_exp_total,
                 old_level=old_level,
                 new_level=new_level,
                 drops=drops,
@@ -1146,6 +1174,7 @@ class ExplorationService(CoreService):
                 player=player,
                 events=events,
                 exp_total=exp_total,
+                weapon_exp_total=weapon_exp_total,
                 old_level=old_level,
                 new_level=new_level,
                 drops_text=self._format_backpack_awards(drops),
@@ -1184,6 +1213,7 @@ class ExplorationService(CoreService):
                 "",
                 "二、最终结算",
                 f"经验：+{exp_total}",
+                f"武器经验：+{weapon_exp_total}",
                 f"等级：{old_level} -> {new_level}" if new_level > old_level else f"等级：{new_level}，未升级",
                 f"最终血气：{hp_left}/{player['max_hp']}",
                 f"最终精神：{mp_left}/{player['max_mp']}",
@@ -1205,6 +1235,7 @@ class ExplorationService(CoreService):
         result: dict,
         events: list[dict],
         exp_total: int,
+        weapon_exp_total: int,
         old_level: int,
         new_level: int,
         drops: dict[str, int],
@@ -1231,7 +1262,7 @@ class ExplorationService(CoreService):
             f"> 记录 **#{record['record_id']}**｜环境：{realm.get('name', '未知')}",
             f"> {realm.get('desc', '虚空潮汐未留下明确信息。')}",
             f"> 战斗 **{len(events)}** 场｜胜 **{wins}**｜败 **{losses}**｜耗时 **{self._seconds_text(self._result_duration_seconds(result))}**",
-            f"> 最高强度：{highest_label}｜经验 **+{exp_total}**｜等级：{level_text}",
+            f"> 最高强度：{highest_label}｜经验 **+{exp_total}**｜武器经验 **+{weapon_exp_total}**｜等级：{level_text}",
             f"> 最终血气 **{hp_left}/{player['max_hp']}**｜精神 **{mp_left}/{player['max_mp']}**",
             f"> 停止原因：{stop_reason}",
             ">",
@@ -1242,9 +1273,10 @@ class ExplorationService(CoreService):
         for index, event in enumerate(events, start=1):
             result_text = "胜" if event.get("win") else "败"
             skill_count = sum(1 for action in event.get("actions", []) if isinstance(action, dict) and action.get("skill_used"))
+            weapon_exp = int(event.get("weapon_exp", 0)) if int(event.get("weapon_id", 0)) > 0 else 0
             lines.append(
                 f"> 第 {index} 战｜{event.get('monster', '怪物')} {event.get('monster_label', '')}｜{result_text}｜"
-                f"行动 **{len(event.get('actions', []))}**｜技能 **{skill_count}**｜经验 **+{int(event.get('exp', 0))}**"
+                f"行动 **{len(event.get('actions', []))}**｜技能 **{skill_count}**｜经验 **+{int(event.get('exp', 0))}**｜武器经验 **+{weapon_exp}**"
             )
             lines.append(f"> 战后：血气 **{int(event.get('hp_left', 0))}/{player['max_hp']}**｜精神 **{int(event.get('mp_left', 0))}/{player['max_mp']}**｜掉落：{self._event_drop_text(event)}")
         lines.extend(
@@ -1269,6 +1301,9 @@ class ExplorationService(CoreService):
             f"第 {index} 战",
             f"  概况：{event.get('summary', '无战斗摘要')}",
         ]
+        weapon_exp = int(event.get("weapon_exp", 0)) if int(event.get("weapon_id", 0)) > 0 else 0
+        if weapon_exp > 0:
+            lines.append(f"  武器经验：+{weapon_exp}")
         actions = event.get("actions")
         if isinstance(actions, list) and actions:
             for action in actions:
@@ -1416,7 +1451,7 @@ class ExplorationService(CoreService):
     def _ring_item_name(self, item_id: str) -> str:
         """读取纳戒物品名称。"""
 
-        item = self.equipment_item_def(item_id)
+        item = self.ring_item_def(item_id)
         return item["name"] if item else item_id
 
     def _status_summary(self, player: dict, result: dict, events: list[dict]) -> dict:
@@ -1429,6 +1464,7 @@ class ExplorationService(CoreService):
         wins = sum(1 for event in events if event.get("win"))
         losses = max(0, len(events) - wins)
         exp_total = sum(int(event.get("exp", 0)) for event in events)
+        weapon_exp_total = self._weapon_exp_total(events)
         hp_left = int(events[-1].get("hp_left", player["hp"])) if events else int(player["hp"])
         mp_left = int(events[-1].get("mp_left", player["mp"])) if events else int(player["mp"])
         fight_text = f"{len(events)} 场，胜 {wins}，败 {losses}"
@@ -1460,11 +1496,23 @@ class ExplorationService(CoreService):
         return {
             "fight_text": fight_text,
             "exp_total": exp_total,
+            "weapon_exp_total": weapon_exp_total,
             "hp_left": max(0, hp_left),
             "mp_left": max(0, mp_left),
             "drop_text": "；".join(drop_parts),
             "medicine_text": self._format_medicine_used(medicine_used) if medicine_used else "",
         }
+
+    @staticmethod
+    def _weapon_exp_total(events: list[dict]) -> int:
+        """按实际持有武器的战斗事件统计本轮武器经验。"""
+
+        total = 0
+        for event in events:
+            if int(event.get("weapon_id") or 0) <= 0:
+                continue
+            total += max(0, int(event.get("weapon_exp", 0)))
+        return total
 
     def _format_drop_preview(self, drops: dict[str, int], ring: bool) -> str:
         """把掉落预览转成短文本。"""
@@ -1476,7 +1524,7 @@ class ExplorationService(CoreService):
             if ring:
                 lookup_id, level = self._parse_ring_drop_key(item_id)
                 level_text = f" {level}级" if level > 0 else ""
-            item = self.equipment_item_def(lookup_id) if ring else self.item_def(lookup_id)
+            item = self.ring_item_def(lookup_id) if ring else self.item_def(lookup_id)
             texts.append(f"{item['name'] if item else lookup_id}{level_text} x{quantity}")
         return self._limit_texts(texts)
 

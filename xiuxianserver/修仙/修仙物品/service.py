@@ -33,7 +33,7 @@ class TreasureService(CoreService):
         if item:
             return self._backpack_item_text(item)
 
-        item = self.equipment_item_def_by_name(name)
+        item = self.ring_item_def_by_name(name)
         if item:
             return self._ring_item_text(item)
 

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,16 +21,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from 修仙.combat_core import CombatCore
-from 修仙.common import CoreService, business_day, dump_json, load_json, weapon_id_label
+from 修仙.common import CoreService, business_day, dump_json, load_json, now, ts, weapon_id_label
 from 修仙.constants import (
     BANK_LEVELS,
     ENCOUNTER_SECONDS,
     EXPLORE_MINUTES,
+    REST_FAST_SECONDS,
+    REST_FULL_MINUTES,
+    WEAPON_EXP_PER_ACTION,
     WORMHOLE_DAILY_MAX_LIMIT,
     WORMHOLE_DAILY_MIN_LIMIT,
 )
 from 修仙.item_effects import ItemEffectService
-from 修仙.rules import exp_need, monster_exp, monster_exp_rate, weapon_enchant_slots
+from 修仙.rules import exp_need, monster_exp, monster_exp_rate, rest_recovery_rate, weapon_enchant_slots, weapon_exp_from_actions
 from 修仙.sql import XiuxianDB
 from 修仙.weapon_core import WeaponCore
 from 修仙.商场.service import TradeService
@@ -143,6 +146,21 @@ def _must_contain(value: Any, text: str) -> None:
     assert text in body, f"返回内容没有包含 {text!r}：{value}"
 
 
+def _advance_rest_seconds(player: PlayerService, client_id: str, seconds: int) -> None:
+    """把当前休息状态模拟为已经持续指定秒数。"""
+
+    row = player.player(client_id)
+    assert row is not None
+    full_seconds = REST_FULL_MINUTES * 60
+    elapsed = max(0, min(full_seconds, int(row["rest_window_elapsed_seconds"] or 0)))
+    remaining = max(0, full_seconds - elapsed)
+    full_at = now() + timedelta(seconds=remaining - max(0, int(seconds)))
+    player.db.execute(
+        "UPDATE players SET status = '休息中', rest_full_at = ? WHERE client_id = ?",
+        (ts(full_at), client_id),
+    )
+
+
 def _check_weapon_enchant_slots() -> None:
     """检查武器按长期等级节点增加附魔栏。"""
 
@@ -175,6 +193,12 @@ def _check_exp_rules() -> None:
     assert monster_exp_rate(55, 50) > 1.0
     assert monster_exp(45, 1.0, 50) < monster_exp(50, 1.0, 50)
     assert monster_exp(55, 1.0, 50) > monster_exp(50, 1.0, 50)
+    assert weapon_exp_from_actions(0) == 0
+    assert weapon_exp_from_actions(3) == 3 * WEAPON_EXP_PER_ACTION
+    assert rest_recovery_rate(0) == 0.0
+    assert rest_recovery_rate(REST_FAST_SECONDS) == 0.5
+    assert rest_recovery_rate(REST_FULL_MINUTES * 60) == 1.0
+    assert rest_recovery_rate(REST_FULL_MINUTES * 60 + 60) == 1.0
 
 
 def _check_weapon_interval_rules() -> None:
@@ -245,6 +269,36 @@ def _check_player(services: dict[str, object]) -> None:
     player.add_stones("u1", 10_000)
     _must_contain(vault.deposit("u1", 1000), "已存入源石")
     _must_contain(vault.withdraw("u1", 100), "已取出源石")
+    player.db.execute("UPDATE players SET hp = 0, mp = 0, status = '空闲' WHERE client_id = 'u1'")
+    _must_contain(player.rest("u1"), "满 1 分钟")
+    _must_contain(player.end_rest("u1"), "至少需要休息")
+    _advance_rest_seconds(player, "u1", REST_FAST_SECONDS)
+    _must_contain(player.end_rest("u1"), "休息结束")
+    half_rest_row = player.player("u1")
+    assert half_rest_row
+    half_hp = int(half_rest_row["hp"])
+    half_mp = int(half_rest_row["mp"])
+    assert half_hp >= int(half_rest_row["max_hp"] * 0.5)
+    assert half_mp >= int(half_rest_row["max_mp"] * 0.5)
+    assert half_hp < int(half_rest_row["max_hp"])
+    assert half_mp < int(half_rest_row["max_mp"])
+    _must_contain(player.rest("u1"), "满 1 分钟")
+    _advance_rest_seconds(player, "u1", REST_FAST_SECONDS)
+    _must_contain(player.end_rest("u1"), "休息结束")
+    chained_rest_row = player.player("u1")
+    assert chained_rest_row
+    assert int(chained_rest_row["hp"]) < int(chained_rest_row["max_hp"])
+    assert int(chained_rest_row["mp"]) < int(chained_rest_row["max_mp"])
+    with player.db.transaction() as conn:
+        conn.execute("UPDATE players SET hp = 0, mp = 0, status = '空闲' WHERE client_id = 'u1'")
+        player.reset_rest_window_conn(conn, "u1", 0, 0)
+    reset_row = player.player("u1")
+    assert reset_row and int(reset_row["rest_window_elapsed_seconds"]) == 0
+    _must_contain(player.rest("u1"), "满 1 分钟")
+    _advance_rest_seconds(player, "u1", REST_FULL_MINUTES * 60)
+    _must_contain(player.end_rest("u1"), "恢复效率 **100%**")
+    row = player.player("u1")
+    assert row and int(row["hp"]) == int(row["max_hp"]) and int(row["mp"]) == int(row["max_mp"])
 
 
 def _check_bank_interest_caps() -> None:
@@ -289,7 +343,7 @@ def _check_inventory(services: dict[str, object]) -> None:
     after_stones = player.player("u1")["source_stones"]  # type: ignore[index]
     assert 30_000 <= after_stones - before_stones <= 90_000
     assert not ring.db.fetch_one(
-        "SELECT 1 FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT 1 FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "fudai"),
     )
 
@@ -300,7 +354,7 @@ def _check_inventory(services: dict[str, object]) -> None:
     after_stones = player.player("u1")["source_stones"]  # type: ignore[index]
     assert after_stones == before_stones
     row = ring.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "fudai"),
     )
     assert row and row["quantity"] == 2
@@ -317,7 +371,7 @@ def _check_inventory(services: dict[str, object]) -> None:
         "SELECT physique_value FROM physique_defs WHERE physique_id = ?",
         (row["physique_id"],),
     )
-    assert physique and int(row["physique"]) == int(physique["physique_value"])
+    assert physique and int(row["physique_value"]) == int(physique["physique_value"])
 
 
 def _check_battle_loss_mp(services: dict[str, object]) -> None:
@@ -449,7 +503,7 @@ def _check_inscription(services: dict[str, object]) -> None:
 
     weapon.ensure_starter_weapon("u1")
     weapon_row = weapon.db.fetch_one(
-        "SELECT weapon_id FROM player_weapons WHERE owner_id = ? ORDER BY weapon_id LIMIT 1",
+        "SELECT weapon_id FROM player_weapons WHERE holder_id = ? ORDER BY weapon_id LIMIT 1",
         ("u1",),
     )
     assert weapon_row is not None
@@ -459,7 +513,7 @@ def _check_inscription(services: dict[str, object]) -> None:
         _add_feathers_conn(conn, "u1", 4)
         inscription.add_ring_conn(conn, "u1", "fengren_shu", 1)
         conn.execute(
-            "UPDATE player_weapons SET level = 20, max_level = 45 WHERE owner_id = ? AND weapon_id = ?",
+            "UPDATE player_weapons SET level = 20, max_level = 45 WHERE holder_id = ? AND weapon_id = ?",
             ("u1", weapon_id),
     )
 
@@ -514,6 +568,7 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(duel_result, "决斗结算")
     _must_contain(duel_result, "决斗结束")
     _must_contain(duel_result, "技能：")
+    _must_contain(duel_result, "武器经验")
     duel_body = _payload_text(duel_result)
     assert "一、战斗明细" not in duel_body
     assert "u1" not in duel_body
@@ -527,6 +582,7 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(detail_duel_result, "一、战斗明细")
     _must_contain(detail_duel_result, "出手")
     _must_contain(detail_duel_result, "二、最终结算")
+    _must_contain(detail_duel_result, "武器经验")
     _must_contain(player.battle_log("u2", "关闭"), "简要")
 
     before = player.player("u1")["source_stones"]  # type: ignore[index]
@@ -605,6 +661,7 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(robbery_text, "抢劫成功")
     _must_contain(robbery_text, "妖丹")
     _must_contain(robbery_text, "复仇触发")
+    _must_contain(robbery_text, "武器经验")
     assert duel.db.fetch_one("SELECT 1 FROM player_hatreds WHERE from_client_id = 'u1' AND to_client_id = 'u2'") is None
     revenge_hate = duel.db.fetch_one(
         "SELECT hate_value FROM player_hatreds WHERE from_client_id = 'u2' AND to_client_id = 'u1'"
@@ -687,7 +744,7 @@ def _check_second_hand_ring(services: dict[str, object]) -> None:
         ring.add_ring_conn(conn, "u1", "xueqidan", 1)
 
     before = ring.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u2", "xueqidan"),
     )
     before_quantity = int(before["quantity"]) if before else 0
@@ -699,7 +756,7 @@ def _check_second_hand_ring(services: dict[str, object]) -> None:
     _must_contain(second_hand.buy("u2", "青衫客"), "购买成功")
 
     after = ring.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u2", "xueqidan"),
     )
     assert after and int(after["quantity"]) == before_quantity + 1
@@ -758,7 +815,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
 
     _must_contain(weapon.list_weapons("u1"), "青岚短剑")
     first_weapon = weapon.db.fetch_one(
-        "SELECT weapon_id FROM player_weapons WHERE owner_id = ? ORDER BY weapon_id LIMIT 1",
+        "SELECT weapon_id FROM player_weapons WHERE holder_id = ? ORDER BY weapon_id LIMIT 1",
         ("u1",),
     )
     assert first_weapon is not None
@@ -828,7 +885,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
         )
     before_book_recycle = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
     before_book = weapon.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "fengren_shu"),
     )
     before_book_quantity = int(before_book["quantity"]) if before_book else 0
@@ -841,7 +898,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     book_gained = int(after_book_recycle["source_stones"]) - int(before_book_recycle["source_stones"])
     assert book_gained > 0
     book_left = weapon.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "fengren_shu"),
     )
     after_book_quantity = int(book_left["quantity"]) if book_left else 0
@@ -870,7 +927,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
         """
         SELECT 1
         FROM ring_items r
-        JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+        JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
         WHERE r.client_id = ? AND e.category = '技能书'
         """,
         ("u1",),
@@ -932,7 +989,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
         explore.add_ring_conn(conn, "u1", "xueqidan", 2)
         explore.add_ring_conn(conn, "u1", "yinmingcao", 2)
     before_hp_medicine = explore.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "xueqidan"),
     )
     before_hp_medicine_quantity = int(before_hp_medicine["quantity"]) if before_hp_medicine else 0
@@ -950,12 +1007,14 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     assert not any(event.get("weapon_drop") for event in events)
     assert len(explore._weapon_drops_from_result(result)) <= 1
     after_hp_medicine = explore.db.fetch_one(
-        "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
+        "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "xueqidan"),
     )
     after_hp_medicine_quantity = int(after_hp_medicine["quantity"]) if after_hp_medicine else 0
     assert after_hp_medicine_quantity < before_hp_medicine_quantity
-    _must_contain(explore.status("u1"), "探险状态")
+    status_text = explore.status("u1")
+    _must_contain(status_text, "探险状态")
+    _must_contain(status_text, "预计武器经验")
     _must_contain(explore.claim("u1"), "30 分钟冷却")
     explore.db.execute(
         "UPDATE exploration_records SET ready_at = ? WHERE client_id = ?",
@@ -970,6 +1029,37 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     _must_contain(claim_text, "我方出手")
     _must_contain(claim_text, "敌方出手")
     _must_contain(claim_text, "二、最终结算")
+    _must_contain(claim_text, "武器经验")
+    player_snapshot = explore.player("u1")
+    assert player_snapshot is not None
+    current = now()
+    stale_started_at = current - timedelta(minutes=EXPLORE_MINUTES + 1)
+    stale_ready_at = current + timedelta(minutes=111)
+    stale_result = dump_json(
+        {
+            "dead": False,
+            "bag_full": False,
+            "medicine_used": {},
+            "events": [],
+            "player_snapshot": explore._player_snapshot(player_snapshot),
+            "duration_seconds": EXPLORE_MINUTES * 60,
+        }
+    )
+    with explore.db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO exploration_records
+            (client_id, location_name, status, started_at, ready_at, result)
+            VALUES (?, ?, '探险中', ?, ?, ?)
+            """,
+            ("u1", "青岚坊", ts(stale_started_at), ts(stale_ready_at), stale_result),
+        )
+    stale_status_text = explore.status("u1")
+    _must_contain(stale_status_text, "可领取")
+    assert "111 分钟" not in stale_status_text
+    stale_claim_text = explore.claim("u1")
+    _must_contain(stale_claim_text, "探险结束")
+    assert "111 分钟" not in str(stale_claim_text)
     explore.db.execute("UPDATE players SET battle_log_detail = 0 WHERE client_id = ?", ("u1",))
     explore.db.execute(
         "UPDATE players SET location_name = '天枢城', x = 0, y = 0 WHERE client_id = ?",
@@ -1011,6 +1101,34 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
     _must_contain(reward_text, "跑商奖励领取成功")
     _must_contain(reward_text, "净利润")
     _must_contain(trade.daily_reward("u1"), "已经领取")
+    trade_curve_text = trade.trade_curve("u1")
+    _must_contain(trade_curve_text, "跑商收益曲线")
+    _must_contain(trade_curve_text, "利润倍率")
+    _must_contain(trade_curve_text, "不限制买卖")
+    with trade.db.transaction() as conn:
+        market_state = trade._trade_market_state_conn(conn, "u1")
+        conn.execute(
+            """
+            INSERT INTO trade_records
+            (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
+            VALUES (?, 'sell', ?, ?, ?, 0, ?, ?, ?)
+            """,
+            ("u1", option["item_id"], market_state["player_soft_line"] * 8, 1, trade_target, business_day(), ts()),
+        )
+        trade.add_backpack_conn(conn, "u1", option["item_id"], 1)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO trade_buy_locks
+            (client_id, item_id, location_name, last_buy_at, last_buy_price)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("u1", option["item_id"], "天枢城", "2000-01-01T00:00:00", int(option["buy_price"])),
+        )
+        hot_state = trade._trade_market_state_conn(conn, "u1")
+    assert trade._trade_profit_rate_for_quantity(hot_state, 1) < 1.0
+    hot_sell_text = trade.sell("u1", f"{trade_item} 1")
+    _must_contain(hot_sell_text, "出售成功")
+    _must_contain(hot_sell_text, "利润倍率")
     _must_contain(treasure.info("u1", "星纹玉简"), "星纹玉简")
     _must_contain(treasure.info("u1", "福袋"), "存放：纳戒")
     _must_contain(treasure.info("u1", "青岚短剑"), "武器模板")
@@ -1019,7 +1137,7 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
     _must_contain(treasure.info("u1", "凡体"), "体质资料")
     for table in (
         "item_defs",
-        "equipment_item_defs",
+        "ring_item_defs",
         "weapon_defs",
         "weapon_skill_defs",
         "weapon_enchants",

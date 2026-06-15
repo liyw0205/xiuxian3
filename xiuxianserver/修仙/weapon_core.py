@@ -16,7 +16,7 @@ class WeaponCore(CoreService):
     def ensure_starter_weapon(self, client_id: str) -> None:
         """玩家没有武器时，补一把默认短剑。"""
 
-        exists = self.db.fetch_one("SELECT weapon_id FROM player_weapons WHERE owner_id = ? LIMIT 1", (client_id,))
+        exists = self.db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ? LIMIT 1", (client_id,))
         if exists:
             return
         self.create_weapon(client_id, "qinglan_duanjian", "凡品", 40, equipped=True)
@@ -88,11 +88,11 @@ class WeaponCore(CoreService):
         if not weapon_def:
             raise ValueError("武器定义不存在")
         if equipped:
-            conn.execute("UPDATE player_weapons SET equipped = 0 WHERE owner_id = ?", (client_id,))
+            conn.execute("UPDATE player_weapons SET equipped = 0 WHERE holder_id = ?", (client_id,))
         cursor = conn.execute(
             """
             INSERT INTO player_weapons
-            (owner_id, weapon_def_id, level, max_level, quality, equipped, enchant_effects, custom_name, created_at)
+            (holder_id, weapon_def_id, level, max_level, quality, equipped, enchant_effects, custom_name, created_at)
             VALUES (?, ?, 0, ?, ?, ?, ?, '', ?)
             """,
             (
@@ -118,7 +118,7 @@ class WeaponCore(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ? AND w.equipped = 1
+            WHERE w.holder_id = ? AND w.equipped = 1
             LIMIT 1
             """,
             (client_id,),
@@ -132,7 +132,7 @@ class WeaponCore(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ?
+            WHERE w.holder_id = ?
             ORDER BY w.equipped DESC, w.weapon_id
             """,
             (client_id,),
@@ -146,7 +146,7 @@ class WeaponCore(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ? AND w.weapon_id = ?
+            WHERE w.holder_id = ? AND w.weapon_id = ?
             """,
             (client_id, weapon_id),
         )

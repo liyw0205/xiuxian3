@@ -69,7 +69,7 @@ def _prepare_resources(db: XiuxianDB) -> int:
 
     weapon_core = WeaponCore(db)
     weapon_core.ensure_starter_weapon("stress_a")
-    weapon = db.fetch_one("SELECT weapon_id FROM player_weapons WHERE owner_id = ? LIMIT 1", ("stress_a",))
+    weapon = db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ? LIMIT 1", ("stress_a",))
     weapon_id = int(weapon["weapon_id"]) if weapon else 1
 
     with db.transaction() as conn:
@@ -79,7 +79,7 @@ def _prepare_resources(db: XiuxianDB) -> int:
                 (client_id,),
             )
         conn.execute(
-            "UPDATE player_weapons SET level = 90, max_level = 100 WHERE owner_id = ?",
+            "UPDATE player_weapons SET level = 90, max_level = 100 WHERE holder_id = ?",
             ("stress_a",),
         )
         _add_common_items(conn, "stress_a")
@@ -111,9 +111,9 @@ def _add_common_items(conn, client_id: str) -> None:
     for item_id in ("fudai", "xueqidan", "kaikongqi", "xisuiye", "fengren_shu"):
         conn.execute(
             """
-            INSERT INTO ring_items (client_id, equipment_item_id, quantity)
+            INSERT INTO ring_items (client_id, ring_item_id, quantity)
             VALUES (?, ?, 30)
-            ON CONFLICT(client_id, equipment_item_id)
+            ON CONFLICT(client_id, ring_item_id)
             DO UPDATE SET quantity = quantity + 30
             """,
             (client_id, item_id),
@@ -311,10 +311,10 @@ def _prepare_before_send(db: XiuxianDB, client_id: str, message: str) -> None:
     command = message.partition(" ")[0]
     with db.transaction() as conn:
         if message in {"休息", "探险"} or message.startswith(("切磋 ", "决斗 ", "抢劫 ")):
-            conn.execute("UPDATE players SET status = '空闲', status_until_at = NULL WHERE client_id IN ('stress_a', 'stress_b')")
+            conn.execute("UPDATE players SET status = '空闲', rest_full_at = NULL WHERE client_id IN ('stress_a', 'stress_b')")
         if message in {"结束休息", "休息结束"}:
             conn.execute(
-                "UPDATE players SET status = '休息中', status_until_at = '2000-01-01T00:00:00' WHERE client_id = ?",
+                "UPDATE players SET status = '休息中', rest_full_at = '2000-01-01T00:00:00' WHERE client_id = ?",
                 (client_id,),
             )
         trade_commands = {
@@ -411,12 +411,12 @@ def _prepare_before_send(db: XiuxianDB, client_id: str, message: str) -> None:
             _add_common_items(conn, client_id)
         if command == "附魔武器":
             conn.execute(
-                "UPDATE player_weapons SET level = 90, max_level = 100 WHERE owner_id = ?",
+                "UPDATE player_weapons SET level = 90, max_level = 100 WHERE holder_id = ?",
                 (client_id,),
             )
         if command in {"铭刻附魔", "铭刻技能"}:
             conn.execute(
-                "UPDATE player_weapons SET level = 90, max_level = 100, enchant_effects = '[\"fengren_shu\"]' WHERE owner_id = ?",
+                "UPDATE player_weapons SET level = 90, max_level = 100, enchant_effects = '[\"fengren_shu\"]' WHERE holder_id = ?",
                 (client_id,),
             )
         if command == "回收武器":

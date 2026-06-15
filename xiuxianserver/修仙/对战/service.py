@@ -197,6 +197,7 @@ class DuelService(CoreService):
             )
             self._write_robbery_game_log_conn(conn, robber_id, target_id, success, loot_text)
             self._write_robbery_game_log_conn(conn, target_id, robber_id, success, loot_text, target_view=True)
+            self._write_duel_weapon_exp_conn(conn, battle)
 
         return {
             "success": success,
@@ -327,7 +328,7 @@ class DuelService(CoreService):
                         )
                 ring_id = str(event.get("ring_drop_id") or "")
                 if ring_id:
-                    item = self.equipment_item_def(ring_id)
+                    item = self.ring_item_def(ring_id)
                     candidates.append(
                         {
                             "kind": "ring",
@@ -681,7 +682,8 @@ class DuelService(CoreService):
 
         detail = (
             f"duel_id={request['duel_id']}, opponent={opponent_id}, "
-            f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}"
+            f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}, "
+            f"weapon_exp={DuelService._duel_side_weapon_exp(client_id, result)}"
         )
         conn.execute(
             "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
@@ -689,8 +691,9 @@ class DuelService(CoreService):
         )
 
     def _write_duel_weapon_record_conn(self, conn, result: dict) -> None:
-        """胜者武器累积一场对战胜绩。"""
+        """胜者武器累积一场对战胜绩，双方武器获得对战经验。"""
 
+        self._write_duel_weapon_exp_conn(conn, result)
         if result.get("winner_id") == result.get("left_id"):
             self.record_weapon_combat_conn(
                 conn,
@@ -707,6 +710,22 @@ class DuelService(CoreService):
                 duel_win=True,
                 damage=int(result.get("right_highest_damage", 0)),
             )
+
+    def _write_duel_weapon_exp_conn(self, conn, result: dict) -> None:
+        """玩家对战结束后，双方真实持有的武器累计经验。"""
+
+        self.add_weapon_exp_conn(
+            conn,
+            str(result.get("left_id", "")),
+            int(result.get("left_weapon_id", 0)),
+            int(result.get("left_weapon_exp", 0)),
+        )
+        self.add_weapon_exp_conn(
+            conn,
+            str(result.get("right_id", "")),
+            int(result.get("right_weapon_id", 0)),
+            int(result.get("right_weapon_exp", 0)),
+        )
 
     @staticmethod
     def _settlement_text(mode: str, stake: int, fee: int) -> str:
@@ -757,11 +776,31 @@ class DuelService(CoreService):
                     f"{self.format_player_name(right_id)}：血气 {result.get('right_hp_left', 0)}/{result.get('right_max_hp', 0)}，"
                     f"精神 {result.get('right_mp_left', 0)}/{result.get('right_max_mp', 0)}"
                 ),
+                f"武器经验：{self._duel_weapon_exp_text(result)}",
             ]
         )
         if settlement:
             lines.append(settlement)
         return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
+
+    def _duel_weapon_exp_text(self, result: dict) -> str:
+        """展示对战双方本次武器经验。"""
+
+        left_id = str(result.get("left_id", ""))
+        right_id = str(result.get("right_id", ""))
+        left_exp = int(result.get("left_weapon_exp", 0)) if int(result.get("left_weapon_id", 0)) > 0 else 0
+        right_exp = int(result.get("right_weapon_exp", 0)) if int(result.get("right_weapon_id", 0)) > 0 else 0
+        return f"{self.format_player_name(left_id)} +{left_exp}｜{self.format_player_name(right_id)} +{right_exp}"
+
+    @staticmethod
+    def _duel_side_weapon_exp(client_id: str, result: dict) -> int:
+        """返回指定玩家在本次对战中的武器经验。"""
+
+        if client_id == str(result.get("left_id", "")) and int(result.get("left_weapon_id", 0)) > 0:
+            return int(result.get("left_weapon_exp", 0))
+        if client_id == str(result.get("right_id", "")) and int(result.get("right_weapon_id", 0)) > 0:
+            return int(result.get("right_weapon_exp", 0))
+        return 0
 
     def _parse_duel_message(self, message: str) -> tuple[str, int]:
         """解析决斗参数，返回对方 client_id 和押注金额。"""

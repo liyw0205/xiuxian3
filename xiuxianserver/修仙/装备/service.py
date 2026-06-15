@@ -104,7 +104,7 @@ class EquipmentService(CoreService):
             """
             SELECT i.hole_no, i.level, e.name
             FROM fixed_equipment_inlays i
-            LEFT JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+            LEFT JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
             WHERE i.client_id = ? AND i.slot = ?
             ORDER BY i.hole_no
             """,
@@ -137,7 +137,7 @@ class EquipmentService(CoreService):
             """
             SELECT i.slot, i.hole_no, i.level, e.name
             FROM fixed_equipment_inlays i
-            LEFT JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+            LEFT JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
             WHERE i.client_id = ?
             ORDER BY i.slot, i.hole_no
             """,
@@ -230,7 +230,7 @@ class EquipmentService(CoreService):
         item_name, wanted_level = parse_name_level(" ".join(parts[2:]))
         if slot not in EQUIPMENT_SLOTS or hole_no < 1 or hole_no > MAX_HOLES:
             return T.hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {MAX_HOLES}。")
-        item = self.equipment_item_def_by_name(item_name)
+        item = self.ring_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
             return T.hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。<宝石>")
         with self.db.transaction() as conn:
@@ -253,7 +253,7 @@ class EquipmentService(CoreService):
             gem_level, level_error = self.resolve_gem_level_conn(
                 conn,
                 client_id,
-                item["equipment_item_id"],
+                item["ring_item_id"],
                 item["name"],
                 wanted_level,
                 "镶嵌 护甲 1 {name} {level}级",
@@ -261,18 +261,18 @@ class EquipmentService(CoreService):
             if level_error:
                 return level_error
             assert gem_level is not None
-            if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, 1):
+            if not self.remove_gem_conn(conn, client_id, item["ring_item_id"], gem_level, 1):
                 return T.hint(f"纳戒里没有 {item['name']} {gem_level}级。", "发送：宝石 查看已有宝石等级，或继续探险获取。<宝石><探险>")
             conn.execute(
                 """
                 INSERT INTO fixed_equipment_inlays (client_id, slot, hole_no, gem_id, level)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (client_id, slot, hole_no, item["equipment_item_id"], gem_level),
+                (client_id, slot, hole_no, item["ring_item_id"], gem_level),
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '镶嵌宝石', ?, ?)",
-                (client_id, f"slot={slot}, hole={hole_no}, gem={item['equipment_item_id']}, level={gem_level}", ts()),
+                (client_id, f"slot={slot}, hole={hole_no}, gem={item['ring_item_id']}, level={gem_level}", ts()),
             )
         self.recalc_player(client_id)
         equipment = self._equipment_row(client_id, slot)
@@ -294,7 +294,7 @@ class EquipmentService(CoreService):
                 """
                 SELECT i.*, e.name
                 FROM fixed_equipment_inlays i
-                JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+                JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
                 WHERE i.client_id = ? AND i.slot = ? AND i.hole_no = ?
                 """,
                 (client_id, slot, hole_no),
@@ -350,7 +350,7 @@ class EquipmentService(CoreService):
         item_name, wanted_level, quantity = self._parse_gem_recycle_message(text)
         if quantity <= 0:
             return T.hint("宝石回收格式不正确。", "发送：回收宝石 宝石名 等级 数量，例如：回收宝石 护心玉 2级 1")
-        item = self.equipment_item_def_by_name(item_name)
+        item = self.ring_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
             return T.hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看纳戒里的宝石。<宝石>")
 
@@ -358,7 +358,7 @@ class EquipmentService(CoreService):
             gem_level, level_error = self.resolve_gem_level_conn(
                 conn,
                 client_id,
-                item["equipment_item_id"],
+                item["ring_item_id"],
                 item["name"],
                 wanted_level,
                 "回收宝石 {name} {level}级 1",
@@ -372,7 +372,7 @@ class EquipmentService(CoreService):
                 SELECT quantity FROM gem_items
                 WHERE client_id = ? AND gem_id = ? AND level = ?
                 """,
-                (client_id, item["equipment_item_id"], gem_level),
+                (client_id, item["ring_item_id"], gem_level),
             ).fetchone()
             owned = int(row["quantity"]) if row else 0
             if owned < quantity:
@@ -387,7 +387,7 @@ class EquipmentService(CoreService):
                 int(player["level"]),
                 today_income,
             )
-            if not self.remove_gem_conn(conn, client_id, item["equipment_item_id"], gem_level, quantity):
+            if not self.remove_gem_conn(conn, client_id, item["ring_item_id"], gem_level, quantity):
                 return T.hint("宝石库存已变化，回收失败。", "发送：宝石 查看当前库存后再试。<宝石>")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
@@ -404,7 +404,7 @@ class EquipmentService(CoreService):
                 """,
                 (
                     client_id,
-                    item["equipment_item_id"],
+                    item["ring_item_id"],
                     item["name"],
                     item["quality"],
                     gem_level,
@@ -420,7 +420,7 @@ class EquipmentService(CoreService):
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '宝石回收', ?, ?)",
-                (client_id, f"gem={item['equipment_item_id']}, level={gem_level}, quantity={quantity}, stones={quote['value']}", ts()),
+                (client_id, f"gem={item['ring_item_id']}, level={gem_level}, quantity={quantity}, stones={quote['value']}", ts()),
             )
         return f"回收成功：{item['name']} {gem_level}级 x{quantity}，" f"获得源石 {money(quote['value'])}，当前倍率 {int(quote['rate'] * 100)}%。"
 
@@ -440,7 +440,7 @@ class EquipmentService(CoreService):
                 f"""
                 SELECT g.gem_id, g.level, g.quantity, e.name, e.quality
                 FROM gem_items g
-                JOIN equipment_item_defs e ON e.equipment_item_id = g.gem_id
+                JOIN ring_item_defs e ON e.ring_item_id = g.gem_id
                 WHERE g.client_id = ? AND g.quantity > 0 AND e.category = '宝石'{level_filter}
                 ORDER BY e.name, g.level
                 """,
@@ -571,7 +571,7 @@ class EquipmentService(CoreService):
                 """
                 SELECT i.*, e.name
                 FROM fixed_equipment_inlays i
-                JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+                JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
                 WHERE i.client_id = ? AND i.slot = ? AND i.hole_no = ?
                 """,
                 (client_id, parts[0], hole_no),
@@ -580,18 +580,18 @@ class EquipmentService(CoreService):
                 return None, T.hint("该孔位没有可升级宝石。", "发送：孔位 装备位 查看当前孔位。")
             return row, None
 
-        item = self.equipment_item_def_by_name(text)
+        item = self.ring_item_def_by_name(text)
         if not item or item["category"] != "宝石":
             return None, T.hint("宝石升级格式不正确。", "发送：宝石升级 装备位 孔位号，例如：宝石升级 护甲 1")
         rows = conn.execute(
             """
             SELECT i.*, e.name
             FROM fixed_equipment_inlays i
-            JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+            JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
             WHERE i.client_id = ? AND i.gem_id = ?
             ORDER BY i.slot, i.hole_no
             """,
-            (client_id, item["equipment_item_id"]),
+            (client_id, item["ring_item_id"]),
         ).fetchall()
         if not rows:
             return None, T.hint(f"你还没有镶嵌 {item['name']}。", "先发送：镶嵌 装备位 孔位号 宝石名称。")

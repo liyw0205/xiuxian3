@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..format_text import T
 
-from ..common import CoreService, equipment_item_use_hint, parse_name_quantity_optional
+from ..common import CoreService, ring_item_use_hint, parse_name_quantity_optional
 from ..item_effects import service as item_effects
 from ..sql import db
 
@@ -46,13 +46,13 @@ class BackpackService(CoreService):
             return T.hint("使用数量必须大于 0。", "发送：使用 物品名 数量，例如：使用 福袋 5")
         item = self.item_def_by_name(item_name)
         if not item:
-            ring_item = self.equipment_item_def_by_name(item_name)
+            ring_item = self.ring_item_def_by_name(item_name)
             if not ring_item:
                 return T.hint(f"没有找到物品：{item_name}。", "发送：背包 或 纳戒，复制准确物品名。<背包><纳戒>")
             if ring_item["category"] != "恢复类":
-                return T.hint(f"{ring_item['name']} 不能直接使用。", equipment_item_use_hint(ring_item))
+                return T.hint(f"{ring_item['name']} 不能直接使用。", ring_item_use_hint(ring_item))
             with self.db.transaction() as conn:
-                if not self.remove_ring_conn(conn, client_id, ring_item["equipment_item_id"], quantity):
+                if not self.remove_ring_conn(conn, client_id, ring_item["ring_item_id"], quantity):
                     return T.hint(f"纳戒里没有足够的 {ring_item['name']} x{quantity}。", "发送：纳戒 确认库存，或继续探险获取。<纳戒>")
                 return item_effects.apply_many_conn(conn, client_id, ring_item, "纳戒", quantity)
         if item["category"] != "恢复类":

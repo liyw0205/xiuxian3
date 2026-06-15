@@ -114,7 +114,7 @@ class VaultService(CoreService):
                     return f"已存入保险箱：{item['name']} x{quantity}。"
 
             equipment = conn.execute(
-                "SELECT * FROM equipment_item_defs WHERE name = ?",
+                "SELECT * FROM ring_item_defs WHERE name = ?",
                 (item_name,),
             ).fetchone()
             if not equipment:
@@ -126,7 +126,7 @@ class VaultService(CoreService):
                 gem_level, level_error = self.resolve_gem_level_conn(
                     conn,
                     client_id,
-                    equipment["equipment_item_id"],
+                    equipment["ring_item_id"],
                     equipment["name"],
                     wanted_level,
                     "存入保险箱 {name} {level}级 1",
@@ -136,32 +136,32 @@ class VaultService(CoreService):
                 assert gem_level is not None
                 row = conn.execute(
                     "SELECT quantity FROM gem_items WHERE client_id = ? AND gem_id = ? AND level = ?",
-                    (client_id, equipment["equipment_item_id"], gem_level),
+                    (client_id, equipment["ring_item_id"], gem_level),
                 ).fetchone()
                 owned = int(row["quantity"]) if row else 0
                 if owned < quantity:
                     return T.hint(f"纳戒里 {equipment['name']} {gem_level}级 只有 {owned} 个。", "发送：宝石 查看库存后再存。<宝石>")
-                if not self._can_add_slot_conn(conn, client_id, "gem", equipment["equipment_item_id"], gem_level):
+                if not self._can_add_slot_conn(conn, client_id, "gem", equipment["ring_item_id"], gem_level):
                     return self._slot_full_text()
-                if not self.remove_gem_conn(conn, client_id, equipment["equipment_item_id"], gem_level, quantity):
+                if not self.remove_gem_conn(conn, client_id, equipment["ring_item_id"], gem_level, quantity):
                     return T.hint("宝石库存已变化，存入失败。", "发送：宝石 查看当前库存后再试。<宝石>")
-                self._add_vault_item_conn(conn, client_id, "gem", equipment["equipment_item_id"], gem_level, quantity)
-                self._log_conn(conn, client_id, "存入保险箱", f"gem:{equipment['equipment_item_id']} lv{gem_level} x{quantity}")
+                self._add_vault_item_conn(conn, client_id, "gem", equipment["ring_item_id"], gem_level, quantity)
+                self._log_conn(conn, client_id, "存入保险箱", f"gem:{equipment['ring_item_id']} lv{gem_level} x{quantity}")
                 return f"已存入保险箱：{equipment['name']} {gem_level}级 x{quantity}。"
 
             row = conn.execute(
-                "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
-                (client_id, equipment["equipment_item_id"]),
+                "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
+                (client_id, equipment["ring_item_id"]),
             ).fetchone()
             owned = int(row["quantity"]) if row else 0
             if owned < quantity:
                 return T.hint(f"纳戒里 {equipment['name']} 只有 {owned} 个。", "发送：纳戒 确认库存，或减少存入数量。<纳戒>")
-            if not self._can_add_slot_conn(conn, client_id, "ring", equipment["equipment_item_id"], 0):
+            if not self._can_add_slot_conn(conn, client_id, "ring", equipment["ring_item_id"], 0):
                 return self._slot_full_text()
-            if not self.remove_ring_conn(conn, client_id, equipment["equipment_item_id"], quantity):
+            if not self.remove_ring_conn(conn, client_id, equipment["ring_item_id"], quantity):
                 return T.hint("纳戒库存已变化，存入失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-            self._add_vault_item_conn(conn, client_id, "ring", equipment["equipment_item_id"], 0, quantity)
-            self._log_conn(conn, client_id, "存入保险箱", f"ring:{equipment['equipment_item_id']} x{quantity}")
+            self._add_vault_item_conn(conn, client_id, "ring", equipment["ring_item_id"], 0, quantity)
+            self._log_conn(conn, client_id, "存入保险箱", f"ring:{equipment['ring_item_id']} x{quantity}")
             return f"已存入保险箱：{equipment['name']} x{quantity}。"
 
     def _withdraw_item(self, client_id: str, text: str) -> str:
@@ -189,7 +189,7 @@ class VaultService(CoreService):
                     return f"已取出到背包：{item['name']} x{quantity}。"
 
             equipment = conn.execute(
-                "SELECT * FROM equipment_item_defs WHERE name = ?",
+                "SELECT * FROM ring_item_defs WHERE name = ?",
                 (item_name,),
             ).fetchone()
             if not equipment:
@@ -201,31 +201,31 @@ class VaultService(CoreService):
                 gem_level, level_error = self._resolve_vault_gem_level_conn(
                     conn,
                     client_id,
-                    equipment["equipment_item_id"],
+                    equipment["ring_item_id"],
                     equipment["name"],
                     wanted_level,
                 )
                 if level_error:
                     return level_error
                 assert gem_level is not None
-                row = self._vault_item_conn(conn, client_id, "gem", equipment["equipment_item_id"], gem_level)
+                row = self._vault_item_conn(conn, client_id, "gem", equipment["ring_item_id"], gem_level)
                 if not row or int(row["quantity"]) < quantity:
                     owned = int(row["quantity"]) if row else 0
                     return T.hint(f"保险箱里 {equipment['name']} {gem_level}级 只有 {owned} 个。", "发送：保险箱 查看库存后再取。<保险箱>")
-                if not self._remove_vault_item_conn(conn, client_id, "gem", equipment["equipment_item_id"], gem_level, quantity):
+                if not self._remove_vault_item_conn(conn, client_id, "gem", equipment["ring_item_id"], gem_level, quantity):
                     return T.hint("保险箱库存已变化，取出失败。", "发送：保险箱 查看后再试。<保险箱>")
-                self.add_gem_conn(conn, client_id, equipment["equipment_item_id"], gem_level, quantity)
-                self._log_conn(conn, client_id, "取出保险箱", f"gem:{equipment['equipment_item_id']} lv{gem_level} x{quantity}")
+                self.add_gem_conn(conn, client_id, equipment["ring_item_id"], gem_level, quantity)
+                self._log_conn(conn, client_id, "取出保险箱", f"gem:{equipment['ring_item_id']} lv{gem_level} x{quantity}")
                 return f"已取出到纳戒：{equipment['name']} {gem_level}级 x{quantity}。"
 
-            row = self._vault_item_conn(conn, client_id, "ring", equipment["equipment_item_id"], 0)
+            row = self._vault_item_conn(conn, client_id, "ring", equipment["ring_item_id"], 0)
             if not row or int(row["quantity"]) < quantity:
                 owned = int(row["quantity"]) if row else 0
                 return T.hint(f"保险箱里 {equipment['name']} 只有 {owned} 个。", "发送：保险箱 查看库存后再取。<保险箱>")
-            if not self._remove_vault_item_conn(conn, client_id, "ring", equipment["equipment_item_id"], 0, quantity):
+            if not self._remove_vault_item_conn(conn, client_id, "ring", equipment["ring_item_id"], 0, quantity):
                 return T.hint("保险箱库存已变化，取出失败。", "发送：保险箱 查看后再试。<保险箱>")
-            self.add_ring_conn(conn, client_id, equipment["equipment_item_id"], quantity)
-            self._log_conn(conn, client_id, "取出保险箱", f"ring:{equipment['equipment_item_id']} x{quantity}")
+            self.add_ring_conn(conn, client_id, equipment["ring_item_id"], quantity)
+            self._log_conn(conn, client_id, "取出保险箱", f"ring:{equipment['ring_item_id']} x{quantity}")
             return f"已取出到纳戒：{equipment['name']} x{quantity}。"
 
     def _deposit_weapon(self, client_id: str, weapon_id: int) -> str:
@@ -238,7 +238,7 @@ class VaultService(CoreService):
             if int(weapon["equipped"]):
                 return T.hint("已装备武器不能存入保险箱。", "先切换到其他武器，再存入这把备用武器。<武器>")
             count = conn.execute(
-                "SELECT COUNT(*) AS total FROM player_weapons WHERE owner_id = ?",
+                "SELECT COUNT(*) AS total FROM player_weapons WHERE holder_id = ?",
                 (client_id,),
             ).fetchone()
             if int(count["total"]) <= 1:
@@ -256,8 +256,8 @@ class VaultService(CoreService):
                 (client_id, weapon_id, ts()),
             )
             conn.execute(
-                "UPDATE player_weapons SET owner_id = ?, equipped = 0 WHERE owner_id = ? AND weapon_id = ?",
-                (self._vault_owner(client_id), client_id, weapon_id),
+                "UPDATE player_weapons SET holder_id = ?, equipped = 0 WHERE holder_id = ? AND weapon_id = ?",
+                (self._vault_holder(client_id), client_id, weapon_id),
             )
             self._log_conn(conn, client_id, "存入保险箱", f"weapon:{weapon_id}")
         return f"已存入保险箱：{weapon_id_label(weapon_id)} {weapon_label_name(dict(weapon))}[{weapon['quality']}]。"
@@ -270,16 +270,16 @@ class VaultService(CoreService):
             if not weapon:
                 return T.hint("保险箱里没有这把武器。", "发送：保险箱 查看已存武器 ID。<保险箱>")
             has_weapon = conn.execute(
-                "SELECT 1 FROM player_weapons WHERE owner_id = ? LIMIT 1",
+                "SELECT 1 FROM player_weapons WHERE holder_id = ? LIMIT 1",
                 (client_id,),
             ).fetchone()
             conn.execute(
                 """
                 UPDATE player_weapons
-                SET owner_id = ?, equipped = ?
-                WHERE owner_id = ? AND weapon_id = ?
+                SET holder_id = ?, equipped = ?
+                WHERE holder_id = ? AND weapon_id = ?
                 """,
-                (client_id, 0 if has_weapon else 1, self._vault_owner(client_id), weapon_id),
+                (client_id, 0 if has_weapon else 1, self._vault_holder(client_id), weapon_id),
             )
             conn.execute("DELETE FROM vault_weapons WHERE client_id = ? AND weapon_id = ?", (client_id, weapon_id))
             self._log_conn(conn, client_id, "取出保险箱", f"weapon:{weapon_id}")
@@ -302,7 +302,7 @@ class VaultService(CoreService):
             """
             SELECT v.*, e.name, e.category
             FROM vault_items v
-            JOIN equipment_item_defs e ON e.equipment_item_id = v.item_id
+            JOIN ring_item_defs e ON e.ring_item_id = v.item_id
             WHERE v.client_id = ? AND v.item_type IN ('ring', 'gem') AND v.quantity > 0
             ORDER BY e.category, e.name, v.level
             """,
@@ -319,10 +319,10 @@ class VaultService(CoreService):
             FROM vault_weapons v
             JOIN player_weapons w ON w.weapon_id = v.weapon_id
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE v.client_id = ? AND w.owner_id = ?
+            WHERE v.client_id = ? AND w.holder_id = ?
             ORDER BY w.weapon_id
             """,
-            (client_id, self._vault_owner(client_id)),
+            (client_id, self._vault_holder(client_id)),
         )
 
     def _player_weapon_conn(self, conn, client_id: str, weapon_id: int):
@@ -333,7 +333,7 @@ class VaultService(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ? AND w.weapon_id = ?
+            WHERE w.holder_id = ? AND w.weapon_id = ?
             """,
             (client_id, weapon_id),
         ).fetchone()
@@ -347,9 +347,9 @@ class VaultService(CoreService):
             FROM vault_weapons v
             JOIN player_weapons w ON w.weapon_id = v.weapon_id
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE v.client_id = ? AND v.weapon_id = ? AND w.owner_id = ?
+            WHERE v.client_id = ? AND v.weapon_id = ? AND w.holder_id = ?
             """,
-            (client_id, weapon_id, self._vault_owner(client_id)),
+            (client_id, weapon_id, self._vault_holder(client_id)),
         ).fetchone()
 
     @staticmethod
@@ -499,8 +499,8 @@ class VaultService(CoreService):
         )
 
     @staticmethod
-    def _vault_owner(client_id: str) -> str:
-        """保险箱托管武器使用的临时 owner_id。"""
+    def _vault_holder(client_id: str) -> str:
+        """保险箱托管武器使用的临时 holder_id。"""
 
         return f"{VAULT_OWNER_PREFIX}{client_id}"
 

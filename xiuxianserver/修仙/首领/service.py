@@ -609,6 +609,7 @@ class SeasonalBossService(CoreService):
                 "UPDATE players SET hp = ?, mp = ? WHERE client_id = ?",
                 (result["hp_left"], result["mp_left"], client_id),
             )
+            self.reset_rest_window_conn(conn, client_id, int(result["hp_left"]), int(result["mp_left"]))
             conn.execute(
                 """
                 INSERT INTO seasonal_boss_participants
@@ -639,7 +640,14 @@ class SeasonalBossService(CoreService):
                 )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '挑战首领', ?, ?)",
-                (client_id, f"event={event['event_id']}, boss={event['boss_name']}, damage={damage}", ts()),
+                (
+                    client_id,
+                    (
+                        f"event={event['event_id']}, boss={event['boss_name']}, damage={damage}, "
+                        f"weapon_exp={int(result.get('weapon_exp', 0)) if int(result.get('weapon_id', 0)) > 0 else 0}"
+                    ),
+                    ts(),
+                ),
             )
             self.record_weapon_combat_conn(
                 conn,
@@ -647,6 +655,7 @@ class SeasonalBossService(CoreService):
                 int(result.get("weapon_id", 0)),
                 boss_challenge=True,
                 damage=int(result.get("highest_damage", damage)),
+                weapon_exp=int(result.get("weapon_exp", 0)),
             )
 
         atmosphere = random.choice(load_json(event["atmosphere"], [])) if event["atmosphere"] else event["scene"]
@@ -993,6 +1002,7 @@ class SeasonalBossService(CoreService):
                 f"本次造成伤害：{damage}",
                 f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
                 f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
+                f"武器经验：+{int(result.get('weapon_exp', 0)) if int(result.get('weapon_id', 0)) > 0 else 0}",
                 f"武器技能触发：{result['skill_times']} 次",
                 f"首领技能触发：{result.get('boss_skill_times', 0)} 次",
             ]
@@ -1087,7 +1097,7 @@ class SeasonalBossService(CoreService):
 
         recover = self._random_equipment_item("恢复类")
         if recover:
-            ring_items.append((recover["equipment_item_id"], 1))
+            ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
         for _ in range(loot_rolls):
             reward = self._roll_good_loot(weight, contribution_score, rank, rates)
@@ -1201,17 +1211,17 @@ class SeasonalBossService(CoreService):
             return {"kind": "feather"}
         if kind == "material":
             item_id = random.choice(("kaikongqi", "xisuiye"))
-            item = self.equipment_item_def(item_id)
-            return {"kind": "material", "item_id": item["equipment_item_id"], "name": item["name"]} if item else None
+            item = self.ring_item_def(item_id)
+            return {"kind": "material", "item_id": item["ring_item_id"], "name": item["name"]} if item else None
         if kind == "gem":
             item = self._random_equipment_item("宝石")
             if not item:
                 return None
             level = 1 + (1 if random.random() < min(0.25, score) else 0)
-            return {"kind": "gem", "item_id": item["equipment_item_id"], "name": item["name"], "level": level}
+            return {"kind": "gem", "item_id": item["ring_item_id"], "name": item["name"], "level": level}
         if kind == "book":
             item = self._random_equipment_item("技能书")
-            return {"kind": "book", "item_id": item["equipment_item_id"], "name": item["name"]} if item else None
+            return {"kind": "book", "item_id": item["ring_item_id"], "name": item["name"]} if item else None
         return {"kind": "weapon", "drop": weapon_service.roll_weapon_drop()}
 
     def _random_equipment_item(self, category: str) -> dict[str, Any] | None:
@@ -1219,9 +1229,9 @@ class SeasonalBossService(CoreService):
 
         rows = self.db.fetch_all(
             """
-            SELECT * FROM equipment_item_defs
+            SELECT * FROM ring_item_defs
             WHERE category = ?
-              AND equipment_item_id != 'kaikongqi'
+              AND ring_item_id != 'kaikongqi'
             """,
             (category,),
         )

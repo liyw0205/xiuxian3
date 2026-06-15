@@ -10,19 +10,25 @@ from math import hypot
 
 from ..common import CoreService, business_day, dt, load_json, money, now, split_words, to_int, ts
 from ..constants import (
+    TRADE_ACTIVE_WINDOW_DAYS,
     TRADE_BUY_FEE_RATE,
+    TRADE_DAILY_PLAYER_SOFT_MAX_SHARE,
+    TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY,
+    TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER,
     TRADE_DAILY_REWARD_CAP_BASE,
     TRADE_DAILY_REWARD_CAP_LEVEL_BONUS,
     TRADE_DAILY_REWARD_MIN_NET,
     TRADE_DAILY_REWARD_MIN_QUANTITY,
     TRADE_DAILY_REWARD_RATE,
+    TRADE_DAILY_SOFT_BASE_QUANTITY,
+    TRADE_DAILY_SOFT_PER_ACTIVE_QUANTITY,
     TRADE_MAX_PROFIT_RATE,
     TRADE_RESALE_LOCK_HOURS,
     TRADE_SELL_FEE_RATE,
     WORLD_COORD_MAX,
     WORLD_COORD_MIN,
 )
-from ..rules import special_sell_price_rate, special_sell_soft_line
+from ..rules import special_sell_price_rate, special_sell_soft_line, trade_profit_rate
 from ..sql import TRADE_LOCATION_DEMANDS, db
 from ..wormhole_service import WormholeService
 
@@ -163,7 +169,7 @@ class TradeService(CoreService):
             self._add_heat_conn(conn, player["location_name"], item["item_id"], buy_count=quantity)
             conn.execute(
                 """
-                INSERT OR REPLACE INTO trade_limits
+                INSERT OR REPLACE INTO trade_buy_locks
                 (client_id, item_id, location_name, last_buy_at, last_buy_price)
                 VALUES (?, ?, ?, ?, ?)
                 """,
@@ -281,15 +287,31 @@ class TradeService(CoreService):
             )
         return panel.render()
 
-    def limits(self, client_id: str) -> str:
-        """查看交易限制。"""
+    def trade_curve(self, client_id: str) -> str:
+        """查看普通跑商收益曲线。"""
 
         player, error = self.require_player(client_id)
         if error:
             return error
         assert player is not None
         panel = T.panel()
-        panel.section("跑商限制")
+        panel.section("跑商收益曲线")
+        with self.db.transaction() as conn:
+            market_state = self._trade_market_state_conn(conn, client_id)
+        current_rate = trade_profit_rate(
+            market_state["player_used"],
+            market_state["global_used"],
+            market_state["player_soft_line"],
+            market_state["global_soft_line"],
+        )
+        panel.line(f"近{TRADE_ACTIVE_WINDOW_DAYS}天活跃：**{market_state['active_count']}** 人")
+        panel.line(
+            f"今日个人普通出售：**{market_state['player_used']}/{market_state['player_soft_line']}** 件收益线"
+        )
+        panel.line(
+            f"今日全服普通出售：**{market_state['global_used']}/{market_state['global_soft_line']}** 件收益线"
+        )
+        panel.line(f"当前普通跑商利润倍率：**{int(current_rate * 100)}%**，只影响利润部分，不限制买卖")
         panel.line(f"同地点买入后 **{TRADE_RESALE_LOCK_HOURS}** 小时内不能原地出售")
         panel.line(f"跑商单件利润率最高约 **{int(TRADE_MAX_PROFIT_RATE * 100)}%**")
         panel.line(f"今日特殊收购价：{self._special_sell_rate_text(client_id, player['level'])}")
@@ -350,7 +372,7 @@ class TradeService(CoreService):
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO trade_daily_rewards
-                (client_id, business_day, sell_quantity, net_income, reward, created_at)
+                (client_id, business_day, sell_quantity, net_profit, reward, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (client_id, day, quantity, net_profit, reward, ts()),
@@ -627,6 +649,8 @@ class TradeService(CoreService):
         sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
         source_stones = int(player["source_stones"])
         options: list[dict] = []
+        with self.db.transaction() as conn:
+            market_state = self._trade_market_state_conn(conn, client_id)
 
         for item in self._location_goods(current):
             buy_price, _ = self.price(current, item["item_id"])
@@ -637,7 +661,9 @@ class TradeService(CoreService):
                 if loc["name"] == current:
                     continue
                 _, sell_price = self.price(loc["name"], item["item_id"])
-                sell_price = min(sell_price, int(buy_price * (1 + TRADE_MAX_PROFIT_RATE)))
+                sell_price = self._profit_capped_sell_price(buy_price, sell_price)
+                profit_rate = self._trade_profit_rate_for_quantity(market_state, quantity)
+                sell_price = self._profit_adjusted_sell_price(buy_price, sell_price, profit_rate)
 
                 buy_total = buy_price * quantity
                 buy_fee = int(buy_total * buy_fee_rate)
@@ -695,10 +721,14 @@ class TradeService(CoreService):
         locked_text = self._resale_lock_text(client_id, item["item_id"], location_name)
         if locked_text:
             return locked_text
-        sell_price = self._profit_capped_sell_price(client_id, item["item_id"], sell_price)
-        total = sell_price * quantity
-        fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
+        last_buy_price = self._last_trade_buy_price(client_id, item["item_id"])
+        sell_price = self._profit_capped_sell_price(last_buy_price, sell_price)
         with self.db.transaction() as conn:
+            market_state = self._trade_market_state_conn(conn, client_id)
+            profit_rate = self._trade_profit_rate_for_quantity(market_state, quantity)
+            sell_price = self._profit_adjusted_sell_price(last_buy_price, sell_price, profit_rate)
+            total = sell_price * quantity
+            fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险/购买获取。")
             conn.execute(
@@ -719,6 +749,8 @@ class TradeService(CoreService):
                 (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}", ts()),
             )
         text = f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
+        if last_buy_price > 0 and profit_rate < 0.995:
+            text += f" 今日跑商利润倍率 {int(profit_rate * 100)}%。"
         if discover:
             text += self.wormhole.try_discover(client_id, "trade_sell", location_name)
         return text
@@ -728,7 +760,7 @@ class TradeService(CoreService):
 
         row = self.db.fetch_one(
             """
-            SELECT last_buy_at FROM trade_limits
+            SELECT last_buy_at FROM trade_buy_locks
             WHERE client_id = ? AND item_id = ? AND location_name = ?
             """,
             (client_id, item_id, location_name),
@@ -745,12 +777,12 @@ class TradeService(CoreService):
         left_minutes = max(1, int((lock_time - passed).total_seconds() // 60) + 1)
         return T.hint(f"这批货刚在本地买入，{left_minutes} 分钟后才能原地出售。", "先导航到其他商场出售，或等待冷却结束。")
 
-    def _profit_capped_sell_price(self, client_id: str, item_id: str, sell_price: int) -> int:
-        """按最近买入价限制最高利润，避免单次价格波动被刷爆。"""
+    def _last_trade_buy_price(self, client_id: str, item_id: str) -> int:
+        """读取最近一次普通跑商买入价。"""
 
         row = self.db.fetch_one(
             """
-            SELECT last_buy_price FROM trade_limits
+            SELECT last_buy_price FROM trade_buy_locks
             WHERE client_id = ? AND item_id = ?
             ORDER BY last_buy_at DESC
             LIMIT 1
@@ -758,15 +790,124 @@ class TradeService(CoreService):
             (client_id, item_id),
         )
         if not row or not row["last_buy_price"]:
-            return sell_price
-        max_sell = int(row["last_buy_price"] * (1 + TRADE_MAX_PROFIT_RATE))
-        return min(sell_price, max(1, max_sell))
+            return 0
+        return max(0, int(row["last_buy_price"]))
+
+    @staticmethod
+    def _profit_capped_sell_price(buy_price: int, sell_price: int) -> int:
+        """按最近买入价限制最高利润，避免单次价格波动被刷爆。"""
+
+        raw_price = max(1, int(sell_price))
+        cost = max(0, int(buy_price))
+        if cost <= 0:
+            return raw_price
+        max_sell = int(cost * (1 + TRADE_MAX_PROFIT_RATE))
+        return min(raw_price, max(1, max_sell))
+
+    @staticmethod
+    def _profit_adjusted_sell_price(buy_price: int, sell_price: int, rate: float) -> int:
+        """只对普通跑商利润部分应用柔性衰减。"""
+
+        raw_price = max(1, int(sell_price))
+        cost = max(0, int(buy_price))
+        if cost <= 0 or raw_price <= cost:
+            return raw_price
+        profit = raw_price - cost
+        safe_rate = max(0.0, min(1.0, float(rate)))
+        adjusted = cost + int(profit * safe_rate)
+        return max(1, min(raw_price, adjusted))
 
     def _trade_fee_rate(self, client_id: str, base_rate: float) -> float:
         """按聚财类宝石小幅降低跑商手续费。"""
 
         trade_bonus = min(base_rate * 0.8, self.equipment_bonuses(client_id).get("trade_bonus", 0))
         return max(0.0, base_rate - trade_bonus)
+
+    def _trade_market_state_conn(self, conn, client_id: str) -> dict[str, int]:
+        """读取今日普通跑商出售热度和动态收益线。"""
+
+        active_count = self._active_trade_player_count_conn(conn)
+        global_soft_line = self._daily_global_trade_soft_line(active_count)
+        player_soft_line = self._daily_player_trade_soft_line(active_count, global_soft_line)
+        day = business_day()
+        global_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(quantity), 0) AS quantity
+            FROM trade_records
+            WHERE business_day = ? AND action = 'sell'
+            """,
+            (day,),
+        ).fetchone()
+        player_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(quantity), 0) AS quantity
+            FROM trade_records
+            WHERE business_day = ? AND action = 'sell' AND client_id = ?
+            """,
+            (day, client_id),
+        ).fetchone()
+        global_used = int(global_row["quantity"] if global_row else 0)
+        player_used = int(player_row["quantity"] if player_row else 0)
+        return {
+            "active_count": active_count,
+            "global_soft_line": global_soft_line,
+            "global_used": global_used,
+            "player_soft_line": player_soft_line,
+            "player_used": player_used,
+        }
+
+    @staticmethod
+    def _trade_profit_rate_for_quantity(market_state: dict[str, int], quantity: int) -> float:
+        """用本次出售数量的中点估算批量交易的边际利润倍率。"""
+
+        middle_quantity = max(0, int(quantity)) // 2
+        return trade_profit_rate(
+            int(market_state["player_used"]) + middle_quantity,
+            int(market_state["global_used"]) + middle_quantity,
+            int(market_state["player_soft_line"]),
+            int(market_state["global_soft_line"]),
+        )
+
+    def _active_trade_player_count_conn(self, conn) -> int:
+        """读取近期活跃人数，用来动态调整跑商总池和个人份额。"""
+
+        cutoff = ts(now() - timedelta(days=TRADE_ACTIVE_WINDOW_DAYS))
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM players p
+            WHERE p.created_at >= ?
+               OR EXISTS (SELECT 1 FROM game_logs g WHERE g.client_id = p.client_id AND g.created_at >= ?)
+               OR EXISTS (SELECT 1 FROM trade_records t WHERE t.client_id = p.client_id AND t.created_at >= ?)
+               OR EXISTS (SELECT 1 FROM exploration_records e WHERE e.client_id = p.client_id AND e.started_at >= ?)
+               OR EXISTS (SELECT 1 FROM wormhole_participants wp WHERE wp.client_id = p.client_id AND wp.updated_at >= ?)
+               OR EXISTS (SELECT 1 FROM seasonal_boss_participants sp WHERE sp.client_id = p.client_id AND sp.updated_at >= ?)
+               OR EXISTS (SELECT 1 FROM duel_records d WHERE (d.from_client_id = p.client_id OR d.to_client_id = p.client_id) AND d.created_at >= ?)
+               OR EXISTS (SELECT 1 FROM combat_logs c WHERE c.client_id = p.client_id AND c.created_at >= ?)
+            """,
+            (cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff),
+        ).fetchone()
+        return max(1, int(row["count"] if row else 0))
+
+    @staticmethod
+    def _daily_global_trade_soft_line(active_count: int) -> int:
+        """按活跃人数计算全服普通跑商收益线。"""
+
+        active = max(1, int(active_count))
+        return max(1, TRADE_DAILY_SOFT_BASE_QUANTITY + active * TRADE_DAILY_SOFT_PER_ACTIVE_QUANTITY)
+
+    @staticmethod
+    def _daily_player_trade_soft_line(active_count: int, global_soft_line: int) -> int:
+        """按公平份额和最大占比计算个人普通跑商收益线。"""
+
+        active = max(1, int(active_count))
+        total = max(1, int(global_soft_line))
+        if active <= 1:
+            return total
+        fair_share = total / active
+        by_fair_share = int(fair_share * TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER)
+        by_max_share = int(total * TRADE_DAILY_PLAYER_SOFT_MAX_SHARE)
+        return max(TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY, min(by_fair_share, by_max_share))
 
     @staticmethod
     def _add_heat_conn(conn, location_name: str, item_id: str, buy_count: int = 0, sell_count: int = 0) -> None:

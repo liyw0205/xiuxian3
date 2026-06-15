@@ -21,13 +21,13 @@ class SourceVaultService(CoreService):
         if error:
             return error
         vault = self._vault(client_id)
-        level_conf = BANK_LEVELS[vault["level"]]
+        level_conf = BANK_LEVELS[vault["star_level"]]
         panel = T.panel()
         panel.section("源库")
         panel.line(f"星级：{level_conf['name']}")
         panel.line(f"随身源石：**{money(player['source_stones'])}**")
         panel.line(f"源库存量：**{money(vault['balance'])}/{money(level_conf['limit'])}**")
-        panel.line(f"今日利息：**{money(vault['daily_interest'])}/{money(level_conf['daily_interest_limit'])}**")
+        panel.line(f"今日利息：**{money(vault['daily_interest_claimed'])}/{money(level_conf['daily_interest_limit'])}**")
         return panel.render() + "<源库结息><升级源库>"
 
     def settle(self, client_id: str) -> str:
@@ -53,18 +53,18 @@ class SourceVaultService(CoreService):
         with self.db.transaction() as conn:
             self._settle_conn(conn, client_id)
             vault = self._vault_conn(conn, client_id)
-            if vault["level"] >= BANK_MAX_LEVEL:
+            if vault["star_level"] >= BANK_MAX_LEVEL:
                 return T.hint("源库已经满级。", "可以继续存入源石结息，或把源石用于装备、武器升级。")
-            next_level = vault["level"] + 1
-            cost = BANK_LEVELS[next_level]["cost"]
+            next_star_level = vault["star_level"] + 1
+            cost = BANK_LEVELS[next_star_level]["cost"]
             if not self.spend_stones_conn(conn, client_id, cost):
                 return T.hint(f"源石不足，升级需要 {money(cost)}。", "先签到、探险、出售物品，或从源库取出源石。")
-            conn.execute("UPDATE source_vaults SET level = ? WHERE client_id = ?", (next_level, client_id))
+            conn.execute("UPDATE source_vaults SET star_level = ? WHERE client_id = ?", (next_star_level, client_id))
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级源库', ?, ?)",
-                (client_id, f"level={next_level}, cost={cost}", ts()),
+                (client_id, f"star_level={next_star_level}, cost={cost}", ts()),
             )
-        return f"源库升级成功，当前为 {BANK_LEVELS[next_level]['name']}。"
+        return f"源库升级成功，当前为 {BANK_LEVELS[next_star_level]['name']}。"
 
     def deposit(self, client_id: str, amount: int) -> str:
         """存入源石。"""
@@ -76,7 +76,7 @@ class SourceVaultService(CoreService):
             return T.hint("存入数量必须大于 0。", "发送：存入源石 数量，例如：存入源石 1000<源库><源库结息>")
         with self.db.transaction() as conn:
             vault = self._vault_conn(conn, client_id)
-            limit = BANK_LEVELS[vault["level"]]["limit"]
+            limit = BANK_LEVELS[vault["star_level"]]["limit"]
             can_deposit = min(amount, limit - vault["balance"])
             if can_deposit <= 0:
                 return T.hint("源库已经存满。", "可以发送：升级源库 提高容量，或发送：取出源石 数量。<升级源库><源库><源库结息>")
@@ -131,7 +131,7 @@ class SourceVaultService(CoreService):
         if vault:
             return vault
         self.db.execute(
-            "INSERT INTO source_vaults (client_id, level, balance, last_settle_at) VALUES (?, 1, 0, ?)",
+            "INSERT INTO source_vaults (client_id, star_level, balance, last_settle_at) VALUES (?, 1, 0, ?)",
             (client_id, ts()),
         )
         return self.db.fetch_one("SELECT * FROM source_vaults WHERE client_id = ?", (client_id,)) or {}
@@ -149,7 +149,7 @@ class SourceVaultService(CoreService):
         if vault:
             return dict(vault)
         conn.execute(
-            "INSERT INTO source_vaults (client_id, level, balance, last_settle_at) VALUES (?, 1, 0, ?)",
+            "INSERT INTO source_vaults (client_id, star_level, balance, last_settle_at) VALUES (?, 1, 0, ?)",
             (client_id, ts()),
         )
         vault = conn.execute("SELECT * FROM source_vaults WHERE client_id = ?", (client_id,)).fetchone()
@@ -160,20 +160,20 @@ class SourceVaultService(CoreService):
 
         vault = self._vault_conn(conn, client_id)
         day = business_day()
-        daily_interest = vault["daily_interest"] if vault["last_interest_day"] == day else 0
+        daily_interest_claimed = vault["daily_interest_claimed"] if vault["last_interest_day"] == day else 0
         last = dt(vault["last_settle_at"]) or now()
         hours = max(0.0, min(24.0, (now() - last).total_seconds() / 3600))
-        conf = BANK_LEVELS[vault["level"]]
+        conf = BANK_LEVELS[vault["star_level"]]
         raw_reward = int(vault["balance"] * conf["hour_rate"] * hours)
-        reward = max(0, min(raw_reward, conf["daily_interest_limit"] - daily_interest))
+        reward = max(0, min(raw_reward, conf["daily_interest_limit"] - daily_interest_claimed))
         conn.execute(
             """
             UPDATE source_vaults
-            SET last_settle_at = ?, last_interest_day = ?, daily_interest = ?,
+            SET last_settle_at = ?, last_interest_day = ?, daily_interest_claimed = ?,
                 balance = balance
             WHERE client_id = ?
             """,
-            (ts(), day, daily_interest + reward, client_id),
+            (ts(), day, daily_interest_claimed + reward, client_id),
         )
         if reward:
             conn.execute(

@@ -6,7 +6,7 @@
 
 - 修仙帮助、修仙百科、后台接口、玩家、背包、纳戒、保险箱、修仙物品、源库、二手市场、商场、探险、武器、装备、铭刻、对战、异界虫洞、首领、修仙界历史、数据库备份都是中文二级组件。
 - HTTP 路由由 `后台接口` 和 `修仙帮助` 承接；`后台接口` 是 web 后台 API 承接点，`修仙帮助` 提供 Hexo/Vexos 风格 Markdown 文档站。
-- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026060302`；`player_weapons` 不保存攻击、自带技能或附魔槽位这类可实时派生字段。
+- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026061602`；`player_weapons` 保存累计经验，但不保存攻击、自带技能或附魔槽位这类可实时派生字段。
 - 行为沉淀使用长期表：`game_logs` 记关键行为流水，`player_lifetime_stats` 接清理前的累计统计，`player_journals` 记玩家日记摘要，`player_titles` 记动态称号，`daily_fortunes` 记每日气运，`weapon_legends` 记武器传奇。
 - 每个二级包保留 `说明.md`，作为单个组件的使用和扩展约束；帮助站会读取这些 Markdown。
 - 常用检查覆盖冒烟测试、WS 触发测试、命令压力测试和架构业务自查。
@@ -177,8 +177,8 @@
 武器库：
 
 - 武器是独立实例，保存在 `player_weapons`。
-- 同名武器用 `武器#ID`、等级、攻击、品质、附魔数区分。
-- `player_weapons` 不保存攻击、自带技能和附魔槽位；攻击由 `common.py` 的 `weapon_attack_value()` 按模板基础攻击、品质、等级和武器类型实时派生，自带技能来自 `weapon_defs.skill_id`，附魔槽位由武器等级实时计算。
+- 同名武器用 `武器#ID`、等级、经验、攻击、品质、附魔数区分。
+- `player_weapons` 保存累计经验，武器等级由经验和等级上限决定；不保存攻击、自带技能和附魔槽位，攻击由 `common.py` 的 `weapon_attack_value()` 按模板基础攻击、品质、等级和武器类型实时派生，自带技能来自 `weapon_defs.skill_id`，附魔槽位由武器等级实时计算。
 
 保险箱：
 
@@ -219,7 +219,7 @@ gem_items                   宝石库存
 vault_items                 保险箱里的背包/纳戒/宝石冻结物品
 vault_weapons               保险箱里的武器托管映射
 item_defs                   怪物战利品和地点特产定义
-equipment_item_defs         纳戒物品、宝石、技能书和消耗品定义
+ring_item_defs         纳戒物品、宝石、技能书和消耗品定义
 
 second_hand_listings        二手市场上架
 second_hand_records         二手市场成交记录
@@ -231,7 +231,7 @@ trade_prices                跑商价格
 trade_heat                  跑商热度
 trade_records               跑商交易记录
 trade_daily_rewards         每日跑商奖励
-trade_limits                每日跑商限制
+trade_buy_locks                跑商最近买入价和原地转售锁
 special_buyers              特殊收购点
 recycle_locations           回收地点
 weapon_recycle_records      武器回收记录
@@ -278,7 +278,7 @@ weapon_legends              武器传奇
 直接流水清理：
 
 - `combat_logs` 保留 7 天，只保留详细战斗文本。
-- `trade_prices`、`trade_heat`、`trade_daily_rewards`、`trade_limits`、`daily_fortunes` 保留 30 天。
+- `trade_prices`、`trade_heat`、`trade_daily_rewards`、`trade_buy_locks`、`daily_fortunes` 保留 30 天。
 - `daily_newspapers` 保留 30 天。
 - `game_logs`、`trade_records`、`second_hand_records`、三类回收记录、已领取探险记录、已领取虫洞/首领参与记录、虫洞通知、对战记录和抢劫记录保留 30 天。
 - 清理每天最多触发一次，入口沿用探险、对战、虫洞、首领等玩法入口的 `cleanup_battle_records()`。

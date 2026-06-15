@@ -145,7 +145,7 @@ class EncyclopediaService:
             FROM player_weapons AS pw
             JOIN weapon_defs AS wd ON wd.weapon_def_id = pw.weapon_def_id
             LEFT JOIN weapon_skill_defs AS ws ON ws.skill_id = wd.skill_id
-            WHERE pw.owner_id = ? AND pw.equipped = 1
+            WHERE pw.holder_id = ? AND pw.equipped = 1
             LIMIT 1
             """,
             (client_id,),
@@ -269,7 +269,7 @@ class EncyclopediaService:
             FROM player_weapons AS pw
             JOIN weapon_defs AS wd ON wd.weapon_def_id = pw.weapon_def_id
             LEFT JOIN weapon_skill_defs AS ws ON ws.skill_id = wd.skill_id
-            WHERE pw.owner_id = ?
+            WHERE pw.holder_id = ?
             """,
             (client_id,),
         )
@@ -441,7 +441,7 @@ class EncyclopediaService:
         """物品、消耗品、宝石和技能书资料。"""
 
         entries: list[KnowledgeEntry] = []
-        for table, id_key in (("item_defs", "item_id"), ("equipment_item_defs", "equipment_item_id")):
+        for table, id_key in (("item_defs", "item_id"), ("ring_item_defs", "ring_item_id")):
             for row in self.db.fetch_all(f"SELECT * FROM {table}"):
                 effect = _effect_text(row.get("effect"))
                 body = _join_parts(
@@ -591,7 +591,7 @@ class EncyclopediaService:
             SELECT m.*, COALESCE(i.name, e.name, m.drop_item_id) AS drop_name
             FROM monster_defs AS m
             LEFT JOIN item_defs AS i ON i.item_id = m.drop_item_id
-            LEFT JOIN equipment_item_defs AS e ON e.equipment_item_id = m.drop_item_id
+            LEFT JOIN ring_item_defs AS e ON e.ring_item_id = m.drop_item_id
             ORDER BY m.level, m.name
             """
         )
@@ -691,7 +691,7 @@ class EncyclopediaService:
                 """
                 SELECT name FROM item_defs WHERE item_id = ?
                 UNION ALL
-                SELECT name FROM equipment_item_defs WHERE equipment_item_id = ?
+                SELECT name FROM ring_item_defs WHERE ring_item_id = ?
                 LIMIT 1
                 """,
                 (item_id, item_id),

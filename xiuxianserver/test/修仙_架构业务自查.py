@@ -145,7 +145,7 @@ def _check_seed_data() -> None:
             conn = db.conn
             counts = {
                 "item_defs": _count(conn, "item_defs"),
-                "equipment_item_defs": _count(conn, "equipment_item_defs"),
+                "ring_item_defs": _count(conn, "ring_item_defs"),
                 "trade_locations": _count(conn, "trade_locations"),
                 "trade_goods": _count(conn, "trade_goods"),
                 "monster_defs": _count(conn, "monster_defs"),
@@ -191,8 +191,8 @@ def _check_seed_data() -> None:
             _assert_no_rows(
                 conn,
                 """
-                SELECT e.equipment_item_id, e.name
-                FROM equipment_item_defs e
+                SELECT e.ring_item_id, e.name
+                FROM ring_item_defs e
                 LEFT JOIN weapon_enchants w ON w.enchant_id = json_extract(e.effect, '$.enchant_id')
                 WHERE e.category = '技能书'
                   AND w.enchant_id IS NULL
@@ -225,7 +225,7 @@ def _check_treasure_detail_coverage() -> None:
             service.create_player("audit_user", "自查道友")
             tables = (
                 "item_defs",
-                "equipment_item_defs",
+                "ring_item_defs",
                 "weapon_defs",
                 "weapon_skill_defs",
                 "weapon_enchants",
@@ -275,7 +275,7 @@ def _check_known_effect_keys() -> None:
         try:
             db.init()
             offenders: list[str] = []
-            for table in ("item_defs", "equipment_item_defs", "physique_defs"):
+            for table in ("item_defs", "ring_item_defs", "physique_defs"):
                 for row in db.fetch_all(f"SELECT name, effect FROM {table}"):
                     try:
                         effect = json.loads(row["effect"] or "{}")

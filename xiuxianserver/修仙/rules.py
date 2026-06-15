@@ -17,9 +17,13 @@ from .constants import (
     GEM_RECYCLE_SOFT_LEVEL_BONUS,
     MAX_LEVEL,
     PLAYER_BASE_ATTACK,
+    REST_FAST_SECONDS,
+    REST_FULL_MINUTES,
+    WEAPON_EXP_PER_ACTION,
     SPECIAL_SELL_MIN_RATE,
     SPECIAL_SELL_SOFT_BASE,
     SPECIAL_SELL_SOFT_LEVEL_BONUS,
+    TRADE_DAILY_PROFIT_MIN_RATE,
     WEAPON_RECYCLE_MIN_RATE,
     WEAPON_RECYCLE_SINGLE_CAP_BASE,
     WEAPON_RECYCLE_SINGLE_CAP_LEVEL_BONUS,
@@ -65,6 +69,75 @@ def level_from_exp(exp: int) -> int:
         left -= need
         level += 1
     return level
+
+
+def weapon_exp_need(level: int) -> int:
+    """计算武器当前等级升到下一级需要的经验。"""
+
+    level = max(0, min(MAX_LEVEL - 1, int(level)))
+    curve_level = max(1, level)
+    base_need = floor(45 * (curve_level**1.85) + 225 * curve_level)
+    if curve_level <= 40:
+        return max(1, base_need)
+    progress = (curve_level - 40) / 59
+    difficulty = 1 + 8 * (progress**1.35) + 12 * (progress**2.4) + 18 * (progress**4.0)
+    return max(1, floor(base_need * difficulty))
+
+
+def weapon_exp_for_level(level: int) -> int:
+    """计算武器达到指定等级所需的累计经验。"""
+
+    level = max(0, min(MAX_LEVEL, int(level)))
+    return sum(weapon_exp_need(current_level) for current_level in range(level))
+
+
+def weapon_level_from_exp(exp: int, max_level: int) -> int:
+    """按累计经验和武器等级上限计算武器等级。"""
+
+    level = 0
+    left = max(0, int(exp))
+    cap = max(0, min(MAX_LEVEL, int(max_level)))
+    while level < cap:
+        need = weapon_exp_need(level)
+        if left < need:
+            break
+        left -= need
+        level += 1
+    return level
+
+
+def weapon_exp_progress(exp: int, level: int, max_level: int) -> tuple[int, int]:
+    """返回当前武器等级内的经验进度和本级需求。"""
+
+    level_int = max(0, min(int(level), int(max_level), MAX_LEVEL))
+    if level_int >= max(0, min(MAX_LEVEL, int(max_level))):
+        return 0, 0
+    current_floor = weapon_exp_for_level(level_int)
+    return max(0, int(exp) - current_floor), weapon_exp_need(level_int)
+
+
+def weapon_exp_from_actions(action_count: int) -> int:
+    """按战斗行动次数计算武器经验。"""
+
+    actions = max(0, int(action_count))
+    if actions <= 0:
+        return 0
+    return actions * WEAPON_EXP_PER_ACTION
+
+
+def rest_recovery_rate(elapsed_seconds: int | float) -> float:
+    """计算休息恢复比例：前 1 分钟恢复一半，后 29 分钟补满。"""
+
+    elapsed = max(0.0, float(elapsed_seconds))
+    full_seconds = max(1, REST_FULL_MINUTES * 60)
+    fast_seconds = max(1, min(REST_FAST_SECONDS, full_seconds))
+    if elapsed <= 0:
+        return 0.0
+    if elapsed <= fast_seconds:
+        return min(0.5, 0.5 * elapsed / fast_seconds)
+
+    slow_seconds = max(1, full_seconds - fast_seconds)
+    return min(1.0, 0.5 + 0.5 * (elapsed - fast_seconds) / slow_seconds)
 
 
 def max_hp(level: int, physique: int, equipment_bonus: int = 0) -> int:
@@ -113,6 +186,19 @@ def special_sell_price_rate(level: int, today_income: int) -> float:
     pressure = max(0, int(today_income)) / soft_line
     rate = 1.0 / (1.0 + pressure * 0.45)
     return max(SPECIAL_SELL_MIN_RATE, min(1.0, rate))
+
+
+def trade_profit_rate(player_used: int, global_used: int, player_soft_line: int, global_soft_line: int) -> float:
+    """按今日普通跑商出售量计算利润倍率。
+
+    不阻断买卖，只让个人集中出货和全服过热时的后续利润自然变薄。
+    """
+
+    player_pressure = max(0, int(player_used)) / max(1, int(player_soft_line))
+    global_pressure = max(0, int(global_used)) / max(1, int(global_soft_line))
+    pressure = player_pressure * 0.75 + global_pressure * 0.25
+    rate = 1.0 / (1.0 + pressure * 0.45)
+    return max(TRADE_DAILY_PROFIT_MIN_RATE, min(1.0, rate))
 
 
 def weapon_recycle_single_cap(level: int) -> int:
@@ -277,10 +363,17 @@ __all__ = [
     "monster_exp",
     "monster_exp_rate",
     "page_count",
+    "rest_recovery_rate",
     "sign_reward",
     "special_sell_price_rate",
     "special_sell_soft_line",
+    "trade_profit_rate",
     "weapon_enchant_slots",
+    "weapon_exp_for_level",
+    "weapon_exp_from_actions",
+    "weapon_exp_need",
+    "weapon_exp_progress",
+    "weapon_level_from_exp",
     "weapon_recycle_price_rate",
     "weapon_recycle_single_cap",
     "weapon_recycle_soft_line",

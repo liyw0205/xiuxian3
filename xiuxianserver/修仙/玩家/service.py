@@ -21,8 +21,8 @@ from ..common import (
     weapon_label_name,
     world_state_for_day,
 )
-from ..constants import EQUIPMENT_SLOTS, NEWBIE_GIFT_STONES, REST_MINUTES
-from ..rules import sign_reward
+from ..constants import EQUIPMENT_SLOTS, NEWBIE_GIFT_STONES, REST_FAST_SECONDS, REST_FULL_MINUTES
+from ..rules import rest_recovery_rate, sign_reward
 from ..sql import db
 
 
@@ -295,26 +295,40 @@ class PlayerService(CoreService):
         if player["status"] != "空闲":
             return T.hint(f"当前状态为 {player['status']}，不能休息。", "先处理当前状态<休息>")
 
-        until = now() + timedelta(minutes=REST_MINUTES)
+        current = now()
+        window = self._rest_window_state(player)
+        until = current + timedelta(seconds=window["remaining_seconds"])
         with self.db.transaction() as conn:
             cursor = conn.execute(
                 """
                 UPDATE players
-                SET status = '休息中', status_until_at = ?
+                SET status = '休息中',
+                    rest_full_at = ?,
+                    rest_window_started_at = ?,
+                    rest_window_hp = ?,
+                    rest_window_mp = ?,
+                    rest_window_elapsed_seconds = ?
                 WHERE client_id = ? AND status = '空闲'
                 """,
-                (ts(until), client_id),
+                (
+                    ts(until),
+                    window["started_at"],
+                    window["base_hp"],
+                    window["base_mp"],
+                    window["elapsed_seconds"],
+                    client_id,
+                ),
             )
             if cursor.rowcount <= 0:
                 return T.hint("当前状态已变化，不能休息。", "发送：修仙信息 查看当前状态后再操作。<修仙信息><休息>")
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '开始休息', ?, ?)",
-                (client_id, f"until={ts(until)}", ts()),
+                (client_id, f"full_at={ts(until)}, window_elapsed={window['elapsed_seconds']}", ts()),
             )
-        return f"开始休息，需要 {REST_MINUTES} 分钟。<休息>"
+        return f"开始休息，满 1 分钟可结算约一半，{REST_FULL_MINUTES} 分钟恢复满；到时发送：结束休息。<结束休息>"
 
     def end_rest(self, client_id: str) -> str:
-        """休息满 1 分钟后恢复并退出。"""
+        """按已休息时长恢复并退出。"""
 
         player, error = self.require_player(client_id)
         if error:
@@ -323,25 +337,89 @@ class PlayerService(CoreService):
         if player["status"] != "休息中":
             return T.hint("你当前不在休息中。", "血气不足可发送：休息；想查看状态可发送：修仙信息<修仙信息><休息>")
 
-        until = dt(player["status_until_at"])
-        if until and now() < until:
-            left = max(1, int((until - now()).total_seconds()))
-            return T.hint(f"还需要休息 {left} 秒。", "时间到后再发送：结束休息")
-
+        current = now()
+        full_at = dt(player["rest_full_at"]) or current
+        window = self._rest_window_state(player)
+        active_started_at = full_at - timedelta(seconds=window["remaining_seconds"])
+        active_seconds = max(0, int((current - active_started_at).total_seconds()))
+        if active_seconds < REST_FAST_SECONDS:
+            left = max(1, REST_FAST_SECONDS - active_seconds)
+            return T.hint(f"至少需要休息 {REST_FAST_SECONDS} 秒，还差 {left} 秒。", "满 1 分钟后再发送：结束休息")
+        elapsed_seconds = min(REST_FULL_MINUTES * 60, window["elapsed_seconds"] + active_seconds)
+        base_rate = rest_recovery_rate(elapsed_seconds)
         recover_bonus = min(0.5, self.equipment_bonuses(client_id).get("recover_bonus", 0))
-        hp = player["max_hp"]
-        mp_add = int(max(5, player["max_mp"] // 5) * (1 + recover_bonus))
-        mp = min(player["max_mp"], player["mp"] + mp_add)
+        recover_rate = min(1.0, base_rate * (1 + recover_bonus))
+        hp = self._rest_recover_value(window["base_hp"], int(player["hp"]), int(player["max_hp"]), recover_rate)
+        mp = self._rest_recover_value(window["base_mp"], int(player["mp"]), int(player["max_mp"]), recover_rate)
         with self.db.transaction() as conn:
             conn.execute(
-                "UPDATE players SET hp = ?, mp = ?, status = '空闲', status_until_at = NULL WHERE client_id = ?",
-                (hp, mp, client_id),
+                """
+                UPDATE players
+                SET hp = ?,
+                    mp = ?,
+                    status = '空闲',
+                    rest_full_at = NULL,
+                    rest_window_hp = ?,
+                    rest_window_mp = ?,
+                    rest_window_elapsed_seconds = ?
+                WHERE client_id = ?
+                """,
+                (hp, mp, window["base_hp"], window["base_mp"], elapsed_seconds, client_id),
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '结束休息', ?, ?)",
-                (client_id, f"hp={hp}, mp={mp}", ts()),
+                (client_id, f"active={active_seconds}, elapsed={elapsed_seconds}, rate={recover_rate:.3f}, hp={hp}, mp={mp}", ts()),
             )
-        return f"休息结束，血气恢复到 **{hp}**/{player['max_hp']}，精神恢复到 **{mp}**/{player['max_mp']}。<休息>"
+        rate_text = int(recover_rate * 100)
+        return (
+            f"休息结束，已休息 {self._rest_time_text(elapsed_seconds)}，恢复效率 **{rate_text}%**。"
+            f"血气恢复到 **{hp}**/{player['max_hp']}，精神恢复到 **{mp}**/{player['max_mp']}。<休息>"
+        )
+
+    def _rest_window_state(self, player: dict) -> dict[str, int | str]:
+        """读取或初始化当前休息恢复窗口。"""
+
+        full_seconds = REST_FULL_MINUTES * 60
+        elapsed = max(0, min(full_seconds, int(player.get("rest_window_elapsed_seconds") or 0)))
+        started_at = str(player.get("rest_window_started_at") or "")
+        if not started_at or elapsed >= full_seconds:
+            elapsed = 0
+            started_at = ts()
+            base_hp = int(player["hp"])
+            base_mp = int(player["mp"])
+        else:
+            base_hp = int(player.get("rest_window_hp") or player["hp"])
+            base_mp = int(player.get("rest_window_mp") or player["mp"])
+
+        return {
+            "started_at": started_at,
+            "base_hp": max(0, min(int(player["max_hp"]), base_hp)),
+            "base_mp": max(0, min(int(player["max_mp"]), base_mp)),
+            "elapsed_seconds": elapsed,
+            "remaining_seconds": max(0, full_seconds - elapsed),
+        }
+
+    @staticmethod
+    def _rest_recover_value(base_value: int, current_value: int, max_value: int, rate: float) -> int:
+        """按恢复窗口基线结算，避免普通反复短休重复刷新前段收益。"""
+
+        max_value = max(1, int(max_value))
+        current_value = max(0, min(max_value, int(current_value)))
+        base_value = max(0, min(max_value, int(base_value)))
+        target = base_value + int((max_value - base_value) * max(0.0, min(1.0, rate)))
+        return min(max_value, max(current_value, target))
+
+    @staticmethod
+    def _rest_time_text(seconds: int) -> str:
+        """格式化休息时长。"""
+
+        seconds = max(0, int(seconds))
+        minutes, rest = divmod(seconds, 60)
+        if minutes <= 0:
+            return f"{rest} 秒"
+        if rest <= 0:
+            return f"{minutes} 分钟"
+        return f"{minutes} 分 {rest} 秒"
 
     def _current_combat_info(self, client_id: str, player: dict, weapon: dict | None) -> dict:
         """读取当前实战速度、技能节奏和武器定位。"""
@@ -628,7 +706,7 @@ class PlayerService(CoreService):
         """日记里的武器收藏。"""
 
         entries = []
-        weapon_count = self._count("player_weapons", "owner_id = ?", (client_id,))
+        weapon_count = self._count("player_weapons", "holder_id = ?", (client_id,))
         if weapon_count:
             equipped = self.equipped_weapon_row(client_id)
             equipped_text = f"，当前执 {weapon_label_name(equipped)}" if equipped else ""
@@ -637,7 +715,7 @@ class PlayerService(CoreService):
             """
             SELECT quality, COUNT(*) AS count
             FROM player_weapons
-            WHERE owner_id = ? AND quality IN ('稀品', '珍品')
+            WHERE holder_id = ? AND quality IN ('稀品', '珍品')
             GROUP BY quality
             ORDER BY CASE quality WHEN '珍品' THEN 2 ELSE 1 END DESC
             LIMIT 1
@@ -783,7 +861,7 @@ class PlayerService(CoreService):
         )
         if not row:
             return [
-                f"🌿 体质值 {player['physique']}",
+                f"🌿 体质值 {player['physique_value']}",
                 "✨ 未知品阶 · 未知向",
                 "💤 天赋：无特殊效果",
             ]

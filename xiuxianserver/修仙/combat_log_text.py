@@ -41,6 +41,7 @@ def exploration_brief(
     player: dict[str, Any],
     events: list[dict[str, Any]],
     exp_total: int,
+    weapon_exp_total: int,
     old_level: int,
     new_level: int,
     drops_text: str,
@@ -61,7 +62,7 @@ def exploration_brief(
     lines = [
         "> **探险结束**",
         f"> 记录 **#{record['record_id']}**｜地点：{record['location_name']}",
-        f"> 战斗 **{len(events)}** 场｜胜 **{wins}**｜败 **{losses}**｜经验 **+{exp_total}**",
+        f"> 战斗 **{len(events)}** 场｜胜 **{wins}**｜败 **{losses}**｜经验 **+{exp_total}**｜武器经验 **+{weapon_exp_total}**",
         f"> 等级：{level_text}｜最终血气 **{hp_left}/{player['max_hp']}**｜精神 **{mp_left}/{player['max_mp']}**",
         f"> 停止原因：{stop_reason}",
         ">",
@@ -107,11 +108,13 @@ def boss_brief(
 
     actions = result.get("actions")
     action_list = actions if isinstance(actions, list) else []
+    weapon_exp = int(result.get("weapon_exp", 0)) if int(result.get("weapon_id", 0)) > 0 else 0
     player_skills = _skill_count(action_list, "skill_used", "skill_name")
     boss_skills = _skill_count(action_list, "boss_skill_used", "boss_skill_name")
     state_text = killed_text if killed else alive_text
     if int(result.get("hp_left", 0)) <= 0:
         state_text = f"{hurt_text}；{state_text}"
+    reward_text = f"｜武器经验 **+{weapon_exp}**" if weapon_exp > 0 else ""
 
     lines = [
         f"> **{title}**",
@@ -121,7 +124,7 @@ def boss_brief(
     lines.extend(
         [
             f"> {boss_label}：{boss_name}｜剩余 **{left_hp}/{max_hp}**",
-            f"> 本次伤害 **{damage}**｜行动 **{len(action_list)}** 次",
+            f"> 本次伤害 **{damage}**｜行动 **{len(action_list)}** 次{reward_text}",
             f"> 我方：血气 **{result['hp_left']}/{player['max_hp']}**｜精神 **{result['mp_left']}/{player['max_mp']}**",
             f"> 我方技能：{_skill_text(player_skills)}｜{boss_label}技能：{_skill_text(boss_skills)}",
             f"> {state_text}",
@@ -141,6 +144,8 @@ def duel_brief(
 
     actions = result.get("actions")
     action_list = actions if isinstance(actions, list) else []
+    left_weapon_exp = int(result.get("left_weapon_exp", 0)) if int(result.get("left_weapon_id", 0)) > 0 else 0
+    right_weapon_exp = int(result.get("right_weapon_exp", 0)) if int(result.get("right_weapon_id", 0)) > 0 else 0
     skill_counter: Counter[str] = Counter()
     for action in action_list:
         for side in ("left", "right"):
@@ -167,6 +172,13 @@ def duel_brief(
         ),
         f"> 技能：{_skill_text(skill_counter)}｜行动 **{len(action_list)}** 次",
     ]
+    weapon_exp_parts = []
+    if left_weapon_exp > 0:
+        weapon_exp_parts.append(f"{format_player_name(left_id)} +{left_weapon_exp}")
+    if right_weapon_exp > 0:
+        weapon_exp_parts.append(f"{format_player_name(right_id)} +{right_weapon_exp}")
+    if weapon_exp_parts:
+        lines.append(f"> 武器经验：{'｜'.join(weapon_exp_parts)}")
     if settlement:
         lines.append(f"> {settlement}")
     return markdown_reply("\n".join(lines))
@@ -188,11 +200,12 @@ def _exploration_event_lines(
     hp_left = max(0, int(event.get("hp_left", 0)))
     mp_left = max(0, int(event.get("mp_left", 0)))
     monster = str(event.get("monster") or "怪物")
+    weapon_exp = int(event.get("weapon_exp", 0)) if int(event.get("weapon_id", 0)) > 0 else 0
     return [
         f"> **第 {index} 战**｜{monster}｜{result_text}",
         (
             f"> 行动 **{len(action_list)}** 次｜我方技能：{_skill_text(player_skills)}｜"
-            f"敌方技能：{_skill_text(enemy_skills)}｜经验 **+{int(event.get('exp', 0))}**"
+            f"敌方技能：{_skill_text(enemy_skills)}｜经验 **+{int(event.get('exp', 0))}**｜武器经验 **+{weapon_exp}**"
         ),
         f"> 战后：血气 **{hp_left}/{player['max_hp']}**｜精神 **{mp_left}/{player['max_mp']}**｜掉落：{event_drop_text(event)}",
     ]

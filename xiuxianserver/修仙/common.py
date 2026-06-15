@@ -37,6 +37,8 @@ from .rules import (
     max_mp,
     money,
     weapon_enchant_slots,
+    weapon_exp_for_level,
+    weapon_level_from_exp,
 )
 
 FORTUNE_POOL = (
@@ -274,7 +276,7 @@ def enchant_label_name(enchant_name: object, custom_name: object = "") -> str:
     return custom_label(enchant_name, custom_name)
 
 
-def equipment_item_use_hint(item: dict[str, Any]) -> str:
+def ring_item_use_hint(item: dict[str, Any]) -> str:
     """按纳戒物品类型给出正确消耗入口。"""
 
 
@@ -518,7 +520,7 @@ class CoreService:
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ? AND w.equipped = 1
+            WHERE w.holder_id = ? AND w.equipped = 1
             LIMIT 1
             """,
             (client_id,),
@@ -593,7 +595,7 @@ class CoreService:
             conn.execute("DELETE FROM trade_daily_rewards WHERE business_day < ?", (direct_business_day,))
             conn.execute(
                 """
-                DELETE FROM trade_limits
+                DELETE FROM trade_buy_locks
                 WHERE datetime(replace(last_buy_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
                 """,
                 (direct_cutoff,),
@@ -1050,7 +1052,7 @@ class CoreService:
                 """
                 INSERT OR IGNORE INTO players (
                     client_id, display_name, level, exp, hp, max_hp, mp, max_mp,
-                    physique_id, physique, base_attack, defense, source_stones, status,
+                    physique_id, physique_value, base_attack, defense, source_stones, status,
                     location_name, x, y, backpack_limit, weight_limit, created_at
                 )
                 VALUES (?, ?, 1, 0, ?, ?, ?, ?, 'fanti', 0, ?, ?, 0, '空闲',
@@ -1079,7 +1081,7 @@ class CoreService:
                 return T.hint("创建用户失败。", "请稍后重试，或换一个不重复的名称。")
             conn.execute(
                 """
-                INSERT INTO source_vaults (client_id, level, balance, last_settle_at)
+                INSERT INTO source_vaults (client_id, star_level, balance, last_settle_at)
                 VALUES (?, 1, 0, ?)
                 """,
                 (client_id, ts()),
@@ -1251,7 +1253,7 @@ class CoreService:
             """
             SELECT i.level, e.effect
             FROM fixed_equipment_inlays i
-            JOIN equipment_item_defs e ON e.equipment_item_id = i.gem_id
+            JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
             WHERE i.client_id = ?
             """,
             (client_id,),
@@ -1394,7 +1396,7 @@ class CoreService:
             """
             SELECT max_level, level
             FROM player_weapons
-            WHERE owner_id = ?
+            WHERE holder_id = ?
             ORDER BY max_level DESC, level DESC
             LIMIT 1
             """,
@@ -1427,7 +1429,7 @@ class CoreService:
                 """,
                 (client_id,),
             ),
-            "weapon_count": count("player_weapons", "owner_id = ?", (client_id,)),
+            "weapon_count": count("player_weapons", "holder_id = ?", (client_id,)),
             "weapon_recycle_count": self.stat_count_conn(conn, client_id, "weapon_recycle_count", "weapon_recycle_records", "client_id = ?", (client_id,)),
             "gem_recycle_count": self.stat_count_conn(conn, client_id, "gem_recycle_count", "gem_recycle_records", "client_id = ?", (client_id,)),
             "book_recycle_count": self.stat_count_conn(conn, client_id, "book_recycle_count", "book_recycle_records", "client_id = ?", (client_id,)),
@@ -1459,7 +1461,7 @@ class CoreService:
             "rare_weapon": self._exists_conn(
                 conn,
                 "player_weapons",
-                "owner_id = ? AND quality IN ('稀品', '珍品')",
+                "holder_id = ? AND quality IN ('稀品', '珍品')",
                 (client_id,),
             ),
             "max_weapon_level": max_weapon_level,
@@ -1561,11 +1563,13 @@ class CoreService:
         boss_challenge: bool = False,
         duel_win: bool = False,
         damage: int = 0,
+        weapon_exp: int = 0,
     ) -> None:
         """累积武器传奇数据。"""
 
         if int(weapon_id) <= 0:
             return
+        self.add_weapon_exp_conn(conn, client_id, weapon_id, weapon_exp)
         current = ts()
         conn.execute(
             """
@@ -1594,6 +1598,78 @@ class CoreService:
                 current,
             ),
         )
+
+    def add_weapon_exp_conn(
+        self,
+        conn: sqlite3.Connection,
+        client_id: str,
+        weapon_id: int,
+        amount: int,
+    ) -> int:
+        """给玩家持有的武器累计经验，返回实际增加量。"""
+
+        weapon_id_int = to_int(weapon_id, 0)
+        amount_int = max(0, to_int(amount, 0))
+        if weapon_id_int <= 0 or amount_int <= 0:
+            return 0
+        cursor = conn.execute(
+            """
+            UPDATE player_weapons
+            SET exp = exp + ?
+            WHERE holder_id = ? AND weapon_id = ?
+            """,
+            (amount_int, client_id, weapon_id_int),
+        )
+        if cursor.rowcount <= 0:
+            return 0
+        self.sync_weapon_level_conn(conn, client_id, weapon_id_int)
+        return amount_int
+
+    def reset_rest_window_conn(
+        self,
+        conn: sqlite3.Connection,
+        client_id: str,
+        hp: int,
+        mp: int,
+    ) -> None:
+        """刷新休息恢复窗口，供有挑战冷却的战斗结算后调用。"""
+
+        conn.execute(
+            """
+            UPDATE players
+            SET rest_window_started_at = ?,
+                rest_window_hp = ?,
+                rest_window_mp = ?,
+                rest_window_elapsed_seconds = 0
+            WHERE client_id = ?
+            """,
+            (ts(), max(0, int(hp)), max(0, int(mp)), client_id),
+        )
+
+    def sync_weapon_level_conn(self, conn: sqlite3.Connection, client_id: str, weapon_id: int) -> int:
+        """按武器经验刷新等级，等级不能超过自身上限。"""
+
+        weapon_id_int = to_int(weapon_id, 0)
+        if weapon_id_int <= 0:
+            return 0
+        row = conn.execute(
+            "SELECT exp, max_level FROM player_weapons WHERE holder_id = ? AND weapon_id = ?",
+            (client_id, weapon_id_int),
+        ).fetchone()
+        if not row:
+            return 0
+        level = weapon_level_from_exp(int(row["exp"]), int(row["max_level"]))
+        conn.execute(
+            "UPDATE player_weapons SET level = ? WHERE holder_id = ? AND weapon_id = ?",
+            (level, client_id, weapon_id_int),
+        )
+        return level
+
+    @staticmethod
+    def weapon_exp_for_level(level: int) -> int:
+        """暴露武器等级累计经验公式给组件调用。"""
+
+        return weapon_exp_for_level(level)
 
     def weapon_effects_from_ids(self, enchant_ids: object) -> dict[str, float]:
         """按附魔 id 列表汇总武器附魔效果。
@@ -1932,7 +2008,7 @@ class CoreService:
         if not player:
             raise ValueError("玩家不存在")
         level = level_from_exp(player["exp"])
-        physique_value = int(player["physique"])
+        physique_value = int(player["physique_value"])
         physique_def = conn.execute(
             "SELECT physique_value FROM physique_defs WHERE physique_id = ?",
             (player["physique_id"],),
@@ -1948,7 +2024,7 @@ class CoreService:
             """
             UPDATE players
             SET level = ?, max_hp = ?, max_mp = ?, hp = min(hp, ?), mp = min(mp, ?),
-                physique = ?, base_attack = ?, defense = ?
+                physique_value = ?, base_attack = ?, defense = ?
             WHERE client_id = ?
             """,
             (level, hp_max, mp_max, hp_max, mp_max, physique_value, attack_value, defense_value, client_id),
@@ -2010,17 +2086,17 @@ class CoreService:
 
         return self.db.fetch_one("SELECT * FROM item_defs WHERE item_id = ?", (item_id,))
 
-    def equipment_item_def_by_name(self, name: str) -> dict[str, Any] | None:
+    def ring_item_def_by_name(self, name: str) -> dict[str, Any] | None:
         """按名称读取纳戒物品定义。"""
 
-        return self.db.fetch_one("SELECT * FROM equipment_item_defs WHERE name = ?", (name.strip(),))
+        return self.db.fetch_one("SELECT * FROM ring_item_defs WHERE name = ?", (name.strip(),))
 
-    def equipment_item_def(self, equipment_item_id: str) -> dict[str, Any] | None:
+    def ring_item_def(self, ring_item_id: str) -> dict[str, Any] | None:
         """按 id 读取纳戒物品定义。"""
 
         return self.db.fetch_one(
-            "SELECT * FROM equipment_item_defs WHERE equipment_item_id = ?",
-            (equipment_item_id,),
+            "SELECT * FROM ring_item_defs WHERE ring_item_id = ?",
+            (ring_item_id,),
         )
 
     def add_backpack_conn(self, conn: sqlite3.Connection, client_id: str, item_id: str, quantity: int) -> None:
@@ -2127,54 +2203,54 @@ class CoreService:
         self,
         conn: sqlite3.Connection,
         client_id: str,
-        equipment_item_id: str,
+        ring_item_id: str,
         quantity: int,
     ) -> None:
         """在事务里增加纳戒物品。"""
 
         if quantity <= 0:
             return
-        if self._is_gem_conn(conn, equipment_item_id):
-            self.add_gem_conn(conn, client_id, equipment_item_id, 1, quantity)
+        if self._is_gem_conn(conn, ring_item_id):
+            self.add_gem_conn(conn, client_id, ring_item_id, 1, quantity)
             return
         conn.execute(
             """
-            INSERT INTO ring_items (client_id, equipment_item_id, quantity)
+            INSERT INTO ring_items (client_id, ring_item_id, quantity)
             VALUES (?, ?, ?)
-            ON CONFLICT(client_id, equipment_item_id)
+            ON CONFLICT(client_id, ring_item_id)
             DO UPDATE SET quantity = quantity + excluded.quantity
             """,
-            (client_id, equipment_item_id, quantity),
+            (client_id, ring_item_id, quantity),
         )
 
     def remove_ring_conn(
         self,
         conn: sqlite3.Connection,
         client_id: str,
-        equipment_item_id: str,
+        ring_item_id: str,
         quantity: int,
     ) -> bool:
         """在事务里扣除纳戒物品。"""
 
-        if self._is_gem_conn(conn, equipment_item_id):
-            return self.remove_gem_conn(conn, client_id, equipment_item_id, 1, quantity)
+        if self._is_gem_conn(conn, ring_item_id):
+            return self.remove_gem_conn(conn, client_id, ring_item_id, 1, quantity)
 
         row = conn.execute(
-            "SELECT quantity FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
-            (client_id, equipment_item_id),
+            "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
+            (client_id, ring_item_id),
         ).fetchone()
         if not row or row["quantity"] < quantity:
             return False
         left = row["quantity"] - quantity
         if left:
             conn.execute(
-                "UPDATE ring_items SET quantity = ? WHERE client_id = ? AND equipment_item_id = ?",
-                (left, client_id, equipment_item_id),
+                "UPDATE ring_items SET quantity = ? WHERE client_id = ? AND ring_item_id = ?",
+                (left, client_id, ring_item_id),
             )
         else:
             conn.execute(
-                "DELETE FROM ring_items WHERE client_id = ? AND equipment_item_id = ?",
-                (client_id, equipment_item_id),
+                "DELETE FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
+                (client_id, ring_item_id),
             )
         return True
 
@@ -2240,12 +2316,12 @@ class CoreService:
         return True
 
     @staticmethod
-    def _is_gem_conn(conn: sqlite3.Connection, equipment_item_id: str) -> bool:
+    def _is_gem_conn(conn: sqlite3.Connection, ring_item_id: str) -> bool:
         """判断纳戒物品是否是宝石。"""
 
         row = conn.execute(
-            "SELECT category FROM equipment_item_defs WHERE equipment_item_id = ?",
-            (equipment_item_id,),
+            "SELECT category FROM ring_item_defs WHERE ring_item_id = ?",
+            (ring_item_id,),
         ).fetchone()
         return bool(row and row["category"] == "宝石")
 
@@ -2282,9 +2358,9 @@ class CoreService:
 
         rows = self.db.fetch_all(
             """
-            SELECT r.equipment_item_id, r.quantity, e.name, e.category, e.usable, e.effect, NULL AS level
+            SELECT r.ring_item_id, r.quantity, e.name, e.category, e.usable, e.effect, NULL AS level
             FROM ring_items r
-            JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+            JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
             WHERE r.client_id = ? AND r.quantity > 0
               AND e.category != '宝石'
             ORDER BY e.category, e.name
@@ -2299,10 +2375,10 @@ class CoreService:
 
         return self.db.fetch_all(
             """
-            SELECT g.gem_id AS equipment_item_id, g.quantity, g.level,
+            SELECT g.gem_id AS ring_item_id, g.quantity, g.level,
                    e.name, e.category, e.quality, e.usable, e.effect
             FROM gem_items g
-            JOIN equipment_item_defs e ON e.equipment_item_id = g.gem_id
+            JOIN ring_item_defs e ON e.ring_item_id = g.gem_id
             WHERE g.client_id = ? AND g.quantity > 0
             ORDER BY e.name, g.level
             """,

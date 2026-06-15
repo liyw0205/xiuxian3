@@ -27,6 +27,8 @@ from ..rules import (
     weapon_recycle_price_rate,
     weapon_recycle_single_cap,
     weapon_upgrade_cost,
+    weapon_exp_for_level,
+    weapon_exp_progress,
 )
 from ..sql import db
 from ..weapon_core import WeaponCore
@@ -106,8 +108,8 @@ class WeaponService(WeaponCore):
         if not weapon:
             return T.hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
         with self.db.transaction() as conn:
-            conn.execute("UPDATE player_weapons SET equipped = 0 WHERE owner_id = ?", (client_id,))
-            conn.execute("UPDATE player_weapons SET equipped = 1 WHERE owner_id = ? AND weapon_id = ?", (client_id, weapon_id))
+            conn.execute("UPDATE player_weapons SET equipped = 0 WHERE holder_id = ?", (client_id,))
+            conn.execute("UPDATE player_weapons SET equipped = 1 WHERE holder_id = ? AND weapon_id = ?", (client_id, weapon_id))
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '切换武器', ?, ?)",
                 (client_id, f"weapon_id={weapon_id}, name={weapon_label_name(weapon)}", ts()),
@@ -127,41 +129,47 @@ class WeaponService(WeaponCore):
                 SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
                 return T.hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
-            if weapon["level"] >= weapon["max_level"]:
+            if int(weapon["level"]) >= int(weapon["max_level"]):
                 return T.hint("这把武器已经到达自身等级上限。", "可以切换或继续探险获取更高上限武器。")
-            next_level = weapon["level"] + 1
+            next_level = int(weapon["level"]) + 1
             cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
             if not self.spend_stones_conn(conn, client_id, cost):
                 return T.hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<签到><探险>")
+            target_exp = weapon_exp_for_level(next_level)
+            exp_gain = max(0, target_exp - int(weapon["exp"]))
             next_weapon = dict(weapon)
+            next_weapon["exp"] = max(int(weapon["exp"]), target_exp)
             next_weapon["level"] = next_level
             slots = computed_weapon_enchant_slots(next_weapon)
             conn.execute(
                 """
                 UPDATE player_weapons
-                SET level = ?
-                WHERE weapon_id = ? AND owner_id = ?
+                SET level = ?, exp = ?
+                WHERE weapon_id = ? AND holder_id = ?
                 """,
-                (next_level, weapon_id, client_id),
+                (next_level, next_weapon["exp"], weapon_id, client_id),
             )
             attack = computed_weapon_attack(next_weapon)
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '升级武器', ?, ?)",
                 (
                     client_id,
-                    f"weapon_id={weapon_id}, level={next_level}, attack={attack}, cost={cost}, slots={slots}",
+                    (
+                        f"weapon_id={weapon_id}, level={next_level}, exp={next_weapon['exp']}, "
+                        f"exp_gain={exp_gain}, attack={attack}, cost={cost}, slots={slots}"
+                    ),
                     ts(),
                 ),
             )
         return (
             f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{weapon['max_level']}，"
-            f"攻击 {attack}，附魔栏 {slots}。"
+            f"经验补满 +{exp_gain}，攻击 {attack}，附魔栏 {slots}。"
         )
 
     def recycle(self, client_id: str, message: str) -> str:
@@ -198,7 +206,7 @@ class WeaponService(WeaponCore):
                 return T.hint(f"已装备武器不能回收：{self._format_weapon_ids(equipped_ids)}。", "先切换到其他武器，再回收备用武器。<武器>")
 
             count = conn.execute(
-                "SELECT COUNT(*) AS total FROM player_weapons WHERE owner_id = ?",
+                "SELECT COUNT(*) AS total FROM player_weapons WHERE holder_id = ?",
                 (client_id,),
             ).fetchone()
             total_count = int(count["total"])
@@ -246,7 +254,7 @@ class WeaponService(WeaponCore):
         book_name, quantity = self._parse_book_recycle_message(text)
         if quantity <= 0:
             return T.hint("技能书回收格式不正确。", "发送：回收技能书 技能书名 数量，例如：回收技能书 风刃书 1")
-        book = self.equipment_item_def_by_name(book_name)
+        book = self.ring_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
             return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书名称。<纳戒>")
 
@@ -254,9 +262,9 @@ class WeaponService(WeaponCore):
             row = conn.execute(
                 """
                 SELECT quantity FROM ring_items
-                WHERE client_id = ? AND equipment_item_id = ?
+                WHERE client_id = ? AND ring_item_id = ?
                 """,
-                (client_id, book["equipment_item_id"]),
+                (client_id, book["ring_item_id"]),
             ).fetchone()
             owned = int(row["quantity"]) if row else 0
             if owned < quantity:
@@ -270,7 +278,7 @@ class WeaponService(WeaponCore):
                 int(player["level"]),
                 today_income,
             )
-            if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], quantity):
+            if not self.remove_ring_conn(conn, client_id, book["ring_item_id"], quantity):
                 return T.hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
             conn.execute(
                 "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
@@ -287,7 +295,7 @@ class WeaponService(WeaponCore):
                 """,
                 (
                     client_id,
-                    book["equipment_item_id"],
+                    book["ring_item_id"],
                     book["name"],
                     book["quality"],
                     quantity,
@@ -302,7 +310,7 @@ class WeaponService(WeaponCore):
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书回收', ?, ?)",
-                (client_id, f"book={book['equipment_item_id']}, quantity={quantity}, stones={quote['value']}", ts()),
+                (client_id, f"book={book['ring_item_id']}, quantity={quantity}, stones={quote['value']}", ts()),
             )
         return (
             f"回收成功：{book['name']} x{quantity}，"
@@ -318,9 +326,9 @@ class WeaponService(WeaponCore):
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
-                SELECT r.equipment_item_id, r.quantity, e.name, e.quality
+                SELECT r.ring_item_id, r.quantity, e.name, e.quality
                 FROM ring_items r
-                JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+                JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
                 WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
                 ORDER BY e.quality, e.name
                 """,
@@ -339,7 +347,7 @@ class WeaponService(WeaponCore):
                     int(player["level"]),
                     today_income,
                 )
-                if not self.remove_ring_conn(conn, client_id, row["equipment_item_id"], quantity):
+                if not self.remove_ring_conn(conn, client_id, row["ring_item_id"], quantity):
                     continue
                 conn.execute(
                     """
@@ -352,7 +360,7 @@ class WeaponService(WeaponCore):
                     """,
                     (
                         client_id,
-                        row["equipment_item_id"],
+                        row["ring_item_id"],
                         row["name"],
                         row["quality"],
                         quantity,
@@ -407,7 +415,7 @@ class WeaponService(WeaponCore):
             return T.hint("附魔格式不正确。", "发送：附魔武器 武器ID 技能书名，例如：附魔武器 1 破甲残卷")
         weapon_id = to_int(parts[0])
         book_name = " ".join(parts[1:])
-        book = self.equipment_item_def_by_name(book_name)
+        book = self.ring_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
             return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。<纳戒>")
         effect = load_json(book["effect"], {})
@@ -421,7 +429,7 @@ class WeaponService(WeaponCore):
                 SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()
@@ -437,16 +445,16 @@ class WeaponService(WeaponCore):
                 )
             if len(current) >= computed_weapon_enchant_slots(weapon):
                 return T.hint("这把武器没有空余附魔栏。", "升级武器可能解锁附魔栏，或换一把更高上限武器。")
-            if not self.remove_ring_conn(conn, client_id, book["equipment_item_id"], 1):
+            if not self.remove_ring_conn(conn, client_id, book["ring_item_id"], 1):
                 return T.hint(f"纳戒里没有 {book['name']}。", "发送：纳戒 确认库存，或继续探险获取技能书。<纳戒>")
             current.append(enchant_id)
             conn.execute(
-                "UPDATE player_weapons SET enchant_effects = ? WHERE weapon_id = ? AND owner_id = ?",
+                "UPDATE player_weapons SET enchant_effects = ? WHERE weapon_id = ? AND holder_id = ?",
                 (dump_json(current), weapon_id, client_id),
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '附魔武器', ?, ?)",
-                (client_id, f"weapon_id={weapon_id}, book={book['equipment_item_id']}, enchant={enchant_id}", ts()),
+                (client_id, f"weapon_id={weapon_id}, book={book['ring_item_id']}, enchant={enchant_id}", ts()),
             )
         return f"附魔成功：{weapon_label_name(weapon)} 获得 {book['name']}。"
 
@@ -525,7 +533,7 @@ class WeaponService(WeaponCore):
             """
             SELECT weapon_id
             FROM player_weapons
-            WHERE owner_id = ? AND equipped = 0
+            WHERE holder_id = ? AND equipped = 0
             ORDER BY weapon_id
             """,
             (client_id,),
@@ -543,7 +551,7 @@ class WeaponService(WeaponCore):
                 SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()
@@ -566,7 +574,7 @@ class WeaponService(WeaponCore):
         quote = self._recycle_quote(weapon, float(location["price_factor"]), player_level, today_income)
         value = int(quote["value"])
         conn.execute("DELETE FROM weapon_enchant_names WHERE weapon_id = ?", (weapon_id,))
-        conn.execute("DELETE FROM player_weapons WHERE owner_id = ? AND weapon_id = ?", (client_id, weapon_id))
+        conn.execute("DELETE FROM player_weapons WHERE holder_id = ? AND weapon_id = ?", (client_id, weapon_id))
         conn.execute(
             """
             INSERT INTO weapon_recycle_records (
@@ -654,7 +662,7 @@ class WeaponService(WeaponCore):
             enchant_ids = []
         return (
             f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{weapon['quality']}] {mark} "
-            f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{computed_weapon_attack(weapon)} "
+            f"等级:{weapon['level']}/{weapon['max_level']} 经验:{self._exp_progress_text(weapon)} 攻击:{computed_weapon_attack(weapon)} "
             f"技能:{skill_name} 附魔:{len(enchant_ids)}/{computed_weapon_enchant_slots(weapon)}"
             f"{self._enchant_text(int(weapon['weapon_id']), enchant_ids)}"
         )
@@ -687,7 +695,7 @@ class WeaponService(WeaponCore):
             f"蓄势基准：{combat_info['skill_interval']}（越小越快）",
             (
                 f"成长：等级 {weapon['level']}/{weapon['max_level']}｜"
-                f"当前攻击 {computed_weapon_attack(weapon)}｜下级：{next_cost}"
+                f"经验 {self._exp_progress_text(weapon)}｜当前攻击 {computed_weapon_attack(weapon)}｜下级：{next_cost}"
             ),
             "自带技能：" + self._skill_text(skill, weapon, effects),
             (
@@ -714,11 +722,13 @@ class WeaponService(WeaponCore):
         """格式化完整武器传奇记录。"""
 
         legend = weapon.get("legend") or {}
-        original = self.format_player_name(legend.get("original_owner_id", weapon["owner_id"]))
-        current = self.format_player_name(legend.get("current_owner_id", weapon["owner_id"]))
+        fallback_holder = weapon.get("holder_id", "")
+        original = self.format_player_name(legend.get("original_owner_id", fallback_holder))
+        current = self.format_player_name(legend.get("current_owner_id", fallback_holder))
         panel = T.panel()
         panel.section(f"武器传奇 {weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}")
         panel.line(f"品质：{weapon['quality']}｜类型：{weapon['weapon_type']}｜等级：**{weapon['level']}/{weapon['max_level']}**")
+        panel.line(f"武器经验：**{self._exp_progress_text(weapon)}**")
         panel.line(f"初主：{original}｜现主：{current}")
         panel.line(
             f"斩怪：**{legend.get('monster_kills', 0)}** 次｜"
@@ -736,7 +746,19 @@ class WeaponService(WeaponCore):
             return "已到上限"
         next_level = int(weapon["level"]) + 1
         cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
-        return f"{next_level}级需源石{money(cost)}"
+        current, need = weapon_exp_progress(int(weapon["exp"]), int(weapon["level"]), int(weapon["max_level"]))
+        left = max(0, need - current)
+        return f"{next_level}级需源石{money(cost)}，补经验{left}"
+
+    @staticmethod
+    def _exp_progress_text(weapon: dict) -> str:
+        """展示武器当前等级内的经验进度。"""
+
+        exp = int(weapon["exp"])
+        current, need = weapon_exp_progress(exp, int(weapon["level"]), int(weapon["max_level"]))
+        if need <= 0:
+            return "已满级"
+        return f"{current}/{need}"
 
     @staticmethod
     def _recycle_state_text(weapon: dict, total_count: int) -> str:
@@ -885,9 +907,9 @@ class WeaponService(WeaponCore):
 
         rows = self.db.fetch_all(
             """
-            SELECT r.equipment_item_id, r.quantity, e.name, e.quality
+            SELECT r.ring_item_id, r.quantity, e.name, e.quality
             FROM ring_items r
-            JOIN equipment_item_defs e ON e.equipment_item_id = r.equipment_item_id
+            JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
             WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
             ORDER BY e.quality, e.name
             """,

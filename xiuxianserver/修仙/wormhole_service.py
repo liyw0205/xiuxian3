@@ -145,6 +145,7 @@ class WormholeService(CoreService):
                 "UPDATE players SET hp = ?, mp = ? WHERE client_id = ?",
                 (result["hp_left"], result["mp_left"], client_id),
             )
+            self.reset_rest_window_conn(conn, client_id, int(result["hp_left"]), int(result["mp_left"]))
             conn.execute(
                 """
                 INSERT INTO wormhole_participants
@@ -175,7 +176,14 @@ class WormholeService(CoreService):
                 )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '挑战虫洞', ?, ?)",
-                (client_id, f"wormhole={event['wormhole_id']}, damage={damage}", ts()),
+                (
+                    client_id,
+                    (
+                        f"wormhole={event['wormhole_id']}, damage={damage}, "
+                        f"weapon_exp={int(result.get('weapon_exp', 0)) if int(result.get('weapon_id', 0)) > 0 else 0}"
+                    ),
+                    ts(),
+                ),
             )
             self.record_weapon_combat_conn(
                 conn,
@@ -183,6 +191,7 @@ class WormholeService(CoreService):
                 int(result.get("weapon_id", 0)),
                 boss_challenge=True,
                 damage=int(result.get("highest_damage", damage)),
+                weapon_exp=int(result.get("weapon_exp", 0)),
             )
 
         return self._challenge_log_block(
@@ -559,6 +568,7 @@ class WormholeService(CoreService):
                 f"本次造成伤害：{damage}",
                 f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
                 f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
+                f"武器经验：+{int(result.get('weapon_exp', 0)) if int(result.get('weapon_id', 0)) > 0 else 0}",
                 f"武器技能触发：{result['skill_times']} 次",
                 f"Boss 技能触发：{result.get('boss_skill_times', 0)} 次",
             ]
@@ -638,24 +648,24 @@ class WormholeService(CoreService):
 
         recover = self._random_equipment_item("恢复类")
         if recover:
-            ring_items.append((recover["equipment_item_id"], 1))
+            ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
 
         if random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["xisuiye"] + contribution * 0.25:
-            special = self.equipment_item_def("xisuiye")
+            special = self.ring_item_def("xisuiye")
             if special:
-                ring_items.append((special["equipment_item_id"], 1))
+                ring_items.append((special["ring_item_id"], 1))
                 item_texts.append(f"纳戒获得 {special['name']} x1")
 
         gem = self._random_equipment_item("宝石")
         if gem and random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["gem"] + contribution * 0.3:
             level = 1 + (1 if random.random() < min(0.22, contribution) else 0)
-            gems.append((gem["equipment_item_id"], level, 1))
+            gems.append((gem["ring_item_id"], level, 1))
             item_texts.append(f"宝石获得 {gem['name']} {level}级 x1")
 
         book = self._random_equipment_item("技能书")
         if book and random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["book"] + contribution * 0.22:
-            ring_items.append((book["equipment_item_id"], 1))
+            ring_items.append((book["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {book['name']} x1")
 
         weapon = None
@@ -679,9 +689,9 @@ class WormholeService(CoreService):
         rows = self.db.fetch_all(
             """
             SELECT *
-            FROM equipment_item_defs
+            FROM ring_item_defs
             WHERE category = ?
-              AND equipment_item_id != 'kaikongqi'
+              AND ring_item_id != 'kaikongqi'
             """,
             (category,),
         )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..format_text import T
 
-from ..common import CoreService, equipment_item_use_hint, parse_name_quantity_optional
+from ..common import CoreService, ring_item_use_hint, parse_name_quantity_optional
 from ..item_effects import service as item_effects
 from ..sql import db
 
@@ -37,14 +37,14 @@ class RingService(CoreService):
         item_name, quantity = parse_name_quantity_optional(item_message)
         if quantity <= 0:
             return T.hint("使用数量必须大于 0。", "发送：使用 物品名 数量，例如：使用 福袋 5")
-        item = self.equipment_item_def_by_name(item_name)
+        item = self.ring_item_def_by_name(item_name)
         if not item:
             return T.hint(f"没有找到纳戒物品：{item_name}。", "发送：纳戒 查看已拥有的物品。<纳戒>")
         if item["category"] != "恢复类":
-            return T.hint(f"{item['name']} 不能直接使用。", equipment_item_use_hint(item))
+            return T.hint(f"{item['name']} 不能直接使用。", ring_item_use_hint(item))
 
         with self.db.transaction() as conn:
-            if not self.remove_ring_conn(conn, client_id, item["equipment_item_id"], quantity):
+            if not self.remove_ring_conn(conn, client_id, item["ring_item_id"], quantity):
                 return T.hint(f"纳戒里没有足够的 {item['name']} x{quantity}。", "发送：纳戒 确认库存，或继续探险获取。<纳戒><探险>")
             return item_effects.apply_many_conn(conn, client_id, item, "纳戒", quantity)
 
@@ -54,11 +54,11 @@ class RingService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
-        item = self.equipment_item_def_by_name("洗髓液")
+        item = self.ring_item_def_by_name("洗髓液")
         if not item:
             return T.hint("洗髓液配置不存在。", "请先检查纳戒物品配置。")
         with self.db.transaction() as conn:
-            if not self.remove_ring_conn(conn, client_id, item["equipment_item_id"], 1):
+            if not self.remove_ring_conn(conn, client_id, item["ring_item_id"], 1):
                 return T.hint("纳戒里没有洗髓液。", "洗髓液可从岁时情劫首领或异界虫洞奖励中获得，获得后发送：洗髓<洗髓>")
             return item_effects.apply_conn(conn, client_id, item, "洗髓")
 

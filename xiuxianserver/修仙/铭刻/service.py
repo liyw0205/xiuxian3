@@ -148,7 +148,7 @@ class InscriptionService(CoreService):
                 SELECT w.*, d.name
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()
@@ -162,7 +162,7 @@ class InscriptionService(CoreService):
             if feather_error:
                 return feather_error
             conn.execute(
-                "UPDATE player_weapons SET custom_name = ? WHERE owner_id = ? AND weapon_id = ?",
+                "UPDATE player_weapons SET custom_name = ? WHERE holder_id = ? AND weapon_id = ?",
                 (name, client_id, weapon_id),
             )
             conn.execute(
@@ -193,7 +193,7 @@ class InscriptionService(CoreService):
                 SELECT w.*, d.name
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()
@@ -264,7 +264,7 @@ class InscriptionService(CoreService):
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
                 LEFT JOIN weapon_skill_defs s ON s.skill_id = d.skill_id
-                WHERE w.owner_id = ? AND w.weapon_id = ?
+                WHERE w.holder_id = ? AND w.weapon_id = ?
                 """,
                 (client_id, weapon_id),
             ).fetchone()

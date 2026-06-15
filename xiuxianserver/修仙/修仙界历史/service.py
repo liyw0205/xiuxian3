@@ -283,7 +283,7 @@ class XiuxianHistoryService(CoreService):
         luck = self._top_luck_row(start, end)
         if luck:
             entries.append(
-                f"{self.format_player_name(luck['owner_id'])} 获得 {luck['quality']}武器「{luck['name']}」，"
+                f"{self.format_player_name(luck['original_owner_id'])} 获得 {luck['quality']}武器「{luck['name']}」，"
                 "坊间称其手气正盛。"
             )
 
@@ -340,7 +340,7 @@ class XiuxianHistoryService(CoreService):
         if not row:
             return "今日欧气：暂无珍稀武器入世。"
         return (
-            f"今日欧气：{self.format_player_name(row['owner_id'])}，"
+            f"今日欧气：{self.format_player_name(row['original_owner_id'])}，"
             f"新得 {row['quality']}武器「{row['name']}」{row['count']} 把。"
         )
 
@@ -357,7 +357,7 @@ class XiuxianHistoryService(CoreService):
 
         luck = self._top_luck_row(start, end)
         if luck:
-            return f"坊间传闻：有人看见 {self.format_player_name(luck['owner_id'])} 抱着「{luck['name']}」路过茶摊。"
+            return f"坊间传闻：有人看见 {self.format_player_name(luck['original_owner_id'])} 抱着「{luck['name']}」路过茶摊。"
 
         active = self._top_active_row(start, end)
         if active:
@@ -489,13 +489,18 @@ class XiuxianHistoryService(CoreService):
 
         return self.db.fetch_one(
             """
-            SELECT w.owner_id, w.quality, d.name, COUNT(*) AS count
+            SELECT COALESCE(l.original_owner_id, w.holder_id) AS original_owner_id,
+                   w.quality,
+                   d.name,
+                   COUNT(*) AS count
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
+            LEFT JOIN weapon_legends l ON l.weapon_id = w.weapon_id
             WHERE w.quality IN ('稀品', '珍品')
+              AND COALESCE(l.original_owner_id, w.holder_id) NOT LIKE '__%__:%'
               AND datetime(replace(w.created_at, 'T', ' ')) >= ?
               AND datetime(replace(w.created_at, 'T', ' ')) < ?
-            GROUP BY w.owner_id, w.quality, d.name
+            GROUP BY original_owner_id, w.quality, d.name
             ORDER BY CASE w.quality WHEN '稀品' THEN 2 ELSE 1 END DESC, count DESC
             LIMIT 1
             """,

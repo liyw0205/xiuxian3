@@ -83,9 +83,9 @@ class SecondHandService(CoreService):
         item_type = "backpack"
         item_id = item["item_id"] if item else ""
         if not item:
-            item = self.equipment_item_def_by_name(item_name)
+            item = self.ring_item_def_by_name(item_name)
             item_type = "gem" if item and item["category"] == "宝石" else "ring"
-            item_id = item["equipment_item_id"] if item else ""
+            item_id = item["ring_item_id"] if item else ""
         if not item:
             return T.hint(f"没有找到可上架物品：{item_name}。", "发送：背包、纳戒 或 武器，复制准确名称或武器 ID。")
 
@@ -210,20 +210,20 @@ class SecondHandService(CoreService):
                 self.add_ring_conn(conn, client_id, row["item_id"], row["quantity"])
             elif row["item_type"] == "weapon":
                 buyer_has_weapon = conn.execute(
-                    "SELECT 1 FROM player_weapons WHERE owner_id = ? LIMIT 1",
+                    "SELECT 1 FROM player_weapons WHERE holder_id = ? LIMIT 1",
                     (client_id,),
                 ).fetchone()
                 conn.execute(
                     """
                     UPDATE player_weapons
-                    SET owner_id = ?, equipped = ?
-                    WHERE weapon_id = ? AND owner_id = ?
+                    SET holder_id = ?, equipped = ?
+                    WHERE weapon_id = ? AND holder_id = ?
                     """,
                     (
                         client_id,
                         0 if buyer_has_weapon else 1,
                         int(row["item_id"]),
-                        self._market_owner(row["listing_id"]),
+                        self._market_holder(row["listing_id"]),
                     ),
                 )
                 conn.execute(
@@ -274,7 +274,7 @@ class SecondHandService(CoreService):
                 return T.hint("已装备武器不能上架。", "先切换到其他武器，再上架这把备用武器。<武器>")
 
             count = conn.execute(
-                "SELECT COUNT(*) AS total FROM player_weapons WHERE owner_id = ?",
+                "SELECT COUNT(*) AS total FROM player_weapons WHERE holder_id = ?",
                 (client_id,),
             ).fetchone()
             if int(count["total"]) <= 1:
@@ -292,10 +292,10 @@ class SecondHandService(CoreService):
             conn.execute(
                 """
                 UPDATE player_weapons
-                SET owner_id = ?, equipped = 0
-                WHERE owner_id = ? AND weapon_id = ? AND equipped = 0
+                SET holder_id = ?, equipped = 0
+                WHERE holder_id = ? AND weapon_id = ? AND equipped = 0
                 """,
-                (self._market_owner(listing_id), client_id, weapon_id),
+                (self._market_holder(listing_id), client_id, weapon_id),
             )
 
         return f"上架成功：{self._weapon_label(dict(weapon))}，总价 {money(total_price)}。"
@@ -308,11 +308,11 @@ class SecondHandService(CoreService):
             item = self.item_def(item_id)
             return item["name"] if item else item_id
         if item_type == "ring":
-            item = self.equipment_item_def(item_id)
+            item = self.ring_item_def(item_id)
             return item["name"] if item else item_id
         if item_type == "gem":
             gem_id, gem_level = self._split_gem_listing_id(item_id)
-            item = self.equipment_item_def(gem_id)
+            item = self.ring_item_def(gem_id)
             name = item["name"] if item else gem_id
             return f"{name} {gem_level}级"
         if item_type == "weapon":
@@ -355,7 +355,7 @@ class SecondHandService(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.owner_id = ? AND w.weapon_id = ?
+            WHERE w.holder_id = ? AND w.weapon_id = ?
             """,
             (client_id, weapon_id),
         ).fetchone()
@@ -368,9 +368,9 @@ class SecondHandService(CoreService):
             SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-            WHERE w.weapon_id = ? AND w.owner_id = ?
+            WHERE w.weapon_id = ? AND w.holder_id = ?
             """,
-            (int(listing["item_id"]), self._market_owner(listing["listing_id"])),
+            (int(listing["item_id"]), self._market_holder(listing["listing_id"])),
         ).fetchone()
 
     def _restore_market_weapon_conn(self, conn, client_id: str, listing) -> bool:
@@ -379,10 +379,10 @@ class SecondHandService(CoreService):
         cursor = conn.execute(
             """
             UPDATE player_weapons
-            SET owner_id = ?, equipped = 0
-            WHERE weapon_id = ? AND owner_id = ?
+            SET holder_id = ?, equipped = 0
+            WHERE weapon_id = ? AND holder_id = ?
             """,
-            (client_id, int(listing["item_id"]), self._market_owner(listing["listing_id"])),
+            (client_id, int(listing["item_id"]), self._market_holder(listing["listing_id"])),
         )
         return cursor.rowcount > 0
 
@@ -409,8 +409,8 @@ class SecondHandService(CoreService):
             f"附魔:{enchants}/{computed_weapon_enchant_slots(weapon)}"
         )
 
-    def _market_owner(self, listing_id: int) -> str:
-        """市场托管武器使用的临时 owner_id。"""
+    def _market_holder(self, listing_id: int) -> str:
+        """市场托管武器使用的临时 holder_id。"""
 
         return f"{self.market_owner_prefix}{listing_id}"
 

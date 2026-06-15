@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .common import CoreService, random, ts
-from .rules import damage_after_defense, monster_exp
+from .rules import damage_after_defense, monster_exp, weapon_exp_from_actions
 from .sql import db
 from .weapon_core import service as weapon_core
 
@@ -53,6 +53,7 @@ class CombatCore(CoreService):
         win = player_state["hp"] > 0 and enemy_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
         exp = monster_exp(monster["level"], 1.0 if win else 0.25, player["level"])
+        weapon_exp = weapon_exp_from_actions(len(actions)) if weapon else 0
         summary = (
             f"遭遇 {monster['name']}，行动 {len(actions)} 次，"
             f"{'胜利' if win else '失败'}，技能触发 {player_state['skill_times']} 次，经验+{exp}"
@@ -65,6 +66,7 @@ class CombatCore(CoreService):
             "hp_left": max(0, int(player_state["hp"])),
             "mp_left": mp_left,
             "weapon_id": int(weapon["weapon_id"]) if weapon else 0,
+            "weapon_exp": weapon_exp,
             "highest_damage": highest_damage,
             "monster": monster["name"],
             "monster_hp_left": max(0, int(enemy_state["hp"])),
@@ -109,6 +111,7 @@ class CombatCore(CoreService):
             "skill_times": int(player_state["skill_times"]),
             "boss_skill_times": int(enemy_state["skill_times"]),
             "weapon_id": int(weapon["weapon_id"]) if weapon else 0,
+            "weapon_exp": weapon_exp_from_actions(len(actions)) if weapon else 0,
             "highest_damage": max((int(action.get("damage", 0)) for action in actions), default=0),
             "actions": actions,
         }
@@ -194,6 +197,7 @@ class CombatCore(CoreService):
         win = player_state["hp"] > 0 and opponent_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
         exp = monster_exp(int(opponent["level"]), 1.0 if win else 0.25, player["level"])
+        weapon_exp = weapon_exp_from_actions(len(actions)) if weapon else 0
         summary = (
             f"遭遇 {opponent['name']}，行动 {len(actions)} 次，"
             f"{'胜利' if win else '失败'}，技能触发 {player_state['skill_times']} 次，经验+{exp}"
@@ -206,6 +210,7 @@ class CombatCore(CoreService):
             "hp_left": max(0, int(player_state["hp"])),
             "mp_left": mp_left,
             "weapon_id": int(weapon["weapon_id"]) if weapon else 0,
+            "weapon_exp": weapon_exp,
             "highest_damage": highest_damage,
             "monster": opponent["name"],
             "monster_hp_left": max(0, int(opponent_state["hp"])),
@@ -282,6 +287,8 @@ class CombatCore(CoreService):
             "right_id": right_id,
             "left_weapon_id": int(left_weapon["weapon_id"]) if left_weapon else 0,
             "right_weapon_id": int(right_weapon["weapon_id"]) if right_weapon else 0,
+            "left_weapon_exp": weapon_exp_from_actions(rounds) if left_weapon else 0,
+            "right_weapon_exp": weapon_exp_from_actions(rounds) if right_weapon else 0,
             "left_highest_damage": left_highest,
             "right_highest_damage": right_highest,
             "left_hp_left": max(0, left_hp),

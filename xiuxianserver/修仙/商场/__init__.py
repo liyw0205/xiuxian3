@@ -72,10 +72,10 @@ async def ws_trade_records(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="跑商限制", priority=100, block=True)
-async def ws_trade_limits(client_id: str, message: str) -> None:
-    """查看跑商限制。"""
+async def ws_trade_curve(client_id: str, message: str) -> None:
+    """查看跑商收益曲线。"""
 
-    await send_reply(client_id, service.limits(client_id), ws_manager, service)
+    await send_reply(client_id, service.trade_curve(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="跑商奖励", priority=100, block=True)
