@@ -6,12 +6,13 @@ from typing import Any
 
 from .common import row_value
 from .markdown_utils import markdown_message, split_button_tags
+from .notifications import notification_line
 from .sql import db
 
 MAX_REPLY_BUTTONS = 15
 DEFAULT_BUTTONS = ("指南", "状态", "修仙信息")
 CONTEXT_BUTTONS_BY_GROUP = {
-    "玩家": ("签到", "探险", "探险状态", "结束探险", "休息", "结束休息", "背包", "纳戒", "武器", "装备", "源库", "商场推荐"),
+    "玩家": ("签到", "探险", "探险状态", "结束探险", "休息", "结束休息", "背包", "纳戒", "武器", "装备", "源库", "宗门", "商场推荐"),
     "背包": ("背包", "纳戒", "保险箱", "修仙物品", "特殊自动出售", "商场推荐", "探险"),
     "纳戒": ("纳戒", "背包", "保险箱", "宝石", "洗髓", "武器", "装备", "探险"),
     "保险箱": ("保险箱", "背包", "纳戒", "宝石", "武器", "特殊自动出售"),
@@ -21,11 +22,12 @@ CONTEXT_BUTTONS_BY_GROUP = {
     "商场": ("商场推荐", "商场列表", "商场自动出售", "特殊自动出售", "跑商奖励", "跑商限制", "背包", "源库", "地图"),
     "二手市场": ("二手市场", "背包", "纳戒", "武器", "源库", "商场推荐"),
     "探险": ("探险状态", "结束探险", "探险记录", "探险列表", "背包", "纳戒", "休息", "特殊自动出售"),
-    "武器": ("武器", "纳戒", "保险箱", "装备", "铭刻", "探险", "修仙百科 武器"),
+    "武器": ("武器", "武器淬锋", "纳戒", "保险箱", "装备", "铭刻", "探险", "修仙百科 武器"),
     "装备": ("装备", "孔位", "宝石", "纳戒", "武器", "源库", "探险"),
     "铭刻": ("铭刻", "铭刻之羽", "首领", "武器", "装备", "纳戒", "修仙百科 铭刻"),
     "对战": ("状态", "修仙信息", "休息", "决斗记录", "背包", "纳戒", "特殊自动出售"),
     "修仙界历史": ("风云榜", "修仙早报", "修仙界历史", "商场推荐", "首领", "虫洞"),
+    "宗门": ("宗门", "宗门战", "领取宗门战奖励", "建立宗门", "加入宗门", "退出宗门", "地图", "状态", "修仙信息"),
     "首领": ("首领", "首领状态", "挑战首领", "首领奖励", "状态", "休息", "纳戒"),
     "异界虫洞": ("虫洞", "虫洞状态", "挑战虫洞", "虫洞奖励", "商场推荐", "状态", "休息"),
     "wormhole_service": ("虫洞", "虫洞状态", "挑战虫洞", "虫洞奖励", "商场推荐", "状态", "休息"),
@@ -39,11 +41,14 @@ PREDICTIVE_BUTTON_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("纳戒", "恢复药", "自动用药", "洗髓液"), ("纳戒", "洗髓", "探险")),
     (("源石不足", "源库", "结息", "存入源石", "取出源石"), ("源库", "源库结息", "商场推荐", "特殊自动出售")),
     (("商场", "跑商", "行情", "特殊收购", "导航", "当前位置不是商场地点"), ("商场推荐", "商场列表", "跑商奖励", "地图")),
+    (("跑商奖励待领", "跑商奖励领取", "今日跑商奖励"), ("跑商奖励", "商场推荐", "商场列表")),
     (("宝石", "孔位", "镶嵌", "开孔"), ("宝石", "孔位", "装备", "纳戒")),
-    (("武器", "附魔", "技能书", "传奇"), ("武器", "纳戒", "铭刻", "修仙百科 武器")),
+    (("武器", "附魔", "技能书", "传奇", "淬锋丹"), ("武器", "武器淬锋", "纳戒", "铭刻", "修仙百科 武器")),
     (("铭刻", "铭刻之羽"), ("铭刻", "铭刻之羽", "首领")),
     (("首领", "岁时情劫"), ("首领", "首领状态", "挑战首领", "首领奖励")),
     (("虫洞", "异界"), ("虫洞", "虫洞状态", "挑战虫洞", "虫洞奖励")),
+    (("宗门", "宗主", "建立宗门", "影响力", "淬锋丹"), ("宗门", "宗门战", "领取宗门战奖励", "地图")),
+    (("宗门战奖励待领", "宗门战奖励"), ("领取宗门战奖励", "宗门战", "宗门")),
     (("切磋", "决斗", "抢劫", "仇恨", "死敌", "报复"), ("决斗记录", "状态", "休息")),
     (("风云榜", "早报", "人物志", "历史"), ("风云榜", "修仙早报", "修仙界历史")),
     (("保险箱",), ("保险箱", "背包", "纳戒", "武器")),
@@ -60,7 +65,7 @@ async def send_reply(client_id: str, message: Any, manager: Any, service: Any = 
 def _with_player_name(client_id: str, message: Any, database: Any, service: Any = None) -> Any:
     """给 text/markdown 回复加玩家头，并把手写按钮标记转成按钮。"""
 
-    header = _player_header(client_id, database)
+    header = _reply_header(client_id, database)
     if not isinstance(message, dict):
         return _text_to_markdown(header, message, service)
 
@@ -92,13 +97,15 @@ def _text_to_markdown(
 ) -> dict:
     """普通文本先加玩家头，再转成带默认按钮的 markdown。"""
 
-    content, commands = split_button_tags(_prefix_text(header, message))
+    raw_text = str(message)
+    body_text, _ = split_button_tags(raw_text)
+    content, commands = split_button_tags(_prefix_text(header, raw_text))
     return {
         "code": 202,
         "type": "markdown",
         "message": markdown_message(
             content,
-            _button_commands(commands, service, auto_buttons, default_buttons, content),
+            _button_commands(commands, service, auto_buttons, default_buttons, body_text),
             limit=MAX_REPLY_BUTTONS,
         ),
     }
@@ -114,18 +121,22 @@ def _prefix_markdown(
     """给已有 markdown 正文加玩家头，并补齐默认按钮。"""
 
     if not isinstance(message, dict):
-        content, commands = split_button_tags(_prefix_text(header, message))
+        raw_text = str(message)
+        body_text, _ = split_button_tags(raw_text)
+        content, commands = split_button_tags(_prefix_text(header, raw_text))
         return markdown_message(
             content,
-            _button_commands(commands, service, auto_buttons, default_buttons, content),
+            _button_commands(commands, service, auto_buttons, default_buttons, body_text),
             limit=MAX_REPLY_BUTTONS,
         )
 
-    content, commands = split_button_tags(_prefix_text(header, message.get("content", "")))
+    raw_text = str(message.get("content", ""))
+    body_text, _ = split_button_tags(raw_text)
+    content, commands = split_button_tags(_prefix_text(header, raw_text))
     commands.extend(_keyboard_commands(message))
     return markdown_message(
         content,
-        _button_commands(commands, service, auto_buttons, default_buttons, content),
+        _button_commands(commands, service, auto_buttons, default_buttons, body_text),
         limit=MAX_REPLY_BUTTONS,
     )
 
@@ -162,6 +173,16 @@ def _player_header(client_id: str, database: Any) -> str:
     title = str(row_value(row, "title", "无") or "无")
     level = int(row_value(row, "level", 1) or 1)
     return f"【{name}·{title} Lv.{level}】"
+
+
+def _reply_header(client_id: str, database: Any) -> str:
+    """回复头块：第一行玩家身份，第二行可选通知。"""
+
+    header = _player_header(client_id, database)
+    if header == "【未建档】":
+        return header
+    notice = notification_line(client_id, database)
+    return f"{header}\n{notice}" if notice else header
 
 
 def _button_commands(

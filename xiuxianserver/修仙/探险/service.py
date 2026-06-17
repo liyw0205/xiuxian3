@@ -304,7 +304,8 @@ class ExplorationService(CoreService):
                 "UPDATE players SET hp = ?, mp = ?, status = '空闲' WHERE client_id = ?",
                 (final_hp, final_mp, client_id),
             )
-            self.reset_rest_window_conn(conn, client_id, final_hp, final_mp)
+            if not result.get("secret_realm"):
+                self.reset_rest_window_conn(conn, client_id, final_hp, final_mp)
             conn.execute(
                 """
                 UPDATE exploration_records
@@ -367,7 +368,7 @@ class ExplorationService(CoreService):
         panel = T.panel()
         panel.section("探险记录")
         for row in rows:
-            panel.line(f"#{row['record_id']}｜{row['location_name']}｜{row['status']}｜{row['started_at']}")
+            panel.line(f"〔{row['record_id']}〕｜{row['location_name']}｜{row['status']}｜{row['started_at']}")
         return panel.render()
 
     def _precompute(self, client_id: str, player: dict) -> dict:
@@ -1008,6 +1009,7 @@ class ExplorationService(CoreService):
             SELECT ring_item_id, category
             FROM ring_item_defs
             WHERE category IN ('恢复类', '宝石', '技能书')
+              AND ring_item_id != 'cuifengdan'
             """)
         if not rows:
             return ""
@@ -1191,7 +1193,7 @@ class ExplorationService(CoreService):
         mp_left = int(player.get("mp", 0))
         lines = [
             "探险结束",
-            f"记录：#{record['record_id']}",
+            f"记录：〔{record['record_id']}〕",
             f"地点：{record['location_name']}",
             f"开始时间：{record['started_at']}",
             f"可领取时间：{record['ready_at']}",
@@ -1214,7 +1216,7 @@ class ExplorationService(CoreService):
                 "二、最终结算",
                 f"经验：+{exp_total}",
                 f"武器经验：+{weapon_exp_total}",
-                f"等级：{old_level} -> {new_level}" if new_level > old_level else f"等级：{new_level}，未升级",
+                f"等级：{old_level} → {new_level}" if new_level > old_level else f"等级：{new_level}，未升级",
                 f"最终血气：{hp_left}/{player['max_hp']}",
                 f"最终精神：{mp_left}/{player['max_mp']}",
                 f"背包获得：{self._format_backpack_awards(drops)}",
@@ -1252,14 +1254,14 @@ class ExplorationService(CoreService):
         losses = max(0, len(events) - wins)
         hp_left = int(player.get("hp", 1))
         mp_left = int(player.get("mp", 0))
-        level_text = f"{old_level} -> {new_level}" if new_level > old_level else f"{new_level}，未升级"
+        level_text = f"{old_level} → {new_level}" if new_level > old_level else f"{new_level}，未升级"
         highest_label = self._secret_realm_result_level_text(realm)
         stop_reason = self._stop_reason(dead, bag_full)
         if not dead and not bag_full:
             stop_reason = "秘境轮数已尽，45 分钟到点"
         lines = [
             "> **太虚秘境结束**",
-            f"> 记录 **#{record['record_id']}**｜环境：{realm.get('name', '未知')}",
+            f"> 记录 **〔{record['record_id']}〕**｜环境：{realm.get('name', '未知')}",
             f"> {realm.get('desc', '虚空潮汐未留下明确信息。')}",
             f"> 战斗 **{len(events)}** 场｜胜 **{wins}**｜败 **{losses}**｜耗时 **{self._seconds_text(self._result_duration_seconds(result))}**",
             f"> 最高强度：{highest_label}｜经验 **+{exp_total}**｜武器经验 **+{weapon_exp_total}**｜等级：{level_text}",

@@ -282,6 +282,8 @@ def ring_item_use_hint(item: dict[str, Any]) -> str:
 
     if item["name"] == "洗髓液":
         return "<洗髓><宝石><武器>"
+    if item["name"] == "淬锋丹":
+        return "淬锋丹请发送：武器淬锋；默认淬锋已装备武器，也可发送：武器淬锋 武器ID。<武器><纳戒>"
     if item["category"] == "宝石":
         return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<洗髓><宝石><武器>"
     if item["category"] == "技能书":
@@ -526,6 +528,47 @@ class CoreService:
             (client_id,),
         )
 
+    def ensure_player_weapon(self, client_id: str) -> None:
+        """保证玩家至少有一把已装备武器。"""
+
+        with self.db.transaction() as conn:
+            self.ensure_player_weapon_conn(conn, client_id)
+
+    def ensure_player_weapon_conn(self, conn: sqlite3.Connection, client_id: str) -> None:
+        """事务内保证玩家至少有一把已装备武器。"""
+
+        equipped = conn.execute(
+            "SELECT weapon_id FROM player_weapons WHERE holder_id = ? AND equipped = 1 LIMIT 1",
+            (client_id,),
+        ).fetchone()
+        if equipped:
+            return
+        first = conn.execute(
+            "SELECT weapon_id FROM player_weapons WHERE holder_id = ? ORDER BY weapon_id LIMIT 1",
+            (client_id,),
+        ).fetchone()
+        if first:
+            conn.execute(
+                "UPDATE player_weapons SET equipped = CASE WHEN weapon_id = ? THEN 1 ELSE 0 END WHERE holder_id = ?",
+                (int(first["weapon_id"]), client_id),
+            )
+            return
+        weapon_def = conn.execute(
+            "SELECT 1 FROM weapon_defs WHERE weapon_def_id = ?",
+            ("qinglan_duanjian",),
+        ).fetchone()
+        if not weapon_def:
+            return
+        cursor = conn.execute(
+            """
+            INSERT INTO player_weapons
+            (holder_id, weapon_def_id, level, max_level, quality, equipped, enchant_effects, custom_name, created_at)
+            VALUES (?, 'qinglan_duanjian', 0, 40, '凡品', 1, ?, '', ?)
+            """,
+            (client_id, dump_json([]), ts()),
+        )
+        self.record_weapon_created_conn(conn, client_id, int(cursor.lastrowid))
+
     def player_name_taken(self, display_name: str, exclude_client_id: str | None = None) -> bool:
         """判断展示名称是否已被其他玩家使用。"""
 
@@ -575,6 +618,7 @@ class CoreService:
                 ).fetchone()
                 if row and row["value"] == today:
                     return
+            self._cleanup_orphan_current_state_conn(conn)
             conn.execute(
                 """
                 DELETE FROM combat_logs
@@ -614,6 +658,118 @@ class CoreService:
                 """,
                 (today,),
             )
+
+    def _cleanup_orphan_current_state_conn(self, conn: sqlite3.Connection) -> None:
+        """清理已不存在玩家的当前态数据，避免事故删号后残留可交互状态。"""
+
+        player_tables = (
+            "source_vaults",
+            "backpack_items",
+            "ring_items",
+            "gem_items",
+            "vault_items",
+            "vault_weapons",
+            "fixed_equipment",
+            "fixed_equipment_inlays",
+            "inscription_feathers",
+            "player_journals",
+            "player_titles",
+            "player_lifetime_stats",
+            "daily_fortunes",
+            "trade_daily_rewards",
+            "trade_buy_locks",
+            "sect_members",
+            "sect_war_rewards",
+        )
+        for table in player_tables:
+            conn.execute(
+                f"""
+                DELETE FROM {table}
+                WHERE client_id IS NOT NULL
+                  AND client_id != ''
+                  AND NOT EXISTS (
+                      SELECT 1 FROM players p WHERE p.client_id = {table}.client_id
+                  )
+                """
+            )
+
+        conn.execute(
+            """
+            DELETE FROM fixed_equipment_inlays
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM fixed_equipment e
+                WHERE e.client_id = fixed_equipment_inlays.client_id
+                  AND e.slot = fixed_equipment_inlays.slot
+            )
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM player_weapons
+            WHERE holder_id IS NOT NULL
+              AND holder_id != ''
+              AND holder_id NOT LIKE '__vault__:%'
+              AND holder_id NOT LIKE '__second_hand__:%'
+              AND NOT EXISTS (
+                  SELECT 1 FROM players p WHERE p.client_id = player_weapons.holder_id
+              )
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM weapon_enchant_names
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM player_weapons w
+                WHERE w.weapon_id = weapon_enchant_names.weapon_id
+            )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE sects
+            SET master_client_id = (
+                SELECT m.client_id
+                FROM sect_members m
+                WHERE m.sect_id = sects.sect_id
+                ORDER BY m.role = '宗主' DESC, m.joined_at ASC, m.client_id ASC
+                LIMIT 1
+            )
+            WHERE NOT EXISTS (
+                SELECT 1 FROM players p WHERE p.client_id = sects.master_client_id
+            )
+              AND EXISTS (
+                SELECT 1 FROM sect_members m WHERE m.sect_id = sects.sect_id
+              )
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM sects
+            WHERE NOT EXISTS (
+                SELECT 1 FROM players p WHERE p.client_id = sects.master_client_id
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM sect_members m WHERE m.sect_id = sects.sect_id
+              )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE sect_members
+            SET role = CASE
+                WHEN client_id = (
+                    SELECT s.master_client_id
+                    FROM sects s
+                    WHERE s.sect_id = sect_members.sect_id
+                )
+                THEN '宗主'
+                ELSE '成员'
+            END
+            WHERE sect_id IN (SELECT sect_id FROM sects)
+            """
+        )
 
     def _lifetime_stats_started_at_conn(self, conn: sqlite3.Connection) -> str:
         """首次启用长期统计时只记录起点，不回填旧流水。"""
@@ -1090,11 +1246,12 @@ class CoreService:
                 "INSERT INTO fixed_equipment (client_id, slot, level) VALUES (?, ?, 0)",
                 [(client_id, slot) for slot in EQUIPMENT_SLOTS],
             )
+            self.ensure_player_weapon_conn(conn, client_id)
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '创建用户', ?, ?)",
                 (client_id, result, ts()),
             )
-        return f"创建成功，道友 {result}。"
+        return f"创建成功，道友 {result}。初始武器：青岚短剑。"
 
     def rename_player(self, client_id: str, display_name: str) -> str:
         """修改展示名称。"""
@@ -1632,7 +1789,7 @@ class CoreService:
         hp: int,
         mp: int,
     ) -> None:
-        """刷新休息恢复窗口，供有挑战冷却的战斗结算后调用。"""
+        """刷新休息恢复窗口，供固定冷却战斗结算后调用。"""
 
         conn.execute(
             """
@@ -2470,6 +2627,13 @@ def format_effect(effect_text: Any) -> str:
         parts.append("洗髓体质，大概率升阶，小概率回落")
     if effect.get("enchant_id"):
         parts.append("武器附魔")
+    weapon_max_level_delta = effect.get("weapon_max_level_delta")
+    if isinstance(weapon_max_level_delta, int | float) and weapon_max_level_delta:
+        text = f"武器等级上限{int(weapon_max_level_delta):+d}"
+        weapon_max_level_cap = effect.get("weapon_max_level_cap")
+        if isinstance(weapon_max_level_cap, int | float) and weapon_max_level_cap:
+            text += f"，最高{int(weapon_max_level_cap)}级"
+        parts.append(text)
     bonus_labels = {
         "max_hp_bonus": "血气上限",
         "max_mp_bonus": "精神上限",

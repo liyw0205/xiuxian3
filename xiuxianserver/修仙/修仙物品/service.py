@@ -80,6 +80,8 @@ class TreasureService(CoreService):
         panel.line(f"目标：{item['target_type']}｜使用：{'可' if item['usable'] else '不可'}")
         panel.line(f"效果：{format_effect(item['effect'])}")
         panel.line(f"说明：{item['desc']}")
+        if item["name"] == "淬锋丹":
+            panel.line("专属命令：武器淬锋")
         enchant_id = load_json(item["effect"], {}).get("enchant_id")
         enchant = self._weapon_enchant_by_id(enchant_id) if enchant_id else None
         if enchant:

@@ -196,7 +196,7 @@ class ItemEffectService(CoreService):
         delta = new_value - old_value
         return True, (
             f"洗髓{trend}："
-            f"{current['name']}[{current['grade']}/{current['kind']}] -> "
+            f"{current['name']}[{current['grade']}/{current['kind']}] → "
             f"{target['name']}[{target['grade']}/{target['kind']}]，体质{delta:+d}"
         )
 

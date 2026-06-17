@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .common import CoreService, random, ts
-from .rules import damage_after_defense, monster_exp, weapon_exp_from_actions
+from .rules import damage_after_defense, monster_exp, weapon_exp_from_combat
 from .sql import db
 from .weapon_core import service as weapon_core
 
@@ -53,7 +53,7 @@ class CombatCore(CoreService):
         win = player_state["hp"] > 0 and enemy_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
         exp = monster_exp(monster["level"], 1.0 if win else 0.25, player["level"])
-        weapon_exp = weapon_exp_from_actions(len(actions)) if weapon else 0
+        weapon_exp = self._weapon_exp_from_player_enemy_actions(actions, player_state, enemy_state) if weapon else 0
         summary = (
             f"遭遇 {monster['name']}，行动 {len(actions)} 次，"
             f"{'胜利' if win else '失败'}，技能触发 {player_state['skill_times']} 次，经验+{exp}"
@@ -104,6 +104,11 @@ class CombatCore(CoreService):
         actions = self._run_action_bar_combat(player_state, enemy_state, action_limit or self.BOSS_ACTION_LIMIT)
         total_damage = max(0, int(event["hp"]) - max(0, int(enemy_state["hp"])))
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
+        weapon_exp = (
+            self._weapon_exp_from_player_enemy_actions(actions, player_state, enemy_state, battle_factor=1.3)
+            if weapon
+            else 0
+        )
         return {
             "damage": max(1, total_damage),
             "hp_left": max(0, int(player_state["hp"])),
@@ -111,7 +116,7 @@ class CombatCore(CoreService):
             "skill_times": int(player_state["skill_times"]),
             "boss_skill_times": int(enemy_state["skill_times"]),
             "weapon_id": int(weapon["weapon_id"]) if weapon else 0,
-            "weapon_exp": weapon_exp_from_actions(len(actions)) if weapon else 0,
+            "weapon_exp": weapon_exp,
             "highest_damage": max((int(action.get("damage", 0)) for action in actions), default=0),
             "actions": actions,
         }
@@ -197,7 +202,11 @@ class CombatCore(CoreService):
         win = player_state["hp"] > 0 and opponent_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
         exp = monster_exp(int(opponent["level"]), 1.0 if win else 0.25, player["level"])
-        weapon_exp = weapon_exp_from_actions(len(actions)) if weapon else 0
+        weapon_exp = (
+            self._weapon_exp_from_player_enemy_actions(actions, player_state, opponent_state, battle_factor=1.1)
+            if weapon
+            else 0
+        )
         summary = (
             f"遭遇 {opponent['name']}，行动 {len(actions)} 次，"
             f"{'胜利' if win else '失败'}，技能触发 {player_state['skill_times']} 次，经验+{exp}"
@@ -272,6 +281,16 @@ class CombatCore(CoreService):
             (int((action.get("right") or {}).get("damage", 0)) for action in actions),
             default=0,
         )
+        left_weapon_exp = (
+            self._weapon_exp_from_duel_actions(actions, "left", left_state, right_state, battle_factor=0.9)
+            if left_weapon
+            else 0
+        )
+        right_weapon_exp = (
+            self._weapon_exp_from_duel_actions(actions, "right", right_state, left_state, battle_factor=0.9)
+            if right_weapon
+            else 0
+        )
         if write_log:
             self.db.execute(
                 "INSERT INTO combat_logs (client_id, target, summary, created_at) VALUES (?, ?, ?, ?)",
@@ -287,8 +306,10 @@ class CombatCore(CoreService):
             "right_id": right_id,
             "left_weapon_id": int(left_weapon["weapon_id"]) if left_weapon else 0,
             "right_weapon_id": int(right_weapon["weapon_id"]) if right_weapon else 0,
-            "left_weapon_exp": weapon_exp_from_actions(rounds) if left_weapon else 0,
-            "right_weapon_exp": weapon_exp_from_actions(rounds) if right_weapon else 0,
+            "left_weapon_exp": left_weapon_exp,
+            "right_weapon_exp": right_weapon_exp,
+            "left_level": self._combat_state_level(left_state),
+            "right_level": self._combat_state_level(right_state),
             "left_highest_damage": left_highest,
             "right_highest_damage": right_highest,
             "left_hp_left": max(0, left_hp),
@@ -300,6 +321,116 @@ class CombatCore(CoreService):
             "left_max_mp": int(left_state["max_mp"]),
             "right_max_mp": int(right_state["max_mp"]),
         }
+
+    @classmethod
+    def _weapon_exp_from_player_enemy_actions(
+        cls,
+        actions: list[dict],
+        player_state: dict,
+        enemy_state: dict,
+        *,
+        battle_factor: float = 1.0,
+    ) -> int:
+        """从玩家对敌方动作日志中汇总武器经验参数。"""
+
+        player_actions = 0
+        damage_dealt = 0
+        damage_taken = 0
+        for action in actions:
+            if action.get("actor") == "player":
+                player_actions += 1
+                damage_dealt += cls._action_int(action, "player_total_damage")
+                damage_taken += cls._action_int(action, "counter_damage")
+                continue
+
+            damage_taken += max(
+                cls._action_int(action, "monster_damage"),
+                cls._action_int(action, "boss_damage"),
+                cls._action_int(action, "player_total_damage"),
+            )
+            damage_dealt += cls._action_int(action, "counter_damage")
+
+        return weapon_exp_from_combat(
+            len(actions),
+            player_action_count=player_actions,
+            player_level=cls._combat_state_level(player_state),
+            opponent_level=cls._combat_state_level(enemy_state),
+            damage_dealt=damage_dealt,
+            damage_taken=damage_taken,
+            opponent_max_hp=cls._combat_state_int(enemy_state, "max_hp", 1),
+            player_max_hp=cls._combat_state_int(player_state, "max_hp", 1),
+            battle_factor=battle_factor,
+        )
+
+    @classmethod
+    def _weapon_exp_from_duel_actions(
+        cls,
+        actions: list[dict],
+        side: str,
+        own_state: dict,
+        opponent_state: dict,
+        *,
+        battle_factor: float = 1.0,
+    ) -> int:
+        """从玩家对战动作日志中汇总单侧武器经验参数。"""
+
+        other_side = "right" if side == "left" else "left"
+        player_actions = 0
+        damage_dealt = 0
+        damage_taken = 0
+        for action in actions:
+            own_action = action.get(side)
+            if isinstance(own_action, dict):
+                player_actions += 1
+                damage_dealt += cls._action_int(own_action, "damage")
+                damage_taken += cls._action_int(own_action, "counter_damage")
+
+            other_action = action.get(other_side)
+            if isinstance(other_action, dict):
+                damage_taken += cls._action_int(other_action, "damage")
+                damage_dealt += cls._action_int(other_action, "counter_damage")
+
+        return weapon_exp_from_combat(
+            len(actions),
+            player_action_count=player_actions,
+            player_level=cls._combat_state_level(own_state),
+            opponent_level=cls._combat_state_level(opponent_state),
+            damage_dealt=damage_dealt,
+            damage_taken=damage_taken,
+            opponent_max_hp=cls._combat_state_int(opponent_state, "max_hp", 1),
+            player_max_hp=cls._combat_state_int(own_state, "max_hp", 1),
+            battle_factor=battle_factor,
+        )
+
+    @staticmethod
+    def _action_int(action: dict, key: str) -> int:
+        """读取动作日志里的非负整数。"""
+
+        try:
+            return max(0, int(action.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _combat_state_int(state: dict, key: str, default: int) -> int:
+        """读取战斗状态里的正整数。"""
+
+        try:
+            return max(1, int(state.get(key, default) or default))
+        except (TypeError, ValueError):
+            return max(1, int(default))
+
+    @staticmethod
+    def _combat_state_level(state: dict) -> int:
+        """读取玩家、怪物或快照战斗状态的等级。"""
+
+        try:
+            if "level" in state:
+                return max(1, int(state.get("level") or 1))
+            player = state.get("player") or {}
+            return max(1, int(player["level"]))
+        except (KeyError, TypeError, ValueError):
+            return 1
 
     def _snapshot_player_combat_state(self, snapshot: dict) -> dict:
         """把探险开始时保存的玩家快照还原成战斗状态。"""

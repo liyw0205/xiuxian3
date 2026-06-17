@@ -734,7 +734,7 @@ class SeasonalBossService(CoreService):
                         ts(),
                     ),
                 )
-                feather_lines.append(f"获得铭刻之羽 #{int(cursor.lastrowid)}：{event['boss_name']}遗羽")
+                feather_lines.append(f"获得铭刻之羽 〔{int(cursor.lastrowid)}〕：{event['boss_name']}遗羽")
             weapon_texts = []
             for drop in reward.get("weapons", []):
                 weapon_id = weapon_service.create_weapon_conn(
@@ -753,7 +753,7 @@ class SeasonalBossService(CoreService):
                 f"源石+{money(reward['stones'])}，经验+{reward['exp']}",
             ]
             if new_level > old_level:
-                lines.append(f"等级提升：{old_level} -> {new_level}")
+                lines.append(f"等级提升：{old_level} → {new_level}")
             lines.extend(reward["item_texts"])
             lines.extend(feather_lines)
             if feather_lines:
@@ -1232,6 +1232,7 @@ class SeasonalBossService(CoreService):
             SELECT * FROM ring_item_defs
             WHERE category = ?
               AND ring_item_id != 'kaikongqi'
+              AND ring_item_id != 'cuifengdan'
             """,
             (category,),
         )

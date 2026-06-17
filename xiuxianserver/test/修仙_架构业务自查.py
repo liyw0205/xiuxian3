@@ -268,6 +268,8 @@ def _check_known_effect_keys() -> None:
         "source_stones_delta",
         "trade_bonus",
         "trade_type",
+        "weapon_max_level_cap",
+        "weapon_max_level_delta",
         "wash_physique",
     }
     with TemporaryDirectory() as temp_dir:

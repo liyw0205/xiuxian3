@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from 修仙.common import ts
 from 修仙.constants import SCHEMA_VERSION
-from 修仙.rules import weapon_exp_for_level
+from 修仙.rules import weapon_exp_for_level, weapon_exp_progress
 from 修仙.sql import XiuxianDB
 from 修仙.玩家.service import PlayerService
 from 修仙.武器.service import WeaponService
@@ -29,7 +29,7 @@ def main() -> None:
     """验证新表不只是建表，也会沉淀真实数据。"""
 
     with TemporaryDirectory() as temp_dir:
-        _assert_weapon_exp_migration(Path(temp_dir) / "xiuxian_migrate_test.db")
+        _assert_unknown_schema_does_not_drop(Path(temp_dir) / "xiuxian_unknown_schema_test.db")
 
         db = XiuxianDB(Path(temp_dir) / "xiuxian_records_test.db")
         player = PlayerService(db)
@@ -58,7 +58,12 @@ def main() -> None:
         assert weapon_row is not None
         assert int(weapon_row["level"]) == 2
         assert int(weapon_row["exp"]) == weapon_exp_for_level(1) + 321
-        assert "经验:51/612" in weapon.list_weapons("record_player")
+        current_exp, next_exp = weapon_exp_progress(
+            int(weapon_row["exp"]),
+            int(weapon_row["level"]),
+            40,
+        )
+        assert f"经验:{current_exp}/{next_exp}" in weapon.list_weapons("record_player")
 
         with db.transaction() as conn:
             conn.execute(
@@ -132,8 +137,8 @@ def main() -> None:
     print("修仙长期记录表测试通过")
 
 
-def _assert_weapon_exp_migration(db_path: Path) -> None:
-    """旧版武器表迁移时只补经验字段，不重建整库。"""
+def _assert_unknown_schema_does_not_drop(db_path: Path) -> None:
+    """旧版本只能中止，不能把玩家表清空。"""
 
     conn = sqlite3.connect(db_path)
     conn.executescript(
@@ -142,69 +147,34 @@ def _assert_weapon_exp_migration(db_path: Path) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        INSERT INTO schema_meta (key, value) VALUES ('version', '2026060302');
-        CREATE TABLE player_weapons (
-            weapon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id TEXT NOT NULL,
-            weapon_def_id TEXT NOT NULL,
-            level INTEGER NOT NULL DEFAULT 0,
-            max_level INTEGER NOT NULL,
-            quality TEXT NOT NULL,
-            enchant_effects TEXT NOT NULL DEFAULT '[]',
-            equipped INTEGER NOT NULL DEFAULT 0,
-            custom_name TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
+        INSERT INTO schema_meta (key, value) VALUES ('version', '1999010101');
         CREATE TABLE players (
             client_id TEXT PRIMARY KEY,
-            display_name TEXT NOT NULL,
-            level INTEGER NOT NULL DEFAULT 1,
-            exp INTEGER NOT NULL DEFAULT 0,
-            hp INTEGER NOT NULL DEFAULT 100,
-            max_hp INTEGER NOT NULL DEFAULT 100,
-            mp INTEGER NOT NULL DEFAULT 60,
-            max_mp INTEGER NOT NULL DEFAULT 60,
-            physique_id TEXT NOT NULL DEFAULT 'fanti',
-            physique INTEGER NOT NULL DEFAULT 0,
-            base_attack INTEGER NOT NULL DEFAULT 5,
-            defense INTEGER NOT NULL DEFAULT 0,
-            source_stones INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL DEFAULT '空闲',
-            rest_full_at TEXT,
-            location_name TEXT NOT NULL DEFAULT '天枢城',
-            x INTEGER NOT NULL DEFAULT 0,
-            y INTEGER NOT NULL DEFAULT 0,
-            backpack_limit INTEGER NOT NULL DEFAULT 80,
-            weight_limit INTEGER NOT NULL DEFAULT 500,
-            auto_use_medicine INTEGER NOT NULL DEFAULT 1,
-            battle_log_detail INTEGER NOT NULL DEFAULT 0,
-            last_sign_date TEXT,
-            newbie_claimed INTEGER NOT NULL DEFAULT 0,
-            last_rename_at TEXT,
-            created_at TEXT NOT NULL
+            display_name TEXT NOT NULL
         );
-        INSERT INTO player_weapons
-        (owner_id, weapon_def_id, level, max_level, quality, equipped, enchant_effects, custom_name, created_at)
-        VALUES ('migrate_player', 'qinglan_duanjian', 3, 40, '凡品', 1, '[]', '', '2099-01-01 00:00:00');
+        INSERT INTO players (client_id, display_name) VALUES ('kept_player', '不能删');
         """
     )
     conn.commit()
     conn.close()
 
     db = XiuxianDB(db_path)
-    db.init()
-    columns = {row["name"] for row in db.fetch_all("PRAGMA table_info(player_weapons)")}
-    assert "exp" in columns
-    player_columns = {row["name"] for row in db.fetch_all("PRAGMA table_info(players)")}
-    assert {"rest_window_started_at", "rest_window_hp", "rest_window_mp", "rest_window_elapsed_seconds"}.issubset(player_columns)
-    weapon_row = db.fetch_one("SELECT level, exp FROM player_weapons WHERE holder_id = ?", ("migrate_player",))
-    assert weapon_row is not None
-    assert int(weapon_row["level"]) == 3
-    assert int(weapon_row["exp"]) == weapon_exp_for_level(3)
-    version_row = db.fetch_one("SELECT value FROM schema_meta WHERE key = 'version'")
-    assert version_row is not None
-    assert int(version_row["value"]) == SCHEMA_VERSION
-    db.close()
+    try:
+        try:
+            db.init()
+        except RuntimeError as exc:
+            assert "版本不匹配" in str(exc)
+        else:
+            raise AssertionError("旧 schema 不应初始化成功")
+    finally:
+        db.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM players WHERE client_id = 'kept_player'").fetchone()[0]
+        assert count == 1
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

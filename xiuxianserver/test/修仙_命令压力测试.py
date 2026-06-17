@@ -108,7 +108,7 @@ def _add_common_items(conn, client_id: str) -> None:
         """,
         (client_id,),
     )
-    for item_id in ("fudai", "xueqidan", "kaikongqi", "xisuiye", "fengren_shu"):
+    for item_id in ("fudai", "xueqidan", "kaikongqi", "xisuiye", "fengren_shu", "cuifengdan"):
         conn.execute(
             """
             INSERT INTO ring_items (client_id, ring_item_id, quantity)
@@ -155,6 +155,12 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", "改名 云游客"),
         ("stress_a", "修仙信息"),
         ("stress_a", "状态"),
+        ("stress_a", "宗门"),
+        ("stress_a", "建立宗门 -49 -49 青云宗"),
+        ("stress_b", "加入宗门 青云宗"),
+        ("stress_a", "宗门战"),
+        ("stress_a", "领取宗门战奖励"),
+        ("stress_b", "退出宗门"),
         ("stress_a", "修仙日记"),
         ("stress_a", "自动用药 开启"),
         ("stress_a", "战斗日志 开启"),
@@ -245,6 +251,7 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", f"武器传奇 {weapon_id}"),
         ("stress_a", f"切换武器 {weapon_id}"),
         ("stress_a", f"升级武器 {weapon_id}"),
+        ("stress_a", "武器淬锋"),
         ("stress_a", "回收武器"),
         ("stress_a", "回收宝石"),
         ("stress_a", "回收技能书"),
@@ -312,6 +319,35 @@ def _prepare_before_send(db: XiuxianDB, client_id: str, message: str) -> None:
     with db.transaction() as conn:
         if message in {"休息", "探险"} or message.startswith(("切磋 ", "决斗 ", "抢劫 ")):
             conn.execute("UPDATE players SET status = '空闲', rest_full_at = NULL WHERE client_id IN ('stress_a', 'stress_b')")
+        if command == "建立宗门":
+            rows = conn.execute(
+                "SELECT sect_id FROM sects WHERE master_client_id = ? OR (location_x = -49 AND location_y = -49)",
+                (client_id,),
+            ).fetchall()
+            sect_ids = [int(row["sect_id"]) for row in rows]
+            for sect_id in sect_ids:
+                conn.execute("DELETE FROM sect_members WHERE sect_id = ?", (sect_id,))
+            conn.execute("DELETE FROM sects WHERE master_client_id = ? OR (location_x = -49 AND location_y = -49)", (client_id,))
+        if command == "加入宗门":
+            sect = conn.execute("SELECT sect_id FROM sects WHERE name = '青云宗'").fetchone()
+            if not sect:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO sects
+                    (name, location_name, location_x, location_y, founder_id, master_client_id, created_at)
+                    VALUES ('青云宗', '青云宗山门', -49, -49, 'stress_a', 'stress_a', ?)
+                    """,
+                    (ts(),),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO sect_members (client_id, sect_id, role, joined_at) VALUES ('stress_a', ?, '宗主', ?)",
+                    (int(cursor.lastrowid), ts()),
+                )
+            conn.execute("DELETE FROM sect_members WHERE client_id = ? AND role != '宗主'", (client_id,))
+            conn.execute(
+                "UPDATE players SET location_name = '青云宗山门', x = -49, y = -49 WHERE client_id = ?",
+                (client_id,),
+            )
         if message in {"结束休息", "休息结束"}:
             conn.execute(
                 "UPDATE players SET status = '休息中', rest_full_at = '2000-01-01T00:00:00' WHERE client_id = ?",

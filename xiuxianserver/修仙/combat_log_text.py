@@ -57,11 +57,11 @@ def exploration_brief(
     losses = max(0, len(events) - wins)
     hp_left = int(player.get("hp", 1))
     mp_left = int(player.get("mp", 0))
-    level_text = f"{old_level} -> {new_level}" if new_level > old_level else f"{new_level}，未升级"
+    level_text = f"{old_level} → {new_level}" if new_level > old_level else f"{new_level}，未升级"
 
     lines = [
         "> **探险结束**",
-        f"> 记录 **#{record['record_id']}**｜地点：{record['location_name']}",
+        f"> 记录 **〔{record['record_id']}〕**｜地点：{record['location_name']}",
         f"> 战斗 **{len(events)}** 场｜胜 **{wins}**｜败 **{losses}**｜经验 **+{exp_total}**｜武器经验 **+{weapon_exp_total}**",
         f"> 等级：{level_text}｜最终血气 **{hp_left}/{player['max_hp']}**｜精神 **{mp_left}/{player['max_mp']}**",
         f"> 停止原因：{stop_reason}",

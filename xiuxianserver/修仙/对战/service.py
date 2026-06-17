@@ -6,6 +6,7 @@ from .. import combat_log_text
 from ..combat_core import CombatCore, service as combat_service
 from ..common import CoreService, business_day, dump_json, load_json, money, random, split_words, to_int, ts, weapon_id_label
 from ..format_text import T
+from ..sect_war import record_sect_robbery_influence_conn
 from ..sql import db
 from ..weapon_core import service as weapon_service
 
@@ -106,9 +107,10 @@ class DuelService(CoreService):
         snapshot = result.get("combat_snapshot")
         if not isinstance(snapshot, dict):
             return T.hint("这轮探险缺少战斗快照，不能抢劫。", "等对方重新开始一轮探险后再尝试。")
+        robber_sect_id = self._robber_sect_id(client_id)
 
         battle = combat_service.duel_with_snapshot(client_id, snapshot, write_log=False)
-        settled = self._settle_robbery(client_id, target_id, record["record_id"], battle)
+        settled = self._settle_robbery(client_id, target_id, record["record_id"], battle, robber_sect_id=robber_sect_id)
         if isinstance(settled, str):
             return settled
 
@@ -119,7 +121,15 @@ class DuelService(CoreService):
             viewer_id=client_id,
         )
 
-    def _settle_robbery(self, robber_id: str, target_id: str, record_id: int, battle: dict) -> dict | str:
+    def _settle_robbery(
+        self,
+        robber_id: str,
+        target_id: str,
+        record_id: int,
+        battle: dict,
+        *,
+        robber_sect_id: int = 0,
+    ) -> dict | str:
         """写入抢劫结果，成功时从目标探险结果里移走战利品。"""
 
         success = battle.get("winner_id") == robber_id
@@ -172,6 +182,16 @@ class DuelService(CoreService):
             conn.execute("UPDATE players SET hp = ?, mp = ? WHERE client_id = ?", (hp_left, mp_left, robber_id))
 
             loot_text = self._format_robbery_loots(loots)
+            loot_value = self._robbery_loot_value_conn(conn, loots)
+            sect_influence = record_sect_robbery_influence_conn(
+                conn,
+                robber_id,
+                sect_id=robber_sect_id,
+                success=success,
+                item_value=loot_value,
+                battle=battle,
+                detail=f"target={target_id}, record_id={record['record_id']}, loot={loot_text}",
+            )
             conn.execute(
                 """
                 INSERT INTO robbery_records (
@@ -203,11 +223,22 @@ class DuelService(CoreService):
             "success": success,
             "target_id": target_id,
             "loot_text": loot_text,
+            "loot_value": loot_value,
+            "sect_influence": sect_influence,
             "hate_before": hate_before,
             "hate_used": hate_used,
             "hp_left": hp_left,
             "mp_left": mp_left,
         }
+
+    def _robber_sect_id(self, client_id: str) -> int:
+        """抢劫发起时读取当时所属宗门。"""
+
+        row = self.db.fetch_one(
+            "SELECT sect_id FROM sect_members WHERE client_id = ?",
+            (client_id,),
+        )
+        return int(row["sect_id"]) if row else 0
 
     def _active_exploration_record(self, client_id: str) -> dict | None:
         """读取玩家当前未领取的探险记录。"""
@@ -424,6 +455,67 @@ class DuelService(CoreService):
                 texts.append(f"{loot.get('name', loot.get('item_id', '战利品'))} x{int(loot.get('quantity', 1))}")
         return "、".join(texts)
 
+    def _robbery_loot_value_conn(self, conn, loots: list[dict]) -> int:
+        """估算抢劫战利品价值，用于宗门影响力。"""
+
+        total = 0
+        for loot in loots:
+            quantity = max(1, int(loot.get("quantity", 1)))
+            kind = str(loot.get("kind", ""))
+            if kind == "backpack":
+                row = conn.execute(
+                    "SELECT base_price FROM item_defs WHERE item_id = ?",
+                    (str(loot.get("item_id", "")),),
+                ).fetchone()
+                total += (int(row["base_price"]) if row else 0) * quantity
+            elif kind == "ring":
+                row = conn.execute(
+                    "SELECT quality, category FROM ring_item_defs WHERE ring_item_id = ?",
+                    (str(loot.get("item_id", "")),),
+                ).fetchone()
+                total += self._ring_loot_base_value(row) * quantity
+            elif kind == "weapon":
+                drop = loot.get("weapon_drop") if isinstance(loot.get("weapon_drop"), dict) else {}
+                total += self._weapon_drop_value_conn(conn, drop)
+        return max(0, total)
+
+    @staticmethod
+    def _ring_loot_base_value(row) -> int:
+        """按纳戒物品品级估值。"""
+
+        if not row:
+            return 0
+        base = {
+            "凡品": 800,
+            "良品": 1800,
+            "珍品": 4200,
+            "稀品": 9000,
+        }.get(str(row["quality"]), 1000)
+        if str(row["category"]) == "技能书":
+            return base * 2
+        if str(row["category"]) == "宝石":
+            return base
+        return base
+
+    def _weapon_drop_value_conn(self, conn, drop: dict) -> int:
+        """按武器掉落模板估值。"""
+
+        if not isinstance(drop, dict) or not drop:
+            return 0
+        weapon_def = conn.execute(
+            "SELECT base_attack FROM weapon_defs WHERE weapon_def_id = ?",
+            (str(drop.get("weapon_def_id", "")),),
+        ).fetchone()
+        base_attack = int(weapon_def["base_attack"]) if weapon_def else 10
+        max_level = max(1, int(drop.get("max_level", 1) or 1))
+        quality_factor = {
+            "凡品": 1.0,
+            "良品": 1.4,
+            "珍品": 2.0,
+            "稀品": 3.0,
+        }.get(str(drop.get("quality", "")), 1.0)
+        return int((base_attack * 80 + max_level * 120) * quality_factor)
+
     @staticmethod
     def _write_robbery_game_log_conn(
         conn,
@@ -447,11 +539,19 @@ class DuelService(CoreService):
         """生成抢劫结算说明。"""
 
         if not settled["success"]:
-            return (
+            text = (
                 f"抢劫失败，战后血气 {settled['hp_left']}，精神 {settled['mp_left']}。"
                 "失败不会增加仇恨，也不会触发复仇。"
             )
+            if int(settled.get("sect_influence", 0)) > 0:
+                text += f" 宗门影响力 +{int(settled['sect_influence'])}。"
+            return text
         lines = [f"抢劫成功，获得：{settled['loot_text']}。"]
+        if int(settled.get("sect_influence", 0)) > 0:
+            lines.append(
+                f"宗门影响力 +{int(settled['sect_influence'])}"
+                f"（战利品估值 {money(int(settled.get('loot_value', 0)))}）。"
+            )
         if int(settled.get("hate_used", 0)) > 0:
             extra_count = min(int(settled["hate_before"]), self.ROBBERY_REVENGE_EXTRA_LIMIT)
             lines.append(

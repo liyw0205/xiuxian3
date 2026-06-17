@@ -52,6 +52,7 @@ class PlayerService(CoreService):
         if error:
             return error
         assert player is not None
+        self.ensure_player_weapon(client_id)
         player = self.recalc_player(client_id)
         weapon = self.equipped_weapon_row(client_id)
         weapon_attack = self.weapon_attack(weapon)
@@ -97,6 +98,7 @@ class PlayerService(CoreService):
         if error:
             return error
         assert player is not None
+        self.ensure_player_weapon(client_id)
         player = self.recalc_player(client_id)
         weapon = self.equipped_weapon_row(client_id)
         weapon_attack = self.weapon_attack(weapon)
@@ -347,10 +349,19 @@ class PlayerService(CoreService):
             return T.hint(f"至少需要休息 {REST_FAST_SECONDS} 秒，还差 {left} 秒。", "满 1 分钟后再发送：结束休息")
         elapsed_seconds = min(REST_FULL_MINUTES * 60, window["elapsed_seconds"] + active_seconds)
         base_rate = rest_recovery_rate(elapsed_seconds)
-        recover_bonus = min(0.5, self.equipment_bonuses(client_id).get("recover_bonus", 0))
-        recover_rate = min(1.0, base_rate * (1 + recover_bonus))
-        hp = self._rest_recover_value(window["base_hp"], int(player["hp"]), int(player["max_hp"]), recover_rate)
-        mp = self._rest_recover_value(window["base_mp"], int(player["mp"]), int(player["max_mp"]), recover_rate)
+        recover_bonus = float(self.equipment_bonuses(client_id).get("recover_bonus", 0))
+        recover_multiplier = max(0.0, 1 + recover_bonus)
+        recover_rate = max(0.0, min(1.0, base_rate * recover_multiplier))
+        current_hp = int(player["hp"])
+        current_mp = int(player["mp"])
+        max_hp = int(player["max_hp"])
+        max_mp = int(player["max_mp"])
+        base_hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, base_rate)
+        base_mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, base_rate)
+        hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, recover_rate)
+        mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, recover_rate)
+        actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, hp, mp, max_hp, max_mp)
+        base_actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, base_hp, base_mp, max_hp, max_mp)
         with self.db.transaction() as conn:
             conn.execute(
                 """
@@ -368,11 +379,21 @@ class PlayerService(CoreService):
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '结束休息', ?, ?)",
-                (client_id, f"active={active_seconds}, elapsed={elapsed_seconds}, rate={recover_rate:.3f}, hp={hp}, mp={mp}", ts()),
-            )
-        rate_text = int(recover_rate * 100)
+                (
+                    client_id,
+                    (
+                        f"active={active_seconds}, elapsed={elapsed_seconds}, "
+                        f"base_rate={base_rate:.3f}, recover_bonus={recover_bonus:.3f}, "
+                        f"recover_multiplier={recover_multiplier:.3f}, recover_rate={recover_rate:.3f}, "
+                        f"base_actual_rate={base_actual_rate:.3f}, actual_rate={actual_rate:.3f}, hp={hp}, mp={mp}"
+                    ),
+                    ts(),
+                ),
+        )
+        rate_text = round(actual_rate * 100)
+        bonus_part = self._rest_recover_bonus_text(recover_multiplier)
         return (
-            f"休息结束，已休息 {self._rest_time_text(elapsed_seconds)}，恢复效率 **{rate_text}%**。"
+            f"休息结束，已休息 {self._rest_time_text(elapsed_seconds)}，恢复效率 **{rate_text}%**{bonus_part}。"
             f"血气恢复到 **{hp}**/{player['max_hp']}，精神恢复到 **{mp}**/{player['max_mp']}。<休息>"
         )
 
@@ -388,8 +409,10 @@ class PlayerService(CoreService):
             base_hp = int(player["hp"])
             base_mp = int(player["mp"])
         else:
-            base_hp = int(player.get("rest_window_hp") or player["hp"])
-            base_mp = int(player.get("rest_window_mp") or player["mp"])
+            base_hp_value = player.get("rest_window_hp")
+            base_mp_value = player.get("rest_window_mp")
+            base_hp = int(player["hp"] if base_hp_value is None else base_hp_value)
+            base_mp = int(player["mp"] if base_mp_value is None else base_mp_value)
 
         return {
             "started_at": started_at,
@@ -408,6 +431,36 @@ class PlayerService(CoreService):
         base_value = max(0, min(max_value, int(base_value)))
         target = base_value + int((max_value - base_value) * max(0.0, min(1.0, rate)))
         return min(max_value, max(current_value, target))
+
+    @staticmethod
+    def _actual_rest_recovery_rate(
+        before_hp: int,
+        before_mp: int,
+        after_hp: int,
+        after_mp: int,
+        max_hp: int,
+        max_mp: int,
+    ) -> float:
+        """按给定前后状态计算实际补回比例。"""
+
+        hp_missing = max(0, int(max_hp) - max(0, int(before_hp)))
+        mp_missing = max(0, int(max_mp) - max(0, int(before_mp)))
+        missing = hp_missing + mp_missing
+        if missing <= 0:
+            return 1.0
+        hp_gain = max(0, min(int(max_hp), int(after_hp)) - max(0, int(before_hp)))
+        mp_gain = max(0, min(int(max_mp), int(after_mp)) - max(0, int(before_mp)))
+        return max(0.0, min(1.0, (hp_gain + mp_gain) / missing))
+
+    @staticmethod
+    def _rest_recover_bonus_text(multiplier: float) -> str:
+        """把恢复增益展示成基础恢复量上的倍率。"""
+
+        value = max(0.0, float(multiplier) * 100)
+        if abs(value - 100.0) < 0.05:
+            return ""
+        text = f"{value:.1f}".rstrip("0").rstrip(".")
+        return f"，恢复增益 **{text}%**"
 
     @staticmethod
     def _rest_time_text(seconds: int) -> str:

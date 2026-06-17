@@ -31,6 +31,7 @@ import 修仙.武器 as weapon_module
 import 修仙.源库 as vault_module
 import 修仙.修仙帮助 as help_module
 import 修仙.玩家 as player_module
+import 修仙.宗门 as sect_module
 import 修仙.纳戒 as ring_module
 import 修仙.背包 as backpack_module
 import 修仙.保险箱 as insurance_module
@@ -55,6 +56,7 @@ from 修仙.武器.service import WeaponService
 from 修仙.源库.service import SourceVaultService
 from 修仙.修仙帮助.service import HelpService
 from 修仙.玩家.service import PlayerService
+from 修仙.宗门.service import SectService
 from 修仙.纳戒.service import RingService
 from 修仙.背包.service import BackpackService
 from 修仙.保险箱.service import VaultService as InsuranceBoxService
@@ -75,6 +77,7 @@ seasonal_boss_service_module = import_module("修仙.首领.service")
 WS_MODULES = (
     help_module,
     player_module,
+    sect_module,
     vault_module,
     ring_module,
     backpack_module,
@@ -130,6 +133,26 @@ async def main_async() -> None:
 
             await _dispatch(manager, "target_ws", "创建用户 安兰")
             _must_reply(manager, "target_ws", "创建成功")
+
+            await _dispatch(manager, "player_ws", "宗门")
+            _must_reply(manager, "player_ws", "你还没有宗门")
+            await _dispatch(manager, "player_ws", "建立宗门 0 0 青云宗")
+            _must_reply(manager, "player_ws", "已有特殊地点")
+            await _dispatch(manager, "player_ws", "建立宗门 -49 -49 青云宗")
+            _must_reply(manager, "player_ws", "宗门创建成功")
+            _must_reply(manager, "player_ws", "山门坐标：(-49,-49)")
+            await _dispatch(manager, "player_ws", "宗门")
+            _must_reply(manager, "player_ws", "宗主：青衫客")
+            _must_reply(manager, "player_ws", "身份：宗主")
+            await _dispatch(manager, "target_ws", "加入宗门 青云宗")
+            _must_reply(manager, "target_ws", "需要到山门所在地")
+            await _dispatch(manager, "target_ws", "导航 -49 -49")
+            _must_reply(manager, "target_ws", "已到达")
+            await _dispatch(manager, "target_ws", "宗门")
+            _must_reply(manager, "target_ws", "这里是宗门：青云宗")
+            assert _button_commands(manager.sent[-1][1])[0] == "加入宗门 青云宗"
+            await _dispatch(manager, "target_ws", "加入宗门 青云宗")
+            _must_reply(manager, "target_ws", "已加入宗门：青云宗")
 
             await _dispatch(manager, "player_ws", "切磋[CQ:at,qq=target_ws]")
             _must_reply(manager, "player_ws", "接受切磋 青衫客")
@@ -264,14 +287,22 @@ async def main_async() -> None:
             assert first_weapon is not None
             await _dispatch(manager, "player_ws", "铭刻 装备 头部 青云冠")
             _must_reply(manager, "player_ws", "铭刻成功")
+            _must_reply(manager, "player_ws", "青云冠（头部）")
+            assert "->" not in _last_reply_text(manager), manager.sent
             await _dispatch(manager, "player_ws", f"铭刻 武器 武器#{first_weapon['weapon_id']} 青云剑")
             _must_reply(manager, "player_ws", "铭刻成功")
+            _must_reply(manager, "player_ws", "青云剑（青岚短剑）")
+            assert "->" not in _last_reply_text(manager), manager.sent
             await _dispatch(manager, "player_ws", f"铭刻 技能 武器#{first_weapon['weapon_id']} 青云斩")
             _must_reply(manager, "player_ws", "铭刻成功")
+            _must_reply(manager, "player_ws", "青云斩（风刃斩）")
+            assert "->" not in _last_reply_text(manager), manager.sent
             await _dispatch(manager, "player_ws", f"附魔武器 {first_weapon['weapon_id']} 风刃书")
             _must_reply(manager, "player_ws", "附魔成功")
             await _dispatch(manager, "player_ws", f"铭刻 附魔 武器#{first_weapon['weapon_id']} 1 青云破")
             _must_reply(manager, "player_ws", "铭刻成功")
+            _must_reply(manager, "player_ws", "青云破（风刃书）")
+            assert "->" not in _last_reply_text(manager), manager.sent
             await _dispatch(manager, "player_ws", "武器")
             _must_reply(manager, "player_ws", "青云斩（风刃斩）")
             _must_reply(manager, "player_ws", "青云破")
@@ -444,6 +475,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
     replacements = {
         help_module: HelpService(db),
         player_module: PlayerService(db),
+        sect_module: SectService(db),
         vault_module: SourceVaultService(db),
         ring_module: RingService(db),
         backpack_module: BackpackService(db),
@@ -663,6 +695,9 @@ async def _assert_command_plan() -> None:
         "修仙帮助",
         "指南",
         "状态",
+        "宗门",
+        "建立宗门 -49 -49 青云宗",
+        "加入宗门 青云宗",
         "背包",
         "纳戒",
         "保险箱",
@@ -739,11 +774,17 @@ def _message_search_text(message: Any) -> str:
     """把正文和按钮命令拼起来，方便断言纯按钮导航回复。"""
 
     text = _message_text(message)
+    return "\n".join([text, *_button_commands(message)])
+
+
+def _button_commands(message: Any) -> list[str]:
+    """读取 markdown 回复里的按钮命令。"""
+
     if not isinstance(message, dict):
-        return text
+        return []
     payload = message.get("message", "")
     if not isinstance(payload, dict):
-        return text
+        return []
 
     commands: list[str] = []
     rows = payload.get("keyboard", {}).get("content", {}).get("rows", [])
@@ -759,7 +800,7 @@ def _message_search_text(message: Any) -> str:
                 command = action.get("data", "") if isinstance(action, dict) else ""
                 if command:
                     commands.append(str(command))
-    return "\n".join([text, *commands])
+    return commands
 
 
 def _must_image_reply(manager: FakeManager, client_id: str) -> None:

@@ -12,23 +12,23 @@ from ..common import CoreService, business_day, dt, load_json, money, now, split
 from ..constants import (
     TRADE_ACTIVE_WINDOW_DAYS,
     TRADE_BUY_FEE_RATE,
-    TRADE_DAILY_PLAYER_SOFT_MAX_SHARE,
-    TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY,
-    TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER,
     TRADE_DAILY_REWARD_CAP_BASE,
     TRADE_DAILY_REWARD_CAP_LEVEL_BONUS,
-    TRADE_DAILY_REWARD_MIN_NET,
-    TRADE_DAILY_REWARD_MIN_QUANTITY,
     TRADE_DAILY_REWARD_RATE,
-    TRADE_DAILY_SOFT_BASE_QUANTITY,
-    TRADE_DAILY_SOFT_PER_ACTIVE_QUANTITY,
     TRADE_MAX_PROFIT_RATE,
     TRADE_RESALE_LOCK_HOURS,
     TRADE_SELL_FEE_RATE,
     WORLD_COORD_MAX,
     WORLD_COORD_MIN,
 )
-from ..rules import special_sell_price_rate, special_sell_soft_line, trade_profit_rate
+from ..rules import (
+    special_sell_price_rate,
+    special_sell_soft_line,
+    trade_daily_reward_thresholds,
+    trade_global_soft_line,
+    trade_player_soft_line,
+    trade_profit_rate,
+)
 from ..sql import TRADE_LOCATION_DEMANDS, db
 from ..wormhole_service import WormholeService
 
@@ -361,10 +361,12 @@ class TradeService(CoreService):
                 return T.hint("今天还没有普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。<商场推荐>")
             if net_profit <= 0:
                 return T.hint("今日普通跑商还没有形成净利润。", "先把货物卖到更高价地点，再领取跑商奖励。<商场推荐>")
-            if quantity < TRADE_DAILY_REWARD_MIN_QUANTITY and net_profit < TRADE_DAILY_REWARD_MIN_NET:
+            market_state = self._trade_market_state_conn(conn, client_id)
+            min_quantity, min_net = trade_daily_reward_thresholds(market_state["player_soft_line"])
+            if quantity < min_quantity and net_profit < min_net:
                 return T.hint(
                     "今日普通跑商量还不够领取奖励。",
-                    f"至少出售 {TRADE_DAILY_REWARD_MIN_QUANTITY} 件跑商商品，或普通跑商净利润达到 {money(TRADE_DAILY_REWARD_MIN_NET)}。",
+                    f"至少出售 {min_quantity} 件跑商商品，或普通跑商净利润达到 {money(min_net)}。",
                 )
 
             cap = TRADE_DAILY_REWARD_CAP_BASE + int(player["level"]) * TRADE_DAILY_REWARD_CAP_LEVEL_BONUS
@@ -472,6 +474,9 @@ class TradeService(CoreService):
 
         total_gain = 0
         last_buyer: dict | None = None
+        origin_name = str(player["location_name"])
+        origin_x = to_int(player["x"])
+        origin_y = to_int(player["y"])
         lines = ["特殊自动出售"]
         with self.db.transaction() as conn:
             used = self._special_sell_used_conn(conn, client_id)
@@ -521,6 +526,7 @@ class TradeService(CoreService):
 
         lines.append(f"合计收入：{money(total_gain)}")
         lines.append(f"当前位置：{last_buyer['buyer_name']} ({last_buyer['x']},{last_buyer['y']})")
+        lines.append(f"此处是特殊收购点；继续探险或跑商前可回到原位置：{origin_name} ({origin_x},{origin_y})。")
         notice = self.wormhole.try_discover(client_id, "special_auto_sell", last_buyer["buyer_name"])
         if notice:
             lines.append(notice.strip())
@@ -528,7 +534,7 @@ class TradeService(CoreService):
         panel.section("特殊自动出售")
         for line in lines[1:]:
             panel.line(line)
-        return panel.render()
+        return panel.render() + T.buttons(f"导航 {origin_x} {origin_y}:回原处", "探险列表", "商场列表")
 
     def navigate(self, client_id: str, message: str) -> str:
         """导航到地点或精确坐标。"""
@@ -552,7 +558,7 @@ class TradeService(CoreService):
             x, y = coordinate
             if not self._coordinate_in_world(x, y):
                 return T.hint(
-                    f"坐标超出修仙界范围，当前范围为 {WORLD_COORD_MIN} 到 {WORLD_COORD_MAX}。",
+                    f"坐标超出修仙界范围，左下角 ({WORLD_COORD_MIN},{WORLD_COORD_MIN})，右上角 ({WORLD_COORD_MAX},{WORLD_COORD_MAX})。",
                     "发送：导航 x y，其中 x 和 y 都需要在世界范围内。",
                 )
             location = self._known_location_at(x, y)
@@ -827,8 +833,8 @@ class TradeService(CoreService):
         """读取今日普通跑商出售热度和动态收益线。"""
 
         active_count = self._active_trade_player_count_conn(conn)
-        global_soft_line = self._daily_global_trade_soft_line(active_count)
-        player_soft_line = self._daily_player_trade_soft_line(active_count, global_soft_line)
+        global_soft_line = trade_global_soft_line(active_count)
+        player_soft_line = trade_player_soft_line(active_count, global_soft_line)
         day = business_day()
         global_row = conn.execute(
             """
@@ -888,26 +894,6 @@ class TradeService(CoreService):
             (cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff),
         ).fetchone()
         return max(1, int(row["count"] if row else 0))
-
-    @staticmethod
-    def _daily_global_trade_soft_line(active_count: int) -> int:
-        """按活跃人数计算全服普通跑商收益线。"""
-
-        active = max(1, int(active_count))
-        return max(1, TRADE_DAILY_SOFT_BASE_QUANTITY + active * TRADE_DAILY_SOFT_PER_ACTIVE_QUANTITY)
-
-    @staticmethod
-    def _daily_player_trade_soft_line(active_count: int, global_soft_line: int) -> int:
-        """按公平份额和最大占比计算个人普通跑商收益线。"""
-
-        active = max(1, int(active_count))
-        total = max(1, int(global_soft_line))
-        if active <= 1:
-            return total
-        fair_share = total / active
-        by_fair_share = int(fair_share * TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER)
-        by_max_share = int(total * TRADE_DAILY_PLAYER_SOFT_MAX_SHARE)
-        return max(TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY, min(by_fair_share, by_max_share))
 
     @staticmethod
     def _add_heat_conn(conn, location_name: str, item_id: str, buy_count: int = 0, sell_count: int = 0) -> None:

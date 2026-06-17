@@ -276,7 +276,7 @@ class EquipmentService(CoreService):
             )
         self.recalc_player(client_id)
         equipment = self._equipment_row(client_id, slot)
-        return f"镶嵌成功：{fixed_equipment_label(equipment) if equipment else slot} {hole_no}号孔 -> {item['name']} {gem_level}级。"
+        return f"镶嵌成功：{fixed_equipment_label(equipment) if equipment else slot} {hole_no}号孔 → {item['name']} {gem_level}级。"
 
     def remove_inlay(self, client_id: str, message: str) -> str:
         """拆卸宝石。"""
@@ -559,7 +559,7 @@ class EquipmentService(CoreService):
                 ),
             )
         self.recalc_player(client_id)
-        return f"{row['slot']} {row['hole_no']}号孔 {row['name']} 升级成功：{row['level']} -> {next_level}，消耗源石 {money(cost)}。"
+        return f"{row['slot']} {row['hole_no']}号孔 {row['name']} 升级成功：{row['level']} → {next_level}，消耗源石 {money(cost)}。"
 
     def _upgrade_target_conn(self, conn, client_id: str, text: str):
         """解析宝石升级目标；只按 装备位+孔位 精确定位。"""

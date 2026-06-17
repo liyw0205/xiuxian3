@@ -49,6 +49,8 @@ class BackpackService(CoreService):
             ring_item = self.ring_item_def_by_name(item_name)
             if not ring_item:
                 return T.hint(f"没有找到物品：{item_name}。", "发送：背包 或 纳戒，复制准确物品名。<背包><纳戒>")
+            if ring_item["name"] == "淬锋丹":
+                return T.hint("淬锋丹不能直接使用。", "发送：武器淬锋；默认淬锋已装备武器，也可发送：武器淬锋 武器ID。<武器><纳戒>")
             if ring_item["category"] != "恢复类":
                 return T.hint(f"{ring_item['name']} 不能直接使用。", ring_item_use_hint(ring_item))
             with self.db.transaction() as conn:

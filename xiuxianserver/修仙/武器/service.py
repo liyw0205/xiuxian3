@@ -64,14 +64,15 @@ class WeaponService(WeaponCore):
         player = self.recalc_player(client_id)
         self.ensure_starter_weapon(client_id)
 
-        weapon_id = parse_weapon_ref(message)
-        if weapon_id <= 0:
-            return T.hint("查看武器格式不正确。", "发送：查看武器 武器ID，例如：查看武器 1")
-
         rows = self.weapons(client_id)
-        weapon = next((row for row in rows if int(row["weapon_id"]) == weapon_id), None)
+        weapon = self._resolve_default_weapon(rows, message)
+        wanted_weapon_id = parse_weapon_ref(message)
+        if not weapon and message.strip() and wanted_weapon_id <= 0:
+            return T.hint("查看武器格式不正确。", "发送：查看武器 武器ID，例如：查看武器 1")
+        if not weapon and wanted_weapon_id > 0:
+            return T.hint(f"没有找到武器 {weapon_id_label(wanted_weapon_id)}。", "发送：武器 查看自己的武器列表。<武器>")
         if not weapon:
-            return T.hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID，再发送：查看武器 武器ID。")
+            return T.hint("没有找到可查看的武器。", "发送：武器 查看自己的武器列表。<武器>")
 
         panel = T.panel()
         panel.section("武器详情")
@@ -122,8 +123,23 @@ class WeaponService(WeaponCore):
         _, error = self.require_player(client_id)
         if error:
             return error
-        weapon_id = to_int(message)
+        self.ensure_starter_weapon(client_id)
+        weapon_id = parse_weapon_ref(message)
+        if weapon_id <= 0 and message.strip():
+            return T.hint("升级武器格式不正确。", "发送：升级武器 武器ID，例如：升级武器 1")
         with self.db.transaction() as conn:
+            if weapon_id <= 0:
+                equipped = conn.execute(
+                    """
+                    SELECT weapon_id
+                    FROM player_weapons
+                    WHERE holder_id = ? AND equipped = 1
+                    ORDER BY weapon_id
+                    LIMIT 1
+                    """,
+                    (client_id,),
+                ).fetchone()
+                weapon_id = int(equipped["weapon_id"]) if equipped else 0
             weapon = conn.execute(
                 """
                 SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
@@ -134,7 +150,7 @@ class WeaponService(WeaponCore):
                 (client_id, weapon_id),
             ).fetchone()
             if not weapon:
-                return T.hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
+                return T.hint("没有找到可升级的武器。", "发送：武器 查看自己的武器列表。<武器>")
             if int(weapon["level"]) >= int(weapon["max_level"]):
                 return T.hint("这把武器已经到达自身等级上限。", "可以切换或继续探险获取更高上限武器。")
             next_level = int(weapon["level"]) + 1
@@ -171,6 +187,91 @@ class WeaponService(WeaponCore):
             f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{weapon['max_level']}，"
             f"经验补满 +{exp_gain}，攻击 {attack}，附魔栏 {slots}。"
         )
+
+    def temper(self, client_id: str, message: str) -> str:
+        """消耗淬锋丹提升武器等级上限。"""
+
+        _, error = self.require_player(client_id)
+        if error:
+            return error
+        self.ensure_starter_weapon(client_id)
+        weapon_id = parse_weapon_ref(message)
+        if weapon_id <= 0 and message.strip():
+            return T.hint("武器淬锋格式不正确。", "发送：武器淬锋，或发送：武器淬锋 武器ID。<武器><纳戒>")
+
+        with self.db.transaction() as conn:
+            if weapon_id <= 0:
+                equipped = conn.execute(
+                    """
+                    SELECT weapon_id
+                    FROM player_weapons
+                    WHERE holder_id = ? AND equipped = 1
+                    ORDER BY weapon_id
+                    LIMIT 1
+                    """,
+                    (client_id,),
+                ).fetchone()
+                weapon_id = int(equipped["weapon_id"]) if equipped else 0
+            weapon = conn.execute(
+                """
+                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+                FROM player_weapons AS w
+                JOIN weapon_defs AS d ON d.weapon_def_id = w.weapon_def_id
+                WHERE w.holder_id = ? AND w.weapon_id = ?
+                """,
+                (client_id, weapon_id),
+            ).fetchone()
+            if not weapon:
+                return T.hint("没有找到可淬锋的武器。", "发送：武器 查看自己的武器列表。<武器>")
+
+            item = conn.execute(
+                "SELECT * FROM ring_item_defs WHERE ring_item_id = 'cuifengdan'",
+            ).fetchone()
+            if not item:
+                return T.hint("淬锋丹配置不存在。", "请先检查纳戒物品配置。")
+            effect = load_json(item["effect"], {})
+            delta = max(1, int(effect.get("weapon_max_level_delta") or 1))
+            cap = max(1, int(effect.get("weapon_max_level_cap") or 100))
+            old_max = int(weapon["max_level"])
+            if old_max >= cap:
+                return T.hint(
+                    f"{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} 已达到上限 {cap}。",
+                    "淬锋丹无法继续提升这把武器。",
+                    buttons=("武器", "纳戒"),
+                )
+            if not self.remove_ring_conn(conn, client_id, "cuifengdan", 1):
+                return T.hint("纳戒里没有淬锋丹。", "淬锋丹只能从宗门战奖励获得。<宗门战>")
+
+            new_max = min(cap, old_max + delta)
+            next_weapon = dict(weapon)
+            next_weapon["max_level"] = new_max
+            conn.execute(
+                "UPDATE player_weapons SET max_level = ? WHERE holder_id = ? AND weapon_id = ?",
+                (new_max, client_id, weapon_id),
+            )
+            conn.execute(
+                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '武器淬锋', ?, ?)",
+                (client_id, f"weapon_id={weapon_id}, max_level={old_max}->{new_max}", ts()),
+            )
+
+        return (
+            f"淬锋成功：{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} "
+            f"等级上限 {old_max}->{new_max}，潜力附魔栏 {computed_weapon_potential_slots(next_weapon)}。"
+        )
+
+    @staticmethod
+    def _resolve_default_weapon(rows: list[dict], message: str) -> dict | None:
+        """空参数时默认当前装备武器，有参数时按 ID 精确查找。"""
+
+        if not rows:
+            return None
+        text = message.strip()
+        if not text:
+            return next((row for row in rows if int(row["equipped"])), rows[0])
+        weapon_id = parse_weapon_ref(text)
+        if weapon_id <= 0:
+            return None
+        return next((row for row in rows if int(row["weapon_id"]) == weapon_id), None)
 
     def recycle(self, client_id: str, message: str) -> str:
         """在武器回收地点处理备用武器。"""

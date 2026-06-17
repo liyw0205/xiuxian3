@@ -6,6 +6,7 @@ from ..format_text import T
 
 from ..common import (
     CoreService,
+    custom_label,
     enchant_label_name,
     load_json,
     parse_weapon_ref,
@@ -38,7 +39,7 @@ class InscriptionService(CoreService):
         panel.line("铭刻 附魔 武器#12 1 新名字")
         panel.line("也可在末尾指定铭刻之羽编号，例如：铭刻武器 武器#12 青云剑 #1")
         panel.line("铭刻之羽只由岁时情劫首领产出，每枚都有自己的文案，铭刻后直接消散。")
-        return panel.render() + "<岁时情劫><铭刻之羽>"
+        return T.attach(panel.render(), buttons=("岁时情劫", "铭刻之羽"))
 
     def feathers(self, client_id: str) -> str:
         """查看未使用的铭刻之羽。"""
@@ -59,7 +60,7 @@ class InscriptionService(CoreService):
         panel = T.panel()
         panel.section("铭刻之羽")
         for row in rows:
-            panel.line(f"#{row['feather_id']} {row['title']}")
+            panel.line(f"〔{row['feather_id']}〕 {row['title']}")
             panel.line(row["flavor_text"])
             panel.blank()
         return panel.render()
@@ -124,7 +125,7 @@ class InscriptionService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻装备', ?, ?)",
                 (client_id, f"{slot}->{new_name},feather={feather['feather_id']}", ts()),
             )
-        return f"铭刻成功：{slot} -> {new_name}。\n{self._feather_fade_text(feather)}"
+        return self._success_text(custom_label(slot, new_name), feather)
 
     def weapon(self, client_id: str, message: str) -> str:
         """铭刻武器：武器实例 ID + 新名字。"""
@@ -169,7 +170,7 @@ class InscriptionService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻武器', ?, ?)",
                 (client_id, f"weapon={weapon_id},{weapon['name']}->{name},feather={feather['feather_id']}", ts()),
             )
-        return f"铭刻成功：{weapon_label_name(weapon)} -> {name}。\n{self._feather_fade_text(feather)}"
+        return self._success_text(custom_label(weapon["name"], name), feather)
 
     def enchant(self, client_id: str, message: str) -> str:
         """铭刻武器附魔：武器实例 ID + 附魔槽位序号 + 新名字。"""
@@ -232,7 +233,8 @@ class InscriptionService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻附魔', ?, ?)",
                 (client_id, f"weapon={weapon_id},slot={slot_no},{base_name}->{name},feather={feather['feather_id']}", ts()),
             )
-        return f"铭刻成功：{weapon_label_name(weapon)} 的 {enchant_label_name(base_name)} -> {name}。\n{self._feather_fade_text(feather)}"
+        label = f"{weapon_label_name(weapon)}的{enchant_label_name(base_name, name)}"
+        return self._success_text(label, feather)
 
     def skill_or_enchant(self, client_id: str, message: str) -> str:
         """铭刻技能入口：带槽位号时铭刻附魔，不带槽位号时铭刻自带技能。"""
@@ -295,7 +297,8 @@ class InscriptionService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '铭刻自带技能', ?, ?)",
                 (client_id, f"weapon={weapon_id},{base_name}->{name},feather={feather['feather_id']}", ts()),
             )
-        return f"铭刻成功：{weapon_label_name(weapon)} 的 {enchant_label_name(base_name)} -> {name}。\n{self._feather_fade_text(feather)}"
+        label = f"{weapon_label_name(weapon)}的{enchant_label_name(base_name, name)}"
+        return self._success_text(label, feather)
 
     @staticmethod
     def _split_feather_ref(text: str) -> tuple[str, int]:
@@ -347,6 +350,11 @@ class InscriptionService(CoreService):
         """铭刻成功后，展示这枚羽毛消散。"""
 
         return f"{feather['title']}散作微光，旧念已入其名。"
+
+    def _success_text(self, label: str, feather) -> str:
+        """铭刻成功文本统一使用 铭刻名（原名）。"""
+
+        return f"铭刻成功：{label}。\n{self._feather_fade_text(feather)}"
 
     @staticmethod
     def _clean_name(name: str) -> tuple[str, str | None]:

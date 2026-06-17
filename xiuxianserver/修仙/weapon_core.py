@@ -16,10 +16,7 @@ class WeaponCore(CoreService):
     def ensure_starter_weapon(self, client_id: str) -> None:
         """玩家没有武器时，补一把默认短剑。"""
 
-        exists = self.db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ? LIMIT 1", (client_id,))
-        if exists:
-            return
-        self.create_weapon(client_id, "qinglan_duanjian", "凡品", 40, equipped=True)
+        self.ensure_player_weapon(client_id)
 
     def create_drop_weapon(self, client_id: str, location_name: str = "") -> str:
         """直接创建一把掉落武器，并返回展示文本。"""

@@ -1,6 +1,7 @@
 """修仙模块 SQLite 数据层。
 
-当前模块按最新 schema 运行；小版本字段变更会优先迁移，无法迁移时才重建修仙库。
+当前模块只按最新 schema 运行；空库可以初始化，已有库版本不一致时直接中止，
+避免误伤真实玩家数据。
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from threading import RLock
 from typing import Any, Iterable, Iterator
 
 from .constants import DEFAULT_LOCATION, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
-from .rules import weapon_exp_for_level, weapon_level_from_exp
 
 
 PHYSIQUE_DEFS = (
@@ -115,6 +115,7 @@ RING_ITEM_DEFS = (
     ("yanghundan", "养魂丹", "恢复类", "珍品", 1, "玩家", {"mp_ratio": 0.7}, "恢复 70% 精神。"),
     ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "装备", {}, "装备开孔材料，通过岁时情劫首领奖励获得。"),
     ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的洗髓消耗品，通过洗髓命令消耗。"),
+    ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门战奖励。通过武器淬锋消耗后，使指定武器等级上限 +1，最高 100。"),
     ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "高频连击流派。技能蓄势更快、命中更稳，但单次威力下降。"),
     ("shaying_shu", "沙影书", "技能书", "良品", 0, "武器", {"enchant_id": "shaying_shu"}, "高频连击流派。更容易追加连击，但连击伤害偏低。"),
     ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "高频连击流派。技能节奏更快，但单次爆发降低。"),
@@ -656,7 +657,7 @@ class XiuxianDB:
         self.lock = RLock()
 
     def init(self) -> None:
-        """连接数据库；schema 不匹配时优先迁移，无法迁移才重建。"""
+        """连接数据库；已有库 schema 不匹配时拒绝启动，绝不自动清表。"""
 
         with self.lock:
             if self.conn is None:
@@ -671,8 +672,13 @@ class XiuxianDB:
 
             current_version = self._current_schema_version()
             if current_version != SCHEMA_VERSION:
-                if not self._migrate_schema(current_version):
-                    self._drop_tables()
+                if current_version is None and not self._has_existing_tables():
+                    pass
+                else:
+                    raise RuntimeError(
+                        f"修仙数据库版本不匹配：current={current_version}, target={SCHEMA_VERSION}。"
+                        "请先更换为最新数据库，服务端不会自动重建旧库。"
+                    )
             self._create_tables()
             self._seed_data()
             self._validate_seed_data()
@@ -756,6 +762,21 @@ class XiuxianDB:
         except (TypeError, ValueError):
             return None
 
+    def _has_existing_tables(self) -> bool:
+        """判断数据库是否已经有业务表；空库可初始化，有旧表直接中止。"""
+
+        assert self.conn is not None
+        row = self.conn.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name NOT LIKE 'sqlite_%'
+            LIMIT 1
+            """
+        ).fetchone()
+        return bool(row)
+
     def _set_schema_version(self) -> None:
         """写入当前 schema 版本。"""
 
@@ -767,213 +788,6 @@ class XiuxianDB:
             ON CONFLICT(key) DO UPDATE SET value = excluded.value
             """,
             (str(SCHEMA_VERSION),),
-        )
-        self.conn.commit()
-
-    def _migrate_schema(self, current_version: int | None) -> bool:
-        """按版本补充新字段，避免小 schema 变更重建整库。"""
-
-        if current_version is None:
-            return False
-
-        migrated_version = current_version
-        if migrated_version == 2026052502 and SCHEMA_VERSION >= 2026052601:
-            self._add_column_if_missing(
-                "players",
-                "battle_log_detail",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
-            migrated_version = 2026052601
-        if migrated_version == 2026052601 and SCHEMA_VERSION >= 2026052602:
-            migrated_version = 2026052602
-        if migrated_version == 2026052602 and SCHEMA_VERSION >= 2026060101:
-            migrated_version = 2026060101
-        if migrated_version == 2026060302 and SCHEMA_VERSION >= 2026061201:
-            self._add_column_if_missing(
-                "player_weapons",
-                "exp",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
-            migrated_version = 2026061201
-        if migrated_version == 2026061201 and SCHEMA_VERSION >= 2026061202:
-            self._migrate_weapon_level_exp()
-            migrated_version = 2026061202
-        if migrated_version == 2026061202 and SCHEMA_VERSION >= 2026061601:
-            self._add_column_if_missing(
-                "players",
-                "rest_window_started_at",
-                "TEXT",
-            )
-            self._add_column_if_missing(
-                "players",
-                "rest_window_hp",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
-            self._add_column_if_missing(
-                "players",
-                "rest_window_mp",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
-            self._add_column_if_missing(
-                "players",
-                "rest_window_elapsed_seconds",
-                "INTEGER NOT NULL DEFAULT 0",
-            )
-            migrated_version = 2026061601
-        if migrated_version == 2026061601 and SCHEMA_VERSION >= 2026061602:
-            self._migrate_naming_schema()
-            migrated_version = 2026061602
-        return migrated_version == SCHEMA_VERSION
-
-    def _migrate_weapon_level_exp(self) -> None:
-        """把旧武器等级反灌为累计经验，并按经验刷新等级。"""
-
-        assert self.conn is not None
-        rows = self.conn.execute("SELECT weapon_id, level, exp, max_level FROM player_weapons").fetchall()
-        for row in rows:
-            exp = max(int(row["exp"]), weapon_exp_for_level(int(row["level"])))
-            level = weapon_level_from_exp(exp, int(row["max_level"]))
-            self.conn.execute(
-                "UPDATE player_weapons SET exp = ?, level = ? WHERE weapon_id = ?",
-                (exp, level, int(row["weapon_id"])),
-            )
-        self.conn.commit()
-
-    def _add_column_if_missing(self, table: str, column: str, column_def: str) -> None:
-        """表字段不存在时补列。"""
-
-        assert self.conn is not None
-        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
-        if any(row["name"] == column for row in rows):
-            return
-        self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
-        self.conn.commit()
-
-    def _table_exists(self, table: str) -> bool:
-        """判断表是否存在。"""
-
-        assert self.conn is not None
-        row = self.conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table,),
-        ).fetchone()
-        return bool(row)
-
-    def _column_exists(self, table: str, column: str) -> bool:
-        """判断表字段是否存在。"""
-
-        assert self.conn is not None
-        if not self._table_exists(table):
-            return False
-        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
-        return any(row["name"] == column for row in rows)
-
-    def _rename_table_if_exists(self, old_name: str, new_name: str) -> None:
-        """旧表存在且新表不存在时改名。"""
-
-        assert self.conn is not None
-        if not self._table_exists(old_name) or self._table_exists(new_name):
-            return
-        self.conn.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
-
-    def _rename_column_if_exists(self, table: str, old_name: str, new_name: str) -> None:
-        """旧字段存在且新字段不存在时改名。"""
-
-        assert self.conn is not None
-        if not self._column_exists(table, old_name) or self._column_exists(table, new_name):
-            return
-        self.conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old_name} TO {new_name}")
-
-    def _migrate_naming_schema(self) -> None:
-        """把过渡期表名和字段名迁移成当前业务语义。"""
-
-        assert self.conn is not None
-        self.conn.execute("DROP INDEX IF EXISTS idx_player_weapons_one_equipped")
-        self._rename_table_if_exists("equipment_item_defs", "ring_item_defs")
-        self._rename_table_if_exists("trade_limits", "trade_buy_locks")
-        self._rename_column_if_exists("ring_item_defs", "equipment_item_id", "ring_item_id")
-        self._rename_column_if_exists("ring_items", "equipment_item_id", "ring_item_id")
-        self._rename_column_if_exists("trade_daily_rewards", "net_income", "net_profit")
-        self._rename_column_if_exists("players", "status_until_at", "rest_full_at")
-        self._rename_column_if_exists("players", "physique", "physique_value")
-        self._rename_column_if_exists("source_vaults", "level", "star_level")
-        self._rename_column_if_exists("source_vaults", "daily_interest", "daily_interest_claimed")
-        self._rename_column_if_exists("player_weapons", "owner_id", "holder_id")
-        self.conn.commit()
-
-    def _drop_tables(self) -> None:
-        """删除旧 schema 表。"""
-
-        assert self.conn is not None
-        self.conn.executescript(
-            """
-            DROP TABLE IF EXISTS schema_meta;
-            DROP TABLE IF EXISTS physique_defs;
-            DROP TABLE IF EXISTS players;
-            DROP TABLE IF EXISTS source_vaults;
-            DROP TABLE IF EXISTS backpack_items;
-            DROP TABLE IF EXISTS ring_items;
-            DROP TABLE IF EXISTS gem_items;
-            DROP TABLE IF EXISTS vault_items;
-            DROP TABLE IF EXISTS vault_weapons;
-            DROP TABLE IF EXISTS item_defs;
-            DROP TABLE IF EXISTS equipment_item_defs;
-            DROP TABLE IF EXISTS ring_item_defs;
-            DROP TABLE IF EXISTS second_hand_listings;
-            DROP TABLE IF EXISTS second_hand_records;
-            DROP TABLE IF EXISTS world_locations;
-            DROP TABLE IF EXISTS trade_locations;
-            DROP TABLE IF EXISTS trade_goods;
-            DROP TABLE IF EXISTS trade_prices;
-            DROP TABLE IF EXISTS trade_inventory;
-            DROP TABLE IF EXISTS trade_records;
-            DROP TABLE IF EXISTS trade_daily_rewards;
-            DROP TABLE IF EXISTS trade_limits;
-            DROP TABLE IF EXISTS trade_buy_locks;
-            DROP TABLE IF EXISTS special_buyers;
-            DROP TABLE IF EXISTS recycle_locations;
-            DROP TABLE IF EXISTS weapon_recycle_locations;
-            DROP TABLE IF EXISTS weapon_recycle_records;
-            DROP TABLE IF EXISTS gem_recycle_records;
-            DROP TABLE IF EXISTS book_recycle_records;
-            DROP TABLE IF EXISTS exploration_locations;
-            DROP TABLE IF EXISTS exploration_records;
-            DROP TABLE IF EXISTS drop_tables;
-            DROP TABLE IF EXISTS monster_defs;
-            DROP TABLE IF EXISTS weapon_defs;
-            DROP TABLE IF EXISTS weapon_skill_defs;
-            DROP TABLE IF EXISTS player_weapons;
-            DROP TABLE IF EXISTS weapon_enchants;
-            DROP TABLE IF EXISTS weapon_enchant_names;
-            DROP TABLE IF EXISTS fixed_equipment;
-            DROP TABLE IF EXISTS inlay_defs;
-            DROP TABLE IF EXISTS gem_defs;
-            DROP TABLE IF EXISTS fixed_equipment_inlays;
-            DROP TABLE IF EXISTS inscription_feathers;
-            DROP TABLE IF EXISTS seasonal_boss_reward_rates;
-            DROP TABLE IF EXISTS seasonal_boss_events;
-            DROP TABLE IF EXISTS seasonal_boss_participants;
-            DROP TABLE IF EXISTS duel_requests;
-            DROP TABLE IF EXISTS duel_records;
-            DROP TABLE IF EXISTS robbery_records;
-            DROP TABLE IF EXISTS player_hatreds;
-            DROP TABLE IF EXISTS combat_logs;
-            DROP TABLE IF EXISTS wormholes;
-            DROP TABLE IF EXISTS wormhole_participants;
-            DROP TABLE IF EXISTS wormhole_notices;
-            DROP TABLE IF EXISTS game_logs;
-            DROP TABLE IF EXISTS player_journals;
-            DROP TABLE IF EXISTS player_titles;
-            DROP TABLE IF EXISTS player_lifetime_stats;
-            DROP TABLE IF EXISTS daily_fortunes;
-            DROP TABLE IF EXISTS daily_newspapers;
-            DROP TABLE IF EXISTS weapon_legends;
-            DROP TABLE IF EXISTS trade_heat;
-            DROP TABLE IF EXISTS bag_items;
-            DROP TABLE IF EXISTS treasures;
-            DROP TABLE IF EXISTS market_listings;
-            DROP TABLE IF EXISTS market_records;
-            """
         )
         self.conn.commit()
 
@@ -1138,6 +952,77 @@ class XiuxianDB:
                 desc TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (x, y),
                 UNIQUE(name)
+            );
+
+            CREATE TABLE IF NOT EXISTS sects (
+                sect_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                location_name TEXT NOT NULL UNIQUE,
+                location_x INTEGER NOT NULL,
+                location_y INTEGER NOT NULL,
+                founder_id TEXT NOT NULL UNIQUE,
+                master_client_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                UNIQUE(location_x, location_y)
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_members (
+                client_id TEXT PRIMARY KEY,
+                sect_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT '成员',
+                joined_at TEXT NOT NULL,
+                UNIQUE(sect_id, client_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_war_cycles (
+                cycle_start TEXT PRIMARY KEY,
+                cycle_end TEXT NOT NULL,
+                rewards_generated INTEGER NOT NULL DEFAULT 0,
+                generated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_influence_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sect_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                influence INTEGER NOT NULL,
+                item_value INTEGER NOT NULL DEFAULT 0,
+                success INTEGER NOT NULL DEFAULT 0,
+                cycle_start TEXT NOT NULL,
+                cycle_end TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(sect_id, cycle_start)
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_war_rewards (
+                reward_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cycle_start TEXT NOT NULL,
+                cycle_end TEXT NOT NULL,
+                sect_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                reward_type TEXT NOT NULL DEFAULT 'sect_random',
+                ring_item_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                claimed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                claimed_at TEXT,
+                UNIQUE(cycle_start, client_id, reward_type, ring_item_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_contribution_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sect_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                influence INTEGER NOT NULL,
+                item_value INTEGER NOT NULL DEFAULT 0,
+                success INTEGER NOT NULL DEFAULT 0,
+                cycle_start TEXT NOT NULL,
+                cycle_end TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(sect_id, client_id, cycle_start)
             );
 
             CREATE TABLE IF NOT EXISTS trade_locations (
@@ -1608,6 +1493,15 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
             CREATE INDEX IF NOT EXISTS idx_world_locations_category ON world_locations(category, terrain);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_master_client_id ON sects(master_client_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_founder_id ON sects(founder_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_location_xy ON sects(location_x, location_y);
+            CREATE INDEX IF NOT EXISTS idx_sect_members_sect_id ON sect_members(sect_id);
+            CREATE INDEX IF NOT EXISTS idx_sect_influence_cycle ON sect_influence_records(cycle_start, sect_id);
+            CREATE INDEX IF NOT EXISTS idx_sect_influence_client ON sect_influence_records(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_sect_rewards_client ON sect_war_rewards(client_id, claimed, cycle_start);
+            CREATE INDEX IF NOT EXISTS idx_sect_contribution_cycle ON sect_contribution_records(cycle_start, sect_id, influence);
+            CREATE INDEX IF NOT EXISTS idx_sect_contribution_client ON sect_contribution_records(client_id, cycle_start);
             CREATE INDEX IF NOT EXISTS idx_weapon_recycle_day ON weapon_recycle_records(client_id, business_day);
             CREATE INDEX IF NOT EXISTS idx_gem_recycle_day ON gem_recycle_records(client_id, business_day);
             CREATE INDEX IF NOT EXISTS idx_book_recycle_day ON book_recycle_records(client_id, business_day);

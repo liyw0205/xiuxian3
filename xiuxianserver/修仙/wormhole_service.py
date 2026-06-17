@@ -294,7 +294,7 @@ class WormholeService(CoreService):
                 f"源石+{money(reward['stones'])}，经验+{reward['exp']}",
             ]
             if new_level > old_level:
-                lines.append(f"等级提升：{old_level} -> {new_level}")
+                lines.append(f"等级提升：{old_level} → {new_level}")
             lines.extend(reward["item_texts"])
             if weapon_text:
                 lines.append(weapon_text)
@@ -692,6 +692,7 @@ class WormholeService(CoreService):
             FROM ring_item_defs
             WHERE category = ?
               AND ring_item_id != 'kaikongqi'
+              AND ring_item_id != 'cuifengdan'
             """,
             (category,),
         )
