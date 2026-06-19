@@ -25,7 +25,7 @@ from ..constants import (
 )
 from ..format_text import T
 from ..rules import damage_after_defense, monster_exp
-from ..sect_war import record_sect_merit_conn
+from ..sect_war import record_sect_merit_conn, sect_direction_bonus_conn
 from ..sql import db
 from ..weapon_core import service as weapon_service
 
@@ -587,6 +587,16 @@ class SeasonalBossService(CoreService):
             ).fetchone()
             if not fresh:
                 return T.hint("今日岁时情劫已经结束。", "发送：首领奖励 查看是否可以领取奖励。<首领奖励>")
+            fresh_player = conn.execute(
+                "SELECT status, hp FROM players WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+            if not fresh_player:
+                return T.hint("你还没有创建用户。", "发送：创建用户 名称，例如：创建用户 青衫客")
+            if str(fresh_player["status"]) != "空闲":
+                return self._busy_challenge_hint(str(fresh_player["status"]))
+            if int(fresh_player["hp"]) <= 0:
+                return T.hint("血气不足，无法挑战首领。", "发送：休息，时间到后发送：结束休息")
             current = conn.execute(
                 """
                 SELECT challenge_count, last_challenge_at
@@ -780,7 +790,9 @@ class SeasonalBossService(CoreService):
 
             lines = [
                 f"岁时情劫奖励：{event['boss_name']}",
-                f"贡献：{reward['contribution']:.1%}，排名：{reward['rank']}，珍贵战利品 {reward.get('loot_rolls', 1)} 次",
+                f"贡献：{reward['contribution']:.1%}，排名：{reward['rank']}",
+                f"首领权重：{event['weight_type']}｜珍贵抽取：{reward.get('loot_rolls', 1)} 次",
+                f"宗门增益：珍贵掉落 +{float(reward.get('influence_bonus') or 0.0):.1%}",
                 f"源石+{money(reward['stones'])}，经验+{reward['exp']}",
             ]
             if new_level > old_level:
@@ -1026,59 +1038,6 @@ class SeasonalBossService(CoreService):
             detail=combat_log_text.wants_detail(player),
         )
 
-    @staticmethod
-    def _boss_action_lines(action: dict[str, Any], boss_name: str, player: dict[str, Any]) -> list[str]:
-        """整理一次首领战行动日志。"""
-
-        round_no = int(action.get("round", 0))
-        boss_hp_left = max(0, int(action.get("boss_hp_left", 0)))
-        boss_hp_max = max(1, int(action.get("boss_hp_max", 1)))
-        lines = [f"第 {round_no} 次行动"]
-        if action.get("actor") == "player":
-            damage = int(action.get("player_total_damage", action.get("damage", 0)))
-            combo_damage = int(action.get("combo_damage", 0))
-            life_steal = int(action.get("life_steal", 0))
-            skill_name = str(action.get("skill_name") or "")
-            if action.get("skill_used"):
-                attack_text = f"技能「{skill_name}」"
-                cost_text = f"，消耗精神 {int(action.get('mp_cost', 0))}"
-            else:
-                attack_text = "普通攻击"
-                cost_text = ""
-            combo_text = f"，连击追加 {combo_damage}" if combo_damage > 0 else ""
-            steal_text = f"，吸血 +{life_steal}" if life_steal > 0 else ""
-            effect = combat_service.action_effect_text(action)
-            effect_text = f"，{effect}" if effect else ""
-            lines.append(
-                f"  我方出手：{attack_text}，造成 {damage} 伤害{combo_text}{steal_text}{effect_text}{cost_text}；"
-                f"{boss_name} 旧念 {boss_hp_left}/{boss_hp_max}"
-            )
-            if boss_hp_left <= 0:
-                lines.append(f"  首领出手：{boss_name} 已消散，未能出手。")
-            return lines
-
-        hp_left = max(0, int(action.get("player_hp_left", 0)))
-        mp_left = max(0, int(action.get("player_mp_left", 0)))
-        if action.get("dodged"):
-            lines.append(
-                f"  首领出手：{boss_name} 攻击落空；"
-                f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
-            )
-            return lines
-
-        hurt = int(action.get("boss_damage", 0))
-        raw_hurt = int(action.get("boss_hurt_raw", hurt))
-        reduce_text = f"，减免 {max(0, raw_hurt - hurt)}" if raw_hurt > hurt else ""
-        skill_name = str(action.get("boss_skill_name") or "")
-        attack_text = f"技能「{skill_name}」" if action.get("boss_skill_used") else "普通攻击"
-        effect = combat_service.action_effect_text(action)
-        effect_text = f"，{effect}" if effect else ""
-        lines.append(
-            f"  首领出手：{attack_text}，造成 {hurt} 伤害{reduce_text}{effect_text}；"
-            f"我方血气 {hp_left}/{player['max_hp']}，精神 {mp_left}/{player['max_mp']}"
-        )
-        return lines
-
     def _roll_reward(self, event: dict[str, Any], participant: dict[str, Any], player: dict[str, Any]) -> dict[str, Any]:
         """按贡献、排名和节日权重生成奖励。"""
 
@@ -1089,10 +1048,11 @@ class SeasonalBossService(CoreService):
         killed_factor = 1.0 if event["status"] == "已击破" else 0.55
         weight = str(event["weight_type"])
         rates = self._reward_rates(weight)
+        influence_bonus = self._public_battle_reward_bonus(str(player["client_id"]))
         rank_factor = {1: 1.18, 2: 1.08, 3: 1.0}.get(rank, 0.92)
         stones = max(1, int((int(event["level"]) * 850 + int(event["max_hp"]) * 0.015) * killed_factor * (0.45 + contribution_score * 2.5) * rank_factor))
         exp = max(1, int(monster_exp(event["level"], 1.8, player["level"]) * killed_factor * (0.6 + contribution_score * 1.8)))
-        loot_rolls = self._good_loot_rolls(contribution_score, rank)
+        loot_rolls = self._good_loot_rolls(contribution_score, rank, influence_bonus)
         ring_items: list[tuple[str, int]] = []
         gems: list[tuple[str, int, int]] = []
         item_texts: list[str] = []
@@ -1105,7 +1065,7 @@ class SeasonalBossService(CoreService):
             ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
         for _ in range(loot_rolls):
-            reward = self._roll_good_loot(weight, contribution_score, rank, rates, location_name)
+            reward = self._roll_good_loot(weight, contribution_score, rank, rates, location_name, influence_bonus)
             if not reward:
                 continue
             kind = reward["kind"]
@@ -1131,6 +1091,7 @@ class SeasonalBossService(CoreService):
             "weapons": weapons,
             "weapon": weapons[0] if weapons else None,
             "item_texts": item_texts,
+            "influence_bonus": influence_bonus,
         }
 
     def _reward_rates(self, weight_type: str) -> dict[str, float]:
@@ -1169,19 +1130,26 @@ class SeasonalBossService(CoreService):
         return sqrt(max(0.0, min(1.0, float(contribution))))
 
     @staticmethod
-    def _good_loot_rolls(contribution_score: float, rank: int) -> int:
+    def _good_loot_rolls(contribution_score: float, rank: int, influence_bonus: float = 0.0) -> int:
         """按 sqrt 贡献度决定珍贵战利品抽取次数。"""
 
         score = max(0.0, min(1.0, float(contribution_score)))
+        bonus = max(0.0, min(0.08, float(influence_bonus)))
         rolls = 1
-        if random.random() < min(0.95, score * 1.15):
+        if random.random() < min(0.95, score * 1.15 + bonus):
             rolls += 1
-        if random.random() < min(0.75, max(0.0, score - 0.18) * 0.95):
+        if random.random() < min(0.75, max(0.0, score - 0.18) * 0.95 + bonus * 0.8):
             rolls += 1
         rank_bonus = 0.16 if rank == 1 else 0.10 if rank == 2 else 0.06 if rank == 3 else 0.0
-        if random.random() < min(0.45, max(0.0, score - 0.45) * 0.65 + rank_bonus):
+        if random.random() < min(0.45, max(0.0, score - 0.45) * 0.65 + rank_bonus + bonus * 0.5):
             rolls += 1
         return min(4, rolls)
+
+    def _public_battle_reward_bonus(self, client_id: str) -> float:
+        """宗门影响力给公共战斗珍贵掉落小幅修正，不影响源石和经验。"""
+
+        with self.db.transaction() as conn:
+            return min(0.08, max(0.0, sect_direction_bonus_conn(conn, client_id, "influence") * 0.12))
 
     def _roll_good_loot(
         self,
@@ -1190,16 +1158,18 @@ class SeasonalBossService(CoreService):
         rank: int,
         rates: dict[str, float],
         location_name: str = "",
+        influence_bonus: float = 0.0,
     ) -> dict[str, Any] | None:
         """从首领珍贵战利品池里随机一次。"""
 
         score = max(0.0, min(1.0, float(contribution_score)))
+        rare_bonus_factor = 1.0 + max(0.0, min(0.08, float(influence_bonus)))
         weights = [
-            ("feather", max(rates["feather_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["feather"]) + score * 0.08),
-            ("material", max(rates["material_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["material"]) + score * 0.10),
+            ("feather", (max(rates["feather_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["feather"]) + score * 0.08) * rare_bonus_factor),
+            ("material", (max(rates["material_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["material"]) + score * 0.10) * rare_bonus_factor),
             ("gem", max(rates["gem_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["gem"]) + score * 0.10),
-            ("book", max(rates["book_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["book"]) + score * 0.08),
-            ("weapon", max(rates["weapon_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["weapon"]) + score * 0.06),
+            ("book", (max(rates["book_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["book"]) + score * 0.08) * rare_bonus_factor),
+            ("weapon", (max(rates["weapon_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["weapon"]) + score * 0.06) * rare_bonus_factor),
         ]
         if rank <= 3:
             weights[0] = ("feather", weights[0][1] + rates["feather_rank_chance"])

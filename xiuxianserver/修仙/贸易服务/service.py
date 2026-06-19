@@ -215,11 +215,6 @@ class TradeService(WeaponCore):
             return self._recycle_books(client_id, location)
         return T.hint("出售全部格式不正确。", "只能发送：出售全部 武器 / 出售全部 宝石 / 出售全部 技能书。<纳戒>")
 
-    def world_material_recycle(self, client_id: str, message: str) -> str:
-        """在 11 个承接城池回收普通世界物资。"""
-
-        return self.world_material.recycle(client_id, message)
-
     def treasure_map(self, client_id: str, message: str = "") -> str:
         """查看当前位置或指定城池藏宝图。"""
 
@@ -272,6 +267,9 @@ class TradeService(WeaponCore):
         if self._has_special_loot(client_id):
             texts.append(self.special_auto_sell(client_id, origin))
             sold_count += 1
+            special_auto_moved = True
+        else:
+            special_auto_moved = False
 
         for item, quantity in self._misc_backpack_rows(client_id):
             texts.append(self._sell_misc_backpack_item(client_id, item, quantity))
@@ -295,8 +293,21 @@ class TradeService(WeaponCore):
             panel.hr()
             panel.section("纳戒资产")
             panel.lines(asset_lines)
+        current_player = self.player(client_id) or {}
+        current_name = str(current_player.get("location_name") or origin["name"])
+        current_x = int(current_player.get("x") or origin["x"])
+        current_y = int(current_player.get("y") or origin["y"])
+        moved = current_name != origin["name"] or current_x != origin["x"] or current_y != origin["y"]
+        if moved and not special_auto_moved:
+            panel.hr()
+            panel.section("位置")
+            panel.line(f"当前位置：{current_name} ({current_x},{current_y})")
+            panel.line(f"出发地：{origin['name']} ({origin['x']},{origin['y']})")
         self.refresh_titles(client_id)
-        return panel.render()
+        buttons = []
+        if moved and not special_auto_moved:
+            buttons.append(f"导航 {origin['x']} {origin['y']}:回原处")
+        return panel.render() + T.buttons(*buttons)
 
     def recommend(self, client_id: str) -> str:
         """按单位负重收益推荐当前能买的跑商路线。"""
@@ -451,13 +462,12 @@ class TradeService(WeaponCore):
             )
             if cursor.rowcount <= 0:
                 return T.hint("今日跑商奖励已经领取。", "每日 04:00 后重置，明天继续跑商。")
-            conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                (reward, client_id),
-            )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '跑商奖励', ?, ?)",
-                (client_id, f"day={day}, quantity={quantity}, net_profit={net_profit}, reward={reward}", ts()),
+            self._grant_source_stones_conn(conn, client_id, reward)
+            self._write_game_log_conn(
+                conn,
+                client_id,
+                "跑商奖励",
+                f"day={day}, quantity={quantity}, net_profit={net_profit}, reward={reward}",
             )
         return f"跑商奖励领取成功：今日出售 {quantity} 件，普通跑商净利润 {money(net_profit)}，奖励源石 {money(reward)}。"
 
@@ -491,10 +501,7 @@ class TradeService(WeaponCore):
             total = max(1, int(raw_total * rate))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险获取。<背包>")
-            conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                (total, client_id),
-            )
+            self._grant_source_stones_conn(conn, client_id, total)
             conn.execute(
                 """
                 INSERT INTO trade_records
@@ -503,9 +510,11 @@ class TradeService(WeaponCore):
                 """,
                 (client_id, item["item_id"], quantity, total, buyer["buyer_name"], business_day(), ts()),
             )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '特殊出售', ?, ?)",
-                (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, buyer={buyer['buyer_name']}", ts()),
+            self._write_game_log_conn(
+                conn,
+                client_id,
+                "特殊出售",
+                f"item={item['item_id']}, quantity={quantity}, total={total}, buyer={buyer['buyer_name']}",
             )
             war_prep = self.world_material.add_war_prep_conn(conn, buyer["buyer_name"], item, quantity, client_id)
             war_prep_text = str(war_prep.get("text") or "")
@@ -549,10 +558,7 @@ class TradeService(WeaponCore):
                         sold_lines.append(f"{item['name']} x{quantity} 库存不足，已跳过")
                         continue
 
-                    conn.execute(
-                        "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                        (total, client_id),
-                    )
+                    self._grant_source_stones_conn(conn, client_id, total)
                     conn.execute(
                         """
                         INSERT INTO trade_records
@@ -582,9 +588,11 @@ class TradeService(WeaponCore):
                 "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
                 (last_buyer["buyer_name"], last_buyer["x"], last_buyer["y"], client_id),
             )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '特殊自动出售', ?, ?)",
-                (client_id, f"total={total_gain}, location={last_buyer['buyer_name']}", ts()),
+            self._write_game_log_conn(
+                conn,
+                client_id,
+                "特殊自动出售",
+                f"total={total_gain}, location={last_buyer['buyer_name']}",
             )
 
         lines.append(f"合计收入：{money(total_gain)}")
@@ -802,10 +810,7 @@ class TradeService(WeaponCore):
             fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险/购买获取。")
-            conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                (total - fee, client_id),
-            )
+            self._grant_source_stones_conn(conn, client_id, total - fee)
             conn.execute(
                 """
                 INSERT INTO trade_records
@@ -815,13 +820,11 @@ class TradeService(WeaponCore):
                 (client_id, item["item_id"], quantity, total, fee, location_name, business_day(), ts()),
             )
             self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity)
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '商场出售', ?, ?)",
-                (
-                    client_id,
-                    f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}",
-                    ts(),
-                ),
+            self._write_game_log_conn(
+                conn,
+                client_id,
+                "商场出售",
+                f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}",
             )
             medicine_text = self.world_material.maybe_carry_medicine(conn, client_id, location_name)
         text = f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
@@ -896,10 +899,7 @@ class TradeService(WeaponCore):
             if not self.remove_backpack_conn(conn, client_id, str(item["item_id"]), amount):
                 return f"{item['name']} x{amount} 库存不足，已跳过。"
             if total > 0:
-                conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                    (total, client_id),
-                )
+                self._grant_source_stones_conn(conn, client_id, total)
             conn.execute(
                 """
                 INSERT INTO trade_records
@@ -908,10 +908,7 @@ class TradeService(WeaponCore):
                 """,
                 (client_id, item["item_id"], amount, total, "杂物甩卖", business_day(), ts()),
             )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '杂物甩卖', ?, ?)",
-                (client_id, f"item={item['item_id']}, quantity={amount}, total={total}", ts()),
-            )
+            self._write_game_log_conn(conn, client_id, "杂物甩卖", f"item={item['item_id']}, quantity={amount}, total={total}")
         if total > 0:
             return f"甩卖杂物：{item['name']} x{amount}，收入 {money(total)}。"
         return f"甩掉杂物：{item['name']} x{amount}，未得源石。"
@@ -977,10 +974,7 @@ class TradeService(WeaponCore):
                 "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
                 (name, int(x), int(y), client_id),
             )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-                (client_id, action, f"location={name}, x={x}, y={y}", ts()),
-            )
+            self._write_game_log_conn(conn, client_id, action, f"location={name}, x={x}, y={y}")
 
     def recycle_location_by_type(self, recycle_type: str) -> dict | None:
         """读取某类纳戒资产的回收点。"""
@@ -1355,12 +1349,27 @@ class TradeService(WeaponCore):
                 total_value += int(record["value"])
                 today_income += int(record["value"])
 
-            conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                (total_value, client_id),
-            )
+            self._grant_source_stones_conn(conn, client_id, total_value)
 
         return self._format_weapon_recycle_result(records)
+
+    @staticmethod
+    def _grant_source_stones_conn(conn, client_id: str, amount: int) -> None:
+        """在当前事务里给玩家增加源石。"""
+
+        conn.execute(
+            "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+            (int(amount), client_id),
+        )
+
+    @staticmethod
+    def _write_game_log_conn(conn, client_id: str, action: str, detail: str) -> None:
+        """在当前事务里写入游戏日志。"""
+
+        conn.execute(
+            "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
+            (client_id, action, detail, ts()),
+        )
 
     @staticmethod
     def _recyclable_weapon_ids_conn(conn, client_id: str) -> list[int]:
@@ -1437,9 +1446,11 @@ class TradeService(WeaponCore):
                 ts(),
             ),
         )
-        conn.execute(
-            "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '武器回收', ?, ?)",
-            (client_id, f"weapon_id={weapon_id}, stones={value}, rate={quote['rate']:.2f}", ts()),
+        self._write_game_log_conn(
+            conn,
+            client_id,
+            "武器回收",
+            f"weapon_id={weapon_id}, stones={value}, rate={quote['rate']:.2f}",
         )
         return {
             "weapon_id": weapon_id,
@@ -1496,20 +1507,39 @@ class TradeService(WeaponCore):
 
         if len(records) == 1:
             record = records[0]
-            return (
-                f"回收成功：{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]，"
-                f"获得源石 {money(int(record['value']))}，当前倍率 {int(float(record['rate']) * 100)}%。"
+            return TradeService._format_recycle_success(
+                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]",
+                int(record["value"]),
+                float(record["rate"]),
             )
 
         total_value = sum(int(record["value"]) for record in records)
-        panel = T.panel()
-        panel.section("武器批量回收")
-        panel.line(f"回收 **{len(records)}** 把，获得源石 **{money(total_value)}**。")
-        for record in records:
-            panel.line(
+        return TradeService._format_batch_recycle_result(
+            "武器批量回收",
+            f"{len(records)} 把",
+            total_value,
+            [
                 f"{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]｜"
                 f"收入 **{money(int(record['value']))}**｜倍率 {int(float(record['rate']) * 100)}%"
-            )
+                for record in records
+            ],
+        )
+
+    @staticmethod
+    def _format_recycle_success(label: str, value: int, rate: float) -> str:
+        """格式化单个纳戒资产回收结果。"""
+
+        return f"回收成功：{label}，获得源石 {money(value)}，当前倍率 {int(rate * 100)}%。"
+
+    @staticmethod
+    def _format_batch_recycle_result(title: str, quantity_text: str, total_value: int, lines: list[str]) -> str:
+        """格式化批量回收面板。"""
+
+        panel = T.panel()
+        panel.section(title)
+        panel.line(f"回收 **{quantity_text}**，获得源石 **{money(total_value)}**。")
+        for line in lines:
+            panel.line(line)
         return panel.render()
 
     def _recycle_books(
@@ -1546,19 +1576,15 @@ class TradeService(WeaponCore):
                 )
                 if not self.remove_ring_conn(conn, client_id, item["ring_item_id"], amount):
                     return T.hint("技能书库存已变化，出售失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-                conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                    (quote["value"], client_id),
-                )
+                self._grant_source_stones_conn(conn, client_id, int(quote["value"]))
                 self._insert_book_recycle_record_conn(conn, client_id, item, amount, quote, location)
-                conn.execute(
-                    "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书回收', ?, ?)",
-                    (client_id, f"book={item['ring_item_id']}, quantity={amount}, stones={quote['value']}", ts()),
+                self._write_game_log_conn(
+                    conn,
+                    client_id,
+                    "技能书回收",
+                    f"book={item['ring_item_id']}, quantity={amount}, stones={quote['value']}",
                 )
-            return (
-                f"回收成功：{item['name']} x{amount}，"
-                f"获得源石 {money(int(quote['value']))}，当前倍率 {int(float(quote['rate']) * 100)}%。"
-            )
+            return self._format_recycle_success(f"{item['name']} x{amount}", int(quote["value"]), float(quote["rate"]))
 
         records: list[dict[str, object]] = []
         total_value = 0
@@ -1605,21 +1631,19 @@ class TradeService(WeaponCore):
 
             if not records:
                 return T.hint("技能书库存已变化，出售失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-            conn.execute("UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?", (total_value, client_id))
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书批量回收', ?, ?)",
-                (client_id, f"quantity={total_quantity}, stones={total_value}", ts()),
-            )
+            self._grant_source_stones_conn(conn, client_id, total_value)
+            self._write_game_log_conn(conn, client_id, "技能书批量回收", f"quantity={total_quantity}, stones={total_value}")
 
-        panel = T.panel()
-        panel.section("技能书批量回收")
-        panel.line(f"回收 **{total_quantity}** 本，获得源石 **{money(total_value)}**。")
-        for record in records:
-            panel.line(
+        return self._format_batch_recycle_result(
+            "技能书批量回收",
+            f"{total_quantity} 本",
+            total_value,
+            [
                 f"{record['name']}[{record['quality']}] x{record['quantity']}｜"
                 f"收入 **{money(record['value'])}**｜倍率 {int(float(record['rate']) * 100)}%"
-            )
-        return panel.render()
+                for record in records
+            ],
+        )
 
     @staticmethod
     def _insert_book_recycle_record_conn(conn, client_id: str, book: dict, quantity: int, quote: dict, location: dict) -> None:
@@ -1738,22 +1762,18 @@ class TradeService(WeaponCore):
                 )
                 if not self.remove_gem_conn(conn, client_id, item["ring_item_id"], resolved_level, amount):
                     return T.hint("宝石库存已变化，出售失败。", "发送：宝石 查看当前库存后再试。<宝石>")
-                conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                    (quote["value"], client_id),
-                )
+                self._grant_source_stones_conn(conn, client_id, int(quote["value"]))
                 self._insert_gem_recycle_record_conn(conn, client_id, item, resolved_level, amount, quote, location)
-                conn.execute(
-                    "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '宝石回收', ?, ?)",
-                    (
-                        client_id,
-                        f"gem={item['ring_item_id']}, level={resolved_level}, quantity={amount}, stones={quote['value']}",
-                        ts(),
-                    ),
+                self._write_game_log_conn(
+                    conn,
+                    client_id,
+                    "宝石回收",
+                    f"gem={item['ring_item_id']}, level={resolved_level}, quantity={amount}, stones={quote['value']}",
                 )
-            return (
-                f"回收成功：{item['name']} {resolved_level}级 x{amount}，"
-                f"获得源石 {money(int(quote['value']))}，当前倍率 {int(float(quote['rate']) * 100)}%。"
+            return self._format_recycle_success(
+                f"{item['name']} {resolved_level}级 x{amount}",
+                int(quote["value"]),
+                float(quote["rate"]),
             )
 
         records: list[dict[str, object]] = []
@@ -1804,21 +1824,19 @@ class TradeService(WeaponCore):
 
             if not records:
                 return T.hint("宝石库存已变化，出售失败。", "发送：宝石 查看当前库存后再试。<宝石>")
-            conn.execute("UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?", (total_value, client_id))
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '宝石批量回收', ?, ?)",
-                (client_id, f"quantity={total_quantity}, stones={total_value}, level=all", ts()),
-            )
+            self._grant_source_stones_conn(conn, client_id, total_value)
+            self._write_game_log_conn(conn, client_id, "宝石批量回收", f"quantity={total_quantity}, stones={total_value}, level=all")
 
-        panel = T.panel()
-        panel.section("宝石批量回收")
-        panel.line(f"回收 **{total_quantity}** 颗，获得源石 **{money(total_value)}**。")
-        for record in records:
-            panel.line(
+        return self._format_batch_recycle_result(
+            "宝石批量回收",
+            f"{total_quantity} 颗",
+            total_value,
+            [
                 f"{record['name']} {record['level']}级[{record['quality']}] x{record['quantity']}｜"
                 f"收入 **{money(record['value'])}**｜倍率 {int(float(record['rate']) * 100)}%"
-            )
-        return panel.render()
+                for record in records
+            ],
+        )
 
     @staticmethod
     def _insert_gem_recycle_record_conn(

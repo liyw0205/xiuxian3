@@ -10,6 +10,7 @@ from typing import Any
 
 from .common import CoreService, business_day, dt, dump_json, load_json, money, now, row_value, split_words, to_int, ts
 from .constants import (
+    CITY_MAX_LEVEL,
     TRADE_ACTIVE_WINDOW_DAYS,
     WORLD_COORD_MAX,
     WORLD_COORD_MIN,
@@ -93,7 +94,6 @@ WAR_PREP_VALUE_BY_SUBTYPE = {
     "龙类": 80,
 }
 LIFE_THRESHOLDS = (100, 240, 430, 680, 1000, 1400, 1900, 2500, 3200, 4000)
-CITY_MAX_LEVEL = 107
 TREASURE_AUCTION_HOURS = 24
 TREASURE_PICKUP_HOURS = 72
 TREASURE_BID_LIMIT = 10
@@ -704,7 +704,7 @@ class WorldMaterialService(CoreService):
             (cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff),
         ).fetchone()
         active = max(1, int(row["count"] if row else 1))
-        return max(900, min(3000, 900 + active * 120))
+        return max(1800, min(6000, 1800 + active * 240))
 
     def item_world_type(self, item: dict[str, Any]) -> tuple[str, str]:
         """从物品 effect 读取世界物资大类和小类。"""
@@ -725,7 +725,7 @@ class WorldMaterialService(CoreService):
     def relic_limit(level: int) -> int:
         """城池藏宝图神秘蓄能上限。"""
 
-        return 3000 + max(1, int(level)) * 120
+        return 5000 + max(1, int(level)) * 180
 
     @staticmethod
     def life_tier(state: dict[str, Any]) -> int:
@@ -855,7 +855,8 @@ class WorldMaterialService(CoreService):
             exp = BUILD_EXP_BY_SUBTYPE.get(subtype, 400) * quantity
             old_row = conn.execute("SELECT city_level, build_exp FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
             old_level = int(old_row["city_level"]) if old_row else 1
-            level, build_exp = self._apply_build_exp(old_level, int(old_row["build_exp"] if old_row else 0) + exp)
+            old_exp = 0 if old_level >= CITY_MAX_LEVEL else int(old_row["build_exp"] if old_row else 0)
+            level, build_exp = self._apply_build_exp(old_level, old_exp + exp)
             conn.execute(
                 "UPDATE city_world_states SET city_level = ?, build_exp = ?, updated_at = ? WHERE location_name = ?",
                 (level, build_exp, ts(), location_name),
@@ -1035,7 +1036,7 @@ class WorldMaterialService(CoreService):
         self._reroll_treasure_spot_conn(conn, row)
 
     def _reroll_treasure_spot_conn(self, conn: sqlite3.Connection, row: dict[str, Any]) -> None:
-        spot = self._random_treasure_spot(conn)
+        spot = self._random_treasure_spot(conn, str(row.get("city_name") or ""))
         expires = now() + timedelta(hours=TREASURE_PICKUP_HOURS)
         if spot.get("sect_id"):
             master = str(spot["master_client_id"])
@@ -1051,7 +1052,7 @@ class WorldMaterialService(CoreService):
                     master,
                     int(spot["sect_id"]),
                     ts(expires),
-                    dump_json({"settle": "sect_spot", "sect_name": spot["name"]}),
+                    dump_json({"settle": "sect_spot", "sect_name": spot["name"], "city_name": row.get("city_name", "")}),
                     row["map_id"],
                 ),
             )
@@ -1066,12 +1067,12 @@ class WorldMaterialService(CoreService):
                 spot["x"],
                 spot["y"],
                 ts(expires),
-                dump_json({"settle": "wilderness_spot"}),
+                dump_json({"settle": "wilderness_spot", "city_name": row.get("city_name", ""), "near_city": bool(spot.get("near_city"))}),
                 row["map_id"],
             ),
         )
 
-    def _random_treasure_spot(self, conn: sqlite3.Connection) -> dict[str, Any]:
+    def _random_treasure_spot(self, conn: sqlite3.Connection, city_name: str = "") -> dict[str, Any]:
         occupied = {
             (int(row["x"]), int(row["y"]))
             for row in conn.execute("SELECT x, y FROM world_locations").fetchall()
@@ -1084,22 +1085,61 @@ class WorldMaterialService(CoreService):
             (int(row["x"]), int(row["y"]))
             for row in conn.execute("SELECT x, y FROM treasure_maps WHERE status = '可拾取' AND x IS NOT NULL AND y IS NOT NULL").fetchall()
         )
-        sects = [dict(row) for row in conn.execute("SELECT * FROM sects").fetchall()]
-        if sects and random.random() < 0.2:
-            sect = random.choice(sects)
-            return {
-                "x": int(sect["location_x"]),
-                "y": int(sect["location_y"]),
-                "sect_id": int(sect["sect_id"]),
-                "master_client_id": str(sect["master_client_id"]),
-                "name": str(sect["name"]),
-            }
-        for _ in range(500):
+        city_point = self._city_point(city_name)
+        if city_point:
+            radius = self._city_treasure_radius(conn, city_name)
+            for _ in range(500):
+                x = random.randint(max(WORLD_COORD_MIN, city_point["x"] - radius), min(WORLD_COORD_MAX, city_point["x"] + radius))
+                y = random.randint(max(WORLD_COORD_MIN, city_point["y"] - radius), min(WORLD_COORD_MAX, city_point["y"] + radius))
+                if (x, y) in occupied:
+                    continue
+                if self._distance(city_point["x"], city_point["y"], x, y) <= radius:
+                    return {"x": x, "y": y, "near_city": True}
+        sect_spot = self._random_sect_treasure_spot(conn)
+        if sect_spot and random.random() < 0.2:
+            return sect_spot
+        for _ in range(700):
             x = random.randint(WORLD_COORD_MIN, WORLD_COORD_MAX)
             y = random.randint(WORLD_COORD_MIN, WORLD_COORD_MAX)
             if (x, y) not in occupied:
                 return {"x": x, "y": y}
+        if sect_spot:
+            return sect_spot
         return {"x": WORLD_COORD_MIN, "y": WORLD_COORD_MIN}
+
+    @staticmethod
+    def _random_sect_treasure_spot(conn: sqlite3.Connection) -> dict[str, Any] | None:
+        """藏宝图落到宗门山门时，转为宗主待领。"""
+
+        sects = [dict(row) for row in conn.execute("SELECT * FROM sects").fetchall()]
+        if not sects:
+            return None
+        sect = random.choice(sects)
+        return {
+            "x": int(sect["location_x"]),
+            "y": int(sect["location_y"]),
+            "sect_id": int(sect["sect_id"]),
+            "master_client_id": str(sect["master_client_id"]),
+            "name": str(sect["name"]),
+        }
+
+    @staticmethod
+    def _city_point(city_name: str) -> dict[str, int] | None:
+        """读取 11 个普通城池坐标。"""
+
+        for name, x, y, _specialties in TRADE_LOCATIONS:
+            if name == city_name:
+                return {"x": int(x), "y": int(y)}
+        return None
+
+    @staticmethod
+    def _distance(x1: int, y1: int, x2: int, y2: int) -> float:
+        return math.hypot(int(x1) - int(x2), int(y1) - int(y2))
+
+    def _city_treasure_radius(self, conn: sqlite3.Connection, city_name: str) -> int:
+        row = conn.execute("SELECT city_level FROM city_world_states WHERE location_name = ?", (city_name,)).fetchone()
+        level = int(row["city_level"]) if row else 1
+        return max(1, min(CITY_MAX_LEVEL, level))
 
     def _city_treasure_weapon(self, location_name: str, city_level: int) -> dict[str, Any]:
         rows = self.db.fetch_all("SELECT * FROM weapon_defs WHERE drop_location = ?", (location_name,))
@@ -1111,7 +1151,7 @@ class WorldMaterialService(CoreService):
 
     @staticmethod
     def _treasure_start_price(city_level: int) -> int:
-        return int(12000 + max(1, int(city_level)) * 450)
+        return int(30000 + max(1, int(city_level)) * 800)
 
     def _treasure_map_line(self, location_name: str) -> str:
         row = self.db.fetch_one(

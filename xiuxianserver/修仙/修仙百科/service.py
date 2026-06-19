@@ -563,10 +563,10 @@ class EncyclopediaService:
             entries.append(
                 KnowledgeEntry(
                     title=str(row.get("name")),
-                    group="商场",
+                    group="贸易服务",
                     kind="跑商地点",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("specialties"), "跑商", "导航"),
+                    keywords=_keywords(row.get("name"), row.get("specialties"), "商场", "跑商", "导航"),
                 )
             )
         return entries
@@ -639,10 +639,10 @@ class EncyclopediaService:
             entries.append(
                 KnowledgeEntry(
                     title=str(row.get("buyer_name")),
-                    group="商场",
+                    group="贸易服务",
                     kind="特殊收购",
                     body=body,
-                    keywords=_keywords(row.get("buyer_name"), *names, "出售", "自动出售"),
+                    keywords=_keywords(row.get("buyer_name"), *names, "商场", "出售", "自动出售"),
                 )
             )
         return entries
@@ -661,10 +661,10 @@ class EncyclopediaService:
             entries.append(
                 KnowledgeEntry(
                     title=str(row.get("name")),
-                    group="商场",
+                    group="贸易服务",
                     kind="回收地点",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("recycle_type"), row.get("desc"), "回收"),
+                    keywords=_keywords(row.get("name"), row.get("recycle_type"), row.get("desc"), "商场", "回收"),
                 )
             )
         return entries
@@ -985,7 +985,7 @@ def _answer_buttons(query: str, entries: list[KnowledgeEntry]) -> str:
     elif "开荒" in query or "探险" in query:
         commands.extend(["探险状态", "地图", "修仙信息"])
     elif "首领" in query or "虫洞" in query:
-        commands.extend(["首领", "异界虫洞", "武器", "修仙信息"])
+        commands.extend(["首领", "虫洞", "武器", "修仙信息"])
     elif primary and primary.group == "武器":
         commands.extend(["武器", "修仙信息", "修仙百科 武器流派"])
     elif primary and primary.group == "修仙物品":

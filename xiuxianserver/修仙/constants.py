@@ -9,11 +9,15 @@ from __future__ import annotations
 SCHEMA_VERSION = 2026061905
 DAY_RESET_HOUR = 4
 MAX_LEVEL = 100
+SECT_LEVEL_MAX = 100
+CITY_MAX_LEVEL = 107
 REST_FAST_SECONDS = 60
 REST_FULL_MINUTES = 30
-BATTLE_RECORD_RETENTION_DAYS = 7
-DIRECT_FLOW_RETENTION_DAYS = 30
-NEWSPAPER_RETENTION_DAYS = 30
+BATTLE_RECORD_RETENTION_DAYS = 5
+DIRECT_FLOW_RETENTION_DAYS = 7
+NEWSPAPER_RETENTION_DAYS = 7
+WORLD_SHORT_RECORD_RETENTION_DAYS = 5
+WORLD_LONG_RECORD_RETENTION_DAYS = 7
 PLAYER_EXP_POWER_BASE = 120
 PLAYER_EXP_LEVEL_BASE = 600
 WEAPON_EXP_POWER_BASE = 40
@@ -69,13 +73,13 @@ WORLD_COORD_MAX = 100
 # 低星级给更高收益比例，让前期存钱有体感；高星级给更高收益总量，
 # 但比例逐步降低，避免后期只靠源库被动收益压过主动玩法。
 BANK_LEVELS = {
-    1: {"name": "一星", "limit": 100_000, "cost": 0, "daily_interest_limit": 12_000, "hour_rate": 0.005},
-    2: {"name": "二星", "limit": 300_000, "cost": 50_000, "daily_interest_limit": 30_000, "hour_rate": 0.0041},
-    3: {"name": "三星", "limit": 800_000, "cost": 180_000, "daily_interest_limit": 64_000, "hour_rate": 0.0033},
-    4: {"name": "四星", "limit": 2_000_000, "cost": 600_000, "daily_interest_limit": 120_000, "hour_rate": 0.0025},
-    5: {"name": "五星", "limit": 5_000_000, "cost": 1_800_000, "daily_interest_limit": 225_000, "hour_rate": 0.0018},
-    6: {"name": "六星", "limit": 12_000_000, "cost": 5_000_000, "daily_interest_limit": 300_000, "hour_rate": 0.001},
-    7: {"name": "七星", "limit": 30_000_000, "cost": 15_000_000, "daily_interest_limit": 500_000, "hour_rate": 0.00065},
+    1: {"name": "一星", "limit": 100_000, "cost": 0, "daily_interest_limit": 8_000, "hour_rate": 0.0033},
+    2: {"name": "二星", "limit": 300_000, "cost": 50_000, "daily_interest_limit": 18_000, "hour_rate": 0.0025},
+    3: {"name": "三星", "limit": 800_000, "cost": 180_000, "daily_interest_limit": 40_000, "hour_rate": 0.0020},
+    4: {"name": "四星", "limit": 2_000_000, "cost": 600_000, "daily_interest_limit": 75_000, "hour_rate": 0.00155},
+    5: {"name": "五星", "limit": 5_000_000, "cost": 1_800_000, "daily_interest_limit": 135_000, "hour_rate": 0.0011},
+    6: {"name": "六星", "limit": 12_000_000, "cost": 5_000_000, "daily_interest_limit": 215_000, "hour_rate": 0.00072},
+    7: {"name": "七星", "limit": 30_000_000, "cost": 15_000_000, "daily_interest_limit": 320_000, "hour_rate": 0.00044},
 }
 BANK_MAX_LEVEL = 7
 
@@ -91,11 +95,11 @@ TRADE_SELL_FEE_RATE = 0.02
 TRADE_RESALE_LOCK_HOURS = 4
 TRADE_MAX_PROFIT_RATE = 0.45
 TRADE_PURE_ECONOMY_PRICE_FACTOR = 1.18
-TRADE_DAILY_REWARD_MIN_QUANTITY = 3
-TRADE_DAILY_REWARD_MIN_NET = 5_000
-TRADE_DAILY_REWARD_RATE = 0.06
-TRADE_DAILY_REWARD_CAP_BASE = 3_000
-TRADE_DAILY_REWARD_CAP_LEVEL_BONUS = 700
+TRADE_DAILY_REWARD_MIN_QUANTITY = 5
+TRADE_DAILY_REWARD_MIN_NET = 8_000
+TRADE_DAILY_REWARD_RATE = 0.035
+TRADE_DAILY_REWARD_CAP_BASE = 2_000
+TRADE_DAILY_REWARD_CAP_LEVEL_BONUS = 350
 TRADE_DAILY_REWARD_QUANTITY_SOFT_RATE = 0.08
 TRADE_DAILY_REWARD_NET_SOFT_RATE = 0.10
 TRADE_ACTIVE_WINDOW_DAYS = 7
@@ -133,6 +137,8 @@ FIXED_EQUIPMENT_SLOT_FACTORS = {
     "饰品": 1.2,
     "护甲": 1.5,
 }
+EQUIPMENT_DEFAULT_HOLES = 3
+EQUIPMENT_MAX_HOLES = 9
 
 
 # ----------------------------
@@ -147,10 +153,10 @@ WORMHOLE_DURATION_MINUTES = 60
 WORMHOLE_CHALLENGE_COOLDOWN_MINUTES = 3
 WORMHOLE_NOTICE_COOLDOWN_MINUTES = 5
 WORMHOLE_ACTIVE_WINDOW_DAYS = 7
-WORMHOLE_DAILY_MIN_LIMIT = 3
-WORMHOLE_DAILY_BASE_LIMIT = 3
-WORMHOLE_DAILY_ACTIVE_PLAYER_STEP = 3
-WORMHOLE_DAILY_MAX_LIMIT = 12
+WORMHOLE_DAILY_MIN_LIMIT = 2
+WORMHOLE_DAILY_BASE_LIMIT = 2
+WORMHOLE_DAILY_ACTIVE_PLAYER_STEP = 4
+WORMHOLE_DAILY_MAX_LIMIT = 8
 SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES = 30
 SEASONAL_BOSS_MAX_CHALLENGES = 5
 WEAPON_TYPE_INTERVAL_FACTORS = {
@@ -182,12 +188,15 @@ __all__ = [
     "BOOK_RECYCLE_SINGLE_CAP_LEVEL_BONUS",
     "BOOK_RECYCLE_SOFT_BASE",
     "BOOK_RECYCLE_SOFT_LEVEL_BONUS",
+    "CITY_MAX_LEVEL",
     "DAY_RESET_HOUR",
     "DEFAULT_BACKPACK_LIMIT",
     "DEFAULT_LOCATION",
     "DEFAULT_WEIGHT_LIMIT",
     "DIRECT_FLOW_RETENTION_DAYS",
     "ENCOUNTER_SECONDS",
+    "EQUIPMENT_DEFAULT_HOLES",
+    "EQUIPMENT_MAX_HOLES",
     "EQUIPMENT_SLOTS",
     "EXP_CURVE_POWER",
     "EXP_LATE_END_FACTOR",
@@ -219,6 +228,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES",
     "SEASONAL_BOSS_MAX_CHALLENGES",
+    "SECT_LEVEL_MAX",
     "SPECIAL_SELL_MIN_RATE",
     "SPECIAL_SELL_PRESSURE_FACTOR",
     "SPECIAL_SELL_SOFT_BASE",
@@ -273,6 +283,8 @@ __all__ = [
     "WORMHOLE_DAILY_MAX_LIMIT",
     "WORMHOLE_DURATION_MINUTES",
     "WORMHOLE_NOTICE_COOLDOWN_MINUTES",
+    "WORLD_LONG_RECORD_RETENTION_DAYS",
     "WORLD_COORD_MAX",
     "WORLD_COORD_MIN",
+    "WORLD_SHORT_RECORD_RETENTION_DAYS",
 ]

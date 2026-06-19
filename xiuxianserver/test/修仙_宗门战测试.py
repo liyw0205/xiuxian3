@@ -50,6 +50,7 @@ def main() -> None:
         backpack = BackpackService(db)
         ring = RingService(db)
         sect = SectService(db)
+        sect._is_member_locked = lambda value=None: False  # type: ignore[method-assign]
         weapon = WeaponService(db)
         try:
             assert _index_exists(db, "idx_sects_founder_id")

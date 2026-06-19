@@ -293,6 +293,12 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", "风云榜"),
         ("stress_a", "修仙早报"),
         ("stress_a", "修仙界历史"),
+        ("stress_a", "人物史榜"),
+        ("stress_a", "宗门史榜"),
+        ("stress_a", "城池史榜"),
+        ("stress_a", "战斗名局"),
+        ("stress_a", "商路奇闻"),
+        ("stress_a", "异界虫洞录"),
         ("stress_a", "人物志 云游客"),
     ]
 

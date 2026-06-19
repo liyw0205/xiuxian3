@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from 修仙.format_text import T
 from 修仙.markdown_utils import MarkdownKeyboard, button, markdown_message_from_text
 from 修仙.common import dump_json, now, ts
+from 修仙.notifications import system_message_line
 from 修仙.sql import XiuxianDB
 from 修仙.修仙帮助.service import service as help_service
 from 修仙.reply import _with_player_name
@@ -73,10 +74,43 @@ class NoticeDB(FakeDB):
             return {"ok": 1}
         if "wormhole_participants" in sql:
             return {"ok": 1}
-        if "FROM sect_war_rewards" in sql:
+        if "FROM sect_war_rewards" in sql and params:
             return {"ok": 1}
         if "duel_requests" in sql:
             return {"ok": 1}
+        return None
+
+
+class SystemQueueDB(FakeDB):
+    """模拟全服系统消息队列，验证队首展示和后续补位。"""
+
+    def __init__(self, *, include_wormhole: bool = True) -> None:
+        self.include_wormhole = include_wormhole
+
+    def fetch_one(self, sql: str, params=(), *_args, **_kwargs) -> dict | None:
+        if "FROM players AS p" in sql or "FROM players" in sql:
+            return super().fetch_one(sql, params)
+        if "FROM sects" in sql or "FROM sect_war_rewards" in sql:
+            return None
+        if "FROM wormholes" in sql:
+            if not self.include_wormhole:
+                return None
+            return {
+                "boss_name": "裂天游魂",
+                "location_name": "破军营",
+                "result": dump_json({"event_type": "war_prep", "force": "破军营"}),
+            }
+        if "FROM seasonal_boss_events" in sql:
+            return {"boss_name": "折梅人", "title": "旧约", "weight_type": "普通"}
+        if "FROM treasure_maps" in sql and "拍卖中" in sql:
+            return {"city_name": "天枢城", "expires_at": ts(now() + timedelta(hours=1))}
+        if "FROM treasure_maps" in sql and "可拾取" in sql:
+            return {
+                "city_name": "青岚坊",
+                "x": 3,
+                "y": -2,
+                "expires_at": ts(now() + timedelta(hours=5)),
+            }
         return None
 
 
@@ -219,6 +253,56 @@ def test_reply_header_notice_line_is_second_line() -> None:
     assert lines[2] == "正文"
     assert "虫洞奖励待领" not in lines[1]
     assert "对战请求待处理" not in lines[1]
+
+
+def test_reply_header_system_line_before_personal_notice() -> None:
+    """系统消息排在个人通知前，二者都不挤占正文。"""
+
+    db = _real_notice_db()
+    try:
+        _seed_notice_player(db)
+        db.execute(
+            """
+            INSERT INTO wormholes (
+                boss_name, boss_kind, location_name, x, y,
+                level, max_hp, hp, attack, defense, difficulty,
+                opened_by, source, status, opened_at, closes_at, result
+            )
+            VALUES (
+                '裂天游魂', '魂', '青岚坊', 1, 1,
+                12, 1000, 1000, 50, 20, 1.0,
+                'notice_ws', 'war_prep', '开启', ?, ?, ?
+            )
+            """,
+            (
+                ts(now() - timedelta(minutes=5)),
+                ts(now() + timedelta(minutes=55)),
+                dump_json({"event_type": "war_prep", "force": "破军营"}),
+            ),
+        )
+        payload = _with_player_name(
+            "notice_ws",
+            {"code": 202, "type": "text", "message": "查看状态"},
+            db,
+        )
+        lines = _payload_lines(payload)
+        assert lines[0] == "【听雪客·无 Lv.12】"
+        assert lines[1] == "🔴 系统：战备虫洞：破军营@青岚坊"
+        assert lines[2] == "🔴 通知：重伤待休息"
+        assert lines[3] == "查看状态"
+    finally:
+        _close_real_notice_db(db)
+
+
+def test_system_message_queue_limit_and_backfill() -> None:
+    """系统消息按优先级排队，只展示队首三条；队首消失后后续补上。"""
+
+    line = system_message_line(SystemQueueDB(), limit=3)
+    assert line == "🔴 系统：战备虫洞：破军营@破军营｜岁时情劫：旧约·折梅人｜天枢城藏宝图将结"
+    assert "青岚坊藏宝图散落" not in line
+
+    backfilled = system_message_line(SystemQueueDB(include_wormhole=False), limit=3)
+    assert backfilled == "🔴 系统：岁时情劫：旧约·折梅人｜天枢城藏宝图将结｜青岚坊藏宝图散落(3,-2)"
 
 
 def test_reply_header_notice_keeps_handwritten_buttons() -> None:
@@ -396,6 +480,8 @@ def main() -> None:
     test_reply_text_with_button_tags_to_markdown()
     test_reply_keeps_long_handwritten_business_buttons()
     test_reply_header_notice_line_is_second_line()
+    test_reply_header_system_line_before_personal_notice()
+    test_system_message_queue_limit_and_backfill()
     test_reply_header_notice_keeps_handwritten_buttons()
     test_reply_header_notice_not_used_for_predictive_buttons()
     test_reply_header_notice_failure_is_silent()

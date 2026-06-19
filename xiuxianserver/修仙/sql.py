@@ -1092,15 +1092,6 @@ class XiuxianDB:
                 PRIMARY KEY (location_name, item_id, business_day)
             );
 
-            CREATE TABLE IF NOT EXISTS trade_industry_states (
-                location_name TEXT PRIMARY KEY,
-                medicine_supply_stock INTEGER NOT NULL DEFAULT 0,
-                medicine_supply_limit INTEGER NOT NULL DEFAULT 0,
-                medicine_supply_efficiency REAL NOT NULL DEFAULT 1.0,
-                medicine_supply_heat INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS city_world_states (
                 location_name TEXT PRIMARY KEY,
                 city_level INTEGER NOT NULL DEFAULT 1,
@@ -1637,7 +1628,6 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_trade_records_client ON trade_records(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
-            CREATE INDEX IF NOT EXISTS idx_trade_industry_heat ON trade_industry_states(medicine_supply_heat);
             CREATE INDEX IF NOT EXISTS idx_world_material_records_client ON world_material_records(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_world_material_records_location ON world_material_records(location_name, category, created_at);
             CREATE INDEX IF NOT EXISTS idx_treasure_maps_status ON treasure_maps(status, expires_at);
@@ -1817,7 +1807,6 @@ class XiuxianDB:
             "INSERT OR REPLACE INTO trade_locations (name, x, y, specialties) VALUES (?, ?, ?, ?)",
             TRADE_LOCATIONS,
         )
-        self._seed_trade_industry_states()
         self._seed_city_world_states()
         trade_names = {
             name
@@ -1955,45 +1944,6 @@ class XiuxianDB:
             EXPLORATION_LOCATIONS,
         )
         self.conn.commit()
-
-    def _seed_trade_industry_states(self) -> None:
-        """写入跑商地点的行业状态初始值。"""
-
-        assert self.conn is not None
-        current_locations = tuple(location for location, _x, _y, _specialties in TRADE_LOCATIONS)
-        if current_locations:
-            placeholders = ",".join("?" for _ in current_locations)
-            self.conn.execute(
-                f"DELETE FROM trade_industry_states WHERE location_name NOT IN ({placeholders})",
-                current_locations,
-            )
-        rows = [
-            (
-                location,
-                stock,
-                limit,
-                efficiency,
-                heat,
-                ts(),
-            )
-            for location, _x, _y, specialties in TRADE_LOCATIONS
-            for stock, limit, efficiency, heat in (self._trade_industry_seed_state(specialties),)
-        ]
-        self.conn.executemany(
-            """
-            INSERT OR IGNORE INTO trade_industry_states
-            (location_name, medicine_supply_stock, medicine_supply_limit, medicine_supply_efficiency, medicine_supply_heat, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-
-    @staticmethod
-    def _trade_industry_seed_state(specialties: str) -> tuple[int, int, float, int]:
-        """地点行业状态不再由跑商特产驱动，只保留温和初始值。"""
-
-        _ = specialties
-        return 2, 5, 1.0, 12
 
     def _seed_city_world_states(self) -> None:
         """写入 11 个承接城池的世界物资状态。"""

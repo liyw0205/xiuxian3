@@ -5,7 +5,6 @@ from __future__ import annotations
 from ..format_text import T
 
 from ..common import (
-    business_day,
     computed_weapon_enchant_slots,
     computed_weapon_potential_slots,
     computed_weapon_attack,
@@ -16,7 +15,6 @@ from ..common import (
     parse_weapon_ref,
     quality_factor,
     split_words,
-    to_int,
     ts,
     weapon_id_label,
     weapon_label_name,
@@ -25,6 +23,7 @@ from ..rules import (
     weapon_upgrade_cost,
     weapon_exp_for_level,
     weapon_exp_progress,
+    weapon_level_from_exp,
 )
 from ..sql import db
 from ..weapon_core import WeaponCore
@@ -64,7 +63,7 @@ class WeaponService(WeaponCore):
         weapon = self._resolve_default_weapon(rows, message)
         wanted_weapon_id = parse_weapon_ref(message)
         if not weapon and message.strip() and wanted_weapon_id <= 0:
-            return T.hint("查看武器格式不正确。", "发送：查看武器 武器ID，例如：查看武器 1")
+            return T.hint("查看武器格式不正确。", "发送：查看武器，或发送：查看武器 武器ID，例如：查看武器 武器#1")
         if not weapon and wanted_weapon_id > 0:
             return T.hint(f"没有找到武器 {weapon_id_label(wanted_weapon_id)}。", "发送：武器 查看自己的武器列表。<武器>")
         if not weapon:
@@ -100,7 +99,7 @@ class WeaponService(WeaponCore):
         _, error = self.require_player(client_id)
         if error:
             return error
-        weapon_id = to_int(message)
+        weapon_id = parse_weapon_ref(message)
         weapon = self.weapon(client_id, weapon_id)
         if not weapon:
             return T.hint("没有找到这把武器。", "发送：武器 查看自己的武器 ID。<武器>")
@@ -122,7 +121,7 @@ class WeaponService(WeaponCore):
         self.ensure_starter_weapon(client_id)
         weapon_id = parse_weapon_ref(message)
         if weapon_id <= 0 and message.strip():
-            return T.hint("升级武器格式不正确。", "发送：升级武器 武器ID，例如：升级武器 1")
+            return T.hint("升级武器格式不正确。", "发送：升级武器，或发送：升级武器 武器ID，例如：升级武器 武器#1")
         with self.db.transaction() as conn:
             if weapon_id <= 0:
                 equipped = conn.execute(
@@ -147,16 +146,19 @@ class WeaponService(WeaponCore):
             ).fetchone()
             if not weapon:
                 return T.hint("没有找到可升级的武器。", "发送：武器 查看自己的武器列表。<武器>")
-            if int(weapon["level"]) >= int(weapon["max_level"]):
+            max_level = int(weapon["max_level"])
+            current_exp = min(max(0, int(weapon["exp"] or 0)), weapon_exp_for_level(max_level))
+            current_level = weapon_level_from_exp(current_exp, max_level)
+            if current_level >= max_level:
                 return T.hint("这把武器已经到达自身等级上限。", "可以切换或继续探险获取更高上限武器。")
-            next_level = int(weapon["level"]) + 1
+            next_level = current_level + 1
             cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
             if not self.spend_stones_conn(conn, client_id, cost):
                 return T.hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<签到><探险>")
             target_exp = weapon_exp_for_level(next_level)
-            exp_gain = max(0, target_exp - int(weapon["exp"]))
+            exp_gain = max(0, target_exp - current_exp)
             next_weapon = dict(weapon)
-            next_weapon["exp"] = max(int(weapon["exp"]), target_exp)
+            next_weapon["exp"] = target_exp
             next_weapon["level"] = next_level
             slots = computed_weapon_enchant_slots(next_weapon)
             conn.execute(
@@ -180,7 +182,7 @@ class WeaponService(WeaponCore):
                 ),
             )
         return (
-            f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{weapon['max_level']}，"
+            f"升级成功，{weapon_label_name(weapon)} 等级 {next_level}/{max_level}，"
             f"经验补满 +{exp_gain}，攻击 {attack}，附魔栏 {slots}。"
         )
 
@@ -206,9 +208,10 @@ class WeaponService(WeaponCore):
             return error
         parts = split_words(message)
         if len(parts) < 2:
-            return T.hint("附魔格式不正确。", "发送：附魔武器 武器ID 技能书名，例如：附魔武器 1 破甲残卷")
-        weapon_id = to_int(parts[0])
-        book_name = " ".join(parts[1:])
+            return T.hint("附魔格式不正确。", "发送：附魔武器 武器ID 技能书名，例如：附魔武器 武器#1 破甲残卷")
+        weapon_id, book_name = self._split_weapon_ref_and_tail(parts)
+        if weapon_id <= 0 or not book_name:
+            return T.hint("附魔格式不正确。", "发送：附魔武器 武器ID 技能书名，例如：附魔武器 武器#1 破甲残卷")
         book = self.ring_item_def_by_name(book_name)
         if not book or book["category"] != "技能书":
             return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。<纳戒>")
@@ -253,6 +256,16 @@ class WeaponService(WeaponCore):
                 (client_id, f"weapon_id={weapon_id}, book={book['ring_item_id']}, enchant={enchant_id}", ts()),
             )
         return f"附魔成功：{weapon_label_name(weapon)} 获得 {book['name']}。"
+
+    @staticmethod
+    def _split_weapon_ref_and_tail(parts: list[str]) -> tuple[int, str]:
+        """解析 武器#12 名称 / #12 名称 / 武器 12 名称 / 12 名称。"""
+
+        if not parts:
+            return 0, ""
+        if parts[0] in {"武器", "武器ID"} and len(parts) >= 2:
+            return parse_weapon_ref(parts[1]), " ".join(parts[2:]).strip()
+        return parse_weapon_ref(parts[0]), " ".join(parts[1:]).strip()
 
     def _base_enchant_ids(self, enchant_ids: list[object]) -> set[str]:
         """把普通/极版附魔都折算成基础模板，避免极版绕过同书判重。"""

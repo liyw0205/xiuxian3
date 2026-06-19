@@ -39,6 +39,8 @@ def main() -> None:
         assert backup_path.exists()
         assert second_backup_path.exists()
         assert second_backup_path.stem.startswith(f"{backup_path.stem}_")
+        _assert_backup_contains_player(backup_path)
+        _assert_backup_contains_player(second_backup_path)
 
         _assert_empty_db_skipped(temp_path)
         _assert_hot_reload_skip(temp_path)
@@ -73,6 +75,20 @@ def _assert_empty_db_skipped(temp_path: Path) -> None:
             assert "players 表为空" in str(exc)
         else:
             raise AssertionError("空玩家库不应被备份")
+    finally:
+        db.close()
+
+
+def _assert_backup_contains_player(backup_path: Path) -> None:
+    """备份文件必须是可打开的 sqlite，并保留玩家数据。"""
+
+    db = XiuxianDB(backup_path)
+    try:
+        row = db.fetch_one(
+            "SELECT display_name FROM players WHERE client_id = ?",
+            ("backup_player",),
+        )
+        assert row and row["display_name"] == "备份玩家"
     finally:
         db.close()
 

@@ -13,15 +13,17 @@ from ..common import (
     to_int,
     ts,
 )
-from ..constants import EQUIPMENT_SLOTS, FIXED_EQUIPMENT_SLOT_FACTORS
+from ..constants import (
+    EQUIPMENT_DEFAULT_HOLES,
+    EQUIPMENT_MAX_HOLES,
+    EQUIPMENT_SLOTS,
+    FIXED_EQUIPMENT_SLOT_FACTORS,
+)
 from ..rules import (
     equipment_upgrade_cost,
     gem_upgrade_cost,
 )
 from ..sql import db
-
-DEFAULT_HOLES = 3
-MAX_HOLES = 9
 
 
 class EquipmentService(CoreService):
@@ -42,7 +44,7 @@ class EquipmentService(CoreService):
         panel = T.panel()
         panel.section("装备")
         for row in rows:
-            panel.line(f"{fixed_equipment_label(row)}｜**{row['level']}** 级｜孔位 **{row['hole_count']}/{MAX_HOLES}**")
+            panel.line(f"{fixed_equipment_label(row)}｜**{row['level']}** 级｜孔位 **{row['hole_count']}/{EQUIPMENT_MAX_HOLES}**")
         panel.hr()
         panel.section("总加成")
         panel.line(f"血气 +**{int(bonuses['max_hp_bonus'])}**｜" f"精神 +**{int(bonuses['max_mp_bonus'])}**｜" f"防御 +**{int(bonuses['defense_bonus'])}**")
@@ -94,7 +96,7 @@ class EquipmentService(CoreService):
         if slot not in EQUIPMENT_SLOTS:
             return T.hint(f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}", "发送：装备 查看已有装备位。<装备>")
         equipment = self._equipment_row(client_id, slot)
-        hole_count = int(equipment["hole_count"]) if equipment else DEFAULT_HOLES
+        hole_count = int(equipment["hole_count"]) if equipment else EQUIPMENT_DEFAULT_HOLES
         rows = self.db.fetch_all(
             """
             SELECT i.hole_no, i.level, e.name
@@ -108,8 +110,8 @@ class EquipmentService(CoreService):
         used = {row["hole_no"]: f"{row['name']} {row['level']}级" for row in rows}
         panel = T.panel()
         panel.section(f"{fixed_equipment_label(equipment) if equipment else slot}孔位")
-        panel.line(f"孔位：**{hole_count}/{MAX_HOLES}**")
-        for index in range(1, MAX_HOLES + 1):
+        panel.line(f"孔位：**{hole_count}/{EQUIPMENT_MAX_HOLES}**")
+        for index in range(1, EQUIPMENT_MAX_HOLES + 1):
             if index > hole_count:
                 panel.line(f"{index}：未开孔")
             else:
@@ -147,11 +149,11 @@ class EquipmentService(CoreService):
         panel.section("装备孔位总览")
         for index, slot in enumerate(EQUIPMENT_SLOTS):
             equipment = equipment_by_slot.get(slot)
-            hole_count = int(equipment["hole_count"]) if equipment else DEFAULT_HOLES
+            hole_count = int(equipment["hole_count"]) if equipment else EQUIPMENT_DEFAULT_HOLES
             level = int(equipment["level"]) if equipment else 0
             if index:
                 panel.blank()
-            panel.section(f"{fixed_equipment_label(equipment) if equipment else slot}｜Lv{level}｜{hole_count}/{MAX_HOLES}孔")
+            panel.section(f"{fixed_equipment_label(equipment) if equipment else slot}｜Lv{level}｜{hole_count}/{EQUIPMENT_MAX_HOLES}孔")
             gems = gems_by_slot.get(slot, {})
             panel.line(self._hole_row(1, hole_count, gems))
             panel.line(self._hole_row(4, hole_count, gems))
@@ -188,8 +190,8 @@ class EquipmentService(CoreService):
         slot = parts[0]
         hole_no = to_int(parts[1])
         item_name, wanted_level = parse_name_level(" ".join(parts[2:]))
-        if slot not in EQUIPMENT_SLOTS or hole_no < 1 or hole_no > MAX_HOLES:
-            return T.hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {MAX_HOLES}。")
+        if slot not in EQUIPMENT_SLOTS or hole_no < 1 or hole_no > EQUIPMENT_MAX_HOLES:
+            return T.hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {EQUIPMENT_MAX_HOLES}。")
         item = self.ring_item_def_by_name(item_name)
         if not item or item["category"] != "宝石":
             return T.hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。<宝石>")
@@ -198,7 +200,7 @@ class EquipmentService(CoreService):
                 "SELECT hole_count FROM fixed_equipment WHERE client_id = ? AND slot = ?",
                 (client_id, slot),
             ).fetchone()
-            hole_count = int(equipment["hole_count"]) if equipment else DEFAULT_HOLES
+            hole_count = int(equipment["hole_count"]) if equipment else EQUIPMENT_DEFAULT_HOLES
             if hole_no > hole_count:
                 return T.hint(f"{slot} 当前只开启到 {hole_count} 号孔。", "先发送：开孔 装备位，消耗开孔器后再镶嵌。")
             exists = conn.execute(

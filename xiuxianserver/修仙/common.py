@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 from .constants import (
     BATTLE_RECORD_RETENTION_DAYS,
+    CITY_MAX_LEVEL,
     DAY_RESET_HOUR,
     DEFAULT_BACKPACK_LIMIT,
     DEFAULT_LOCATION,
@@ -24,7 +25,10 @@ from .constants import (
     MAX_LEVEL,
     NEWSPAPER_RETENTION_DAYS,
     RENAME_COOLDOWN_HOURS,
+    SECT_LEVEL_MAX,
     WEAPON_TYPE_INTERVAL_FACTORS,
+    WORLD_LONG_RECORD_RETENTION_DAYS,
+    WORLD_SHORT_RECORD_RETENTION_DAYS,
 )
 from .format_text import T
 from .rules import (
@@ -36,6 +40,7 @@ from .rules import (
     max_hp,
     max_mp,
     money,
+    player_exp_for_level,
     weapon_enchant_slots,
     weapon_exp_for_level,
     weapon_level_from_exp,
@@ -287,7 +292,7 @@ def ring_item_use_hint(item: dict[str, Any]) -> str:
     if item["category"] == "宝石":
         return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<洗髓><宝石><武器>"
     if item["category"] == "技能书":
-        return "技能书请发送：附魔武器 武器ID 技能书名。<洗髓><宝石><武器>"
+        return "技能书请发送：附魔武器 武器ID 技能书名；武器 ID 支持 武器#12、#12、12。<洗髓><宝石><武器>"
     if item["name"] == "开孔器":
         return "开孔器由纳戒承接消耗，请发送：开孔 装备位。<纳戒><宝石><装备>"
     return "只有恢复类物品可以直接发送：使用 物品名，或使用 物品名 数量。<洗髓><宝石><武器>"
@@ -609,8 +614,8 @@ class CoreService:
         today = business_day()
         battle_cutoff = ts(now() - timedelta(days=BATTLE_RECORD_RETENTION_DAYS))
         direct_cutoff = ts(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
-        world_short_cutoff = ts(now() - timedelta(days=5))
-        world_long_cutoff = ts(now() - timedelta(days=15))
+        world_short_cutoff = ts(now() - timedelta(days=WORLD_SHORT_RECORD_RETENTION_DAYS))
+        world_long_cutoff = ts(now() - timedelta(days=WORLD_LONG_RECORD_RETENTION_DAYS))
         direct_business_day = business_day(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
         newspaper_business_day = business_day(now() - timedelta(days=NEWSPAPER_RETENTION_DAYS))
         with self.db.transaction() as conn:
@@ -620,6 +625,7 @@ class CoreService:
                 ).fetchone()
                 if row and row["value"] == today:
                     return
+            self._clamp_level_progress_conn(conn)
             self._cleanup_orphan_current_state_conn(conn)
             conn.execute(
                 """
@@ -677,6 +683,30 @@ class CoreService:
                 """,
                 (today,),
             )
+
+    def _clamp_level_progress_conn(self, conn: sqlite3.Connection) -> None:
+        """收敛已封顶等级的经验，避免未来开放上限时兑现历史溢出。"""
+
+        player_cap_exp = player_exp_for_level(MAX_LEVEL)
+        conn.execute("UPDATE players SET exp = 0 WHERE exp < 0")
+        conn.execute("UPDATE players SET exp = ? WHERE exp > ?", (player_cap_exp, player_cap_exp))
+        conn.execute(
+            "UPDATE players SET level = ? WHERE level > ?",
+            (MAX_LEVEL, MAX_LEVEL),
+        )
+
+        for row in conn.execute("SELECT holder_id, weapon_id, exp, max_level FROM player_weapons").fetchall():
+            cap_exp = weapon_exp_for_level(int(row["max_level"]))
+            exp = min(max(0, int(row["exp"] or 0)), cap_exp)
+            level = weapon_level_from_exp(exp, int(row["max_level"]))
+            conn.execute(
+                "UPDATE player_weapons SET exp = ?, level = ? WHERE holder_id = ? AND weapon_id = ?",
+                (exp, level, row["holder_id"], int(row["weapon_id"])),
+            )
+
+        conn.execute("UPDATE sect_stats SET exp = 0 WHERE exp < 0 OR level >= ?", (SECT_LEVEL_MAX,))
+
+        conn.execute("UPDATE city_world_states SET build_exp = 0 WHERE build_exp < 0 OR city_level >= ?", (CITY_MAX_LEVEL,))
 
     def _cleanup_orphan_current_state_conn(self, conn: sqlite3.Connection) -> None:
         """清理已不存在玩家的当前态数据，避免事故删号后残留可交互状态。"""
@@ -1948,18 +1978,28 @@ class CoreService:
         amount_int = max(0, to_int(amount, 0))
         if weapon_id_int <= 0 or amount_int <= 0:
             return 0
+        row = conn.execute(
+            "SELECT exp, max_level FROM player_weapons WHERE holder_id = ? AND weapon_id = ?",
+            (client_id, weapon_id_int),
+        ).fetchone()
+        if not row:
+            return 0
+        cap_exp = weapon_exp_for_level(int(row["max_level"]))
+        current_exp = min(max(0, int(row["exp"] or 0)), cap_exp)
+        next_exp = min(cap_exp, current_exp + amount_int)
+        actual_gain = max(0, next_exp - current_exp)
         cursor = conn.execute(
             """
             UPDATE player_weapons
-            SET exp = exp + ?
+            SET exp = ?
             WHERE holder_id = ? AND weapon_id = ?
             """,
-            (amount_int, client_id, weapon_id_int),
+            (next_exp, client_id, weapon_id_int),
         )
         if cursor.rowcount <= 0:
             return 0
         self.sync_weapon_level_conn(conn, client_id, weapon_id_int)
-        return amount_int
+        return actual_gain
 
     def reset_rest_window_conn(
         self,
@@ -1994,10 +2034,12 @@ class CoreService:
         ).fetchone()
         if not row:
             return 0
-        level = weapon_level_from_exp(int(row["exp"]), int(row["max_level"]))
+        cap_exp = weapon_exp_for_level(int(row["max_level"]))
+        exp = min(max(0, int(row["exp"] or 0)), cap_exp)
+        level = weapon_level_from_exp(exp, int(row["max_level"]))
         conn.execute(
-            "UPDATE player_weapons SET level = ? WHERE holder_id = ? AND weapon_id = ?",
-            (level, client_id, weapon_id_int),
+            "UPDATE player_weapons SET level = ?, exp = ? WHERE holder_id = ? AND weapon_id = ?",
+            (level, exp, client_id, weapon_id_int),
         )
         return level
 
@@ -2343,7 +2385,8 @@ class CoreService:
         player = conn.execute("SELECT * FROM players WHERE client_id = ?", (client_id,)).fetchone()
         if not player:
             raise ValueError("玩家不存在")
-        level = level_from_exp(player["exp"])
+        exp = min(max(0, int(player["exp"] or 0)), player_exp_for_level(MAX_LEVEL))
+        level = level_from_exp(exp)
         physique_value = int(player["physique_value"])
         physique_def = conn.execute(
             "SELECT physique_value FROM physique_defs WHERE physique_id = ?",
@@ -2359,11 +2402,11 @@ class CoreService:
         conn.execute(
             """
             UPDATE players
-            SET level = ?, max_hp = ?, max_mp = ?, hp = min(hp, ?), mp = min(mp, ?),
+            SET level = ?, exp = ?, max_hp = ?, max_mp = ?, hp = min(hp, ?), mp = min(mp, ?),
                 physique_value = ?, base_attack = ?, defense = ?
             WHERE client_id = ?
             """,
-            (level, hp_max, mp_max, hp_max, mp_max, physique_value, attack_value, defense_value, client_id),
+            (level, exp, hp_max, mp_max, hp_max, mp_max, physique_value, attack_value, defense_value, client_id),
         )
         row = conn.execute("SELECT * FROM players WHERE client_id = ?", (client_id,)).fetchone()
         return dict(row) if row else dict(player)
@@ -2381,9 +2424,12 @@ class CoreService:
         if not player:
             return 1, 1
         old_level = player["level"]
+        cap_exp = player_exp_for_level(MAX_LEVEL)
+        current_exp = min(max(0, int(player["exp"] or 0)), cap_exp)
+        next_exp = min(cap_exp, current_exp + max(0, int(amount)))
         conn.execute(
-            "UPDATE players SET exp = exp + ? WHERE client_id = ?",
-            (max(0, amount), client_id),
+            "UPDATE players SET exp = ? WHERE client_id = ?",
+            (next_exp, client_id),
         )
         player = self.recalc_player_conn(conn, client_id)
         return old_level, player["level"]
@@ -2824,8 +2870,8 @@ class CoreService:
 
         if player["level"] >= MAX_LEVEL:
             return "已满级"
-        need_total = sum(exp_need(level) for level in range(1, player["level"] + 1))
-        current = player["exp"] - sum(exp_need(level) for level in range(1, player["level"]))
+        exp = min(max(0, int(player["exp"])), player_exp_for_level(MAX_LEVEL))
+        current = exp - player_exp_for_level(player["level"])
         need = exp_need(player["level"])
         return f"{current}/{need}"
 

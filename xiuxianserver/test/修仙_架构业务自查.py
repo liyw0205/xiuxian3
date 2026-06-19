@@ -11,6 +11,7 @@
 - 基础配置都能落到真实数据库表。
 - WS 精确命令不能重复挂到不同函数。
 - 战斗效果公共函数只能在 common.py 定义。
+- 二级组件必须有说明文档，并写清命令/HTTP/回调入口和组件关联。
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from 修仙.sql import TRADE_FORBIDDEN_SPECIALTY_TYPES, XiuxianDB
-from 修仙.修仙物品.service import TreasureService
+from 修仙.修仙物品.service import ItemInfoService
 
 
 XIUXIAN_ROOT = PROJECT_ROOT / "修仙"
@@ -37,6 +38,7 @@ def main() -> None:
     """执行所有自查项。"""
 
     _check_import_boundaries()
+    _check_component_docs()
     _check_no_removed_entry()
     _check_seed_data()
     _check_treasure_detail_coverage()
@@ -65,6 +67,64 @@ def _check_import_boundaries() -> None:
         violations.extend(_child_cross_imports(file, tree, rel.parts[0], child_dirs))
 
     assert not violations, "修仙导入边界违规：\n" + "\n".join(violations)
+
+
+def _check_component_docs() -> None:
+    """检查二级组件说明文档是可被帮助站和百科消费的稳定文档。"""
+
+    offenders: list[str] = []
+    for child in sorted(_documented_child_dirs(), key=lambda item: item.name):
+        doc = child / "说明.md"
+        if not doc.exists():
+            offenders.append(f"{child.name}: 缺少 说明.md")
+            continue
+        text = doc.read_text(encoding="utf-8")
+        if not _has_heading(text, "组件关联"):
+            offenders.append(f"{child.name}: 说明.md 缺少 ## 组件关联")
+        if not any(_has_heading(text, heading) for heading in ("命令", "HTTP", "回调")):
+            offenders.append(f"{child.name}: 说明.md 需要 ## 命令 / ## HTTP / ## 回调 之一")
+        if _has_heading(text, "命令") and "```" not in _heading_section(text, "命令"):
+            offenders.append(f"{child.name}: ## 命令 下需要代码块，供帮助站生成主要命令")
+    assert not offenders, "组件说明文档不完整：\n" + "\n".join(offenders)
+
+
+def _documented_child_dirs() -> list[Path]:
+    """需要维护说明文档的二级中文组件目录。"""
+
+    result: list[Path] = []
+    for path in XIUXIAN_ROOT.iterdir():
+        if not path.is_dir() or path.name.startswith("__"):
+            continue
+        if not any("\u4e00" <= char <= "\u9fff" for char in path.name):
+            continue
+        if (path / "__init__.py").exists() or (path / "service.py").exists():
+            result.append(path)
+    return result
+
+
+def _has_heading(text: str, title: str) -> bool:
+    """判断 Markdown 是否有指定标题。"""
+
+    return any(line.strip() == f"## {title}" for line in text.splitlines())
+
+
+def _heading_section(text: str, title: str) -> str:
+    """截取指定二级标题下的正文。"""
+
+    lines = text.splitlines()
+    start: int | None = None
+    for index, line in enumerate(lines):
+        if line.strip() == f"## {title}":
+            start = index + 1
+            break
+    if start is None:
+        return ""
+    result: list[str] = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        result.append(line)
+    return "\n".join(result)
 
 
 def _root_reverse_imports(file: Path, tree: ast.AST, child_dirs: set[str]) -> list[str]:
@@ -274,7 +334,7 @@ def _check_treasure_detail_coverage() -> None:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_detail_audit.db")
         try:
             db.init()
-            service = TreasureService(db)
+            service = ItemInfoService(db)
             service.create_player("audit_user", "自查道友")
             tables = (
                 "item_defs",

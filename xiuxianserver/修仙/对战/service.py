@@ -637,6 +637,9 @@ class DuelService(CoreService):
         request = self._waiting_request(client_id, from_id, mode)
         if not request:
             return T.hint("没有找到待接受的请求。", "确认对方名称是否正确，或让对方重新发起切磋/决斗。")
+        state_error = self._accept_state_error(client_id, from_id)
+        if state_error:
+            return state_error
 
         result = combat_service.duel(from_id, client_id, write_log=False)
         accepted = self._settle_accept_request(client_id, from_id, mode, request["duel_id"], result)
@@ -670,6 +673,20 @@ class DuelService(CoreService):
             ).fetchone()
         return dict(request_row) if request_row else None
 
+    def _accept_state_error(self, client_id: str, from_id: str) -> str:
+        """接受前复查双方本体状态，避免发起后转入探险或休息仍被结算。"""
+
+        challenger = self.player(from_id)
+        accepter = self.player(client_id)
+        if not challenger or not accepter:
+            return T.hint("对战双方状态异常。", "请让对方重新发起切磋/决斗。")
+        if challenger["status"] != "空闲" or accepter["status"] != "空闲":
+            return T.hint(
+                "双方都需要处于空闲状态才能接受对战。",
+                "先处理探险、休息或其他战斗；原请求未过期前仍会保留，可稍后再接受，或发送拒绝切磋/拒绝决斗处理。<修仙信息>",
+            )
+        return ""
+
     def _settle_accept_request(
         self,
         client_id: str,
@@ -692,6 +709,9 @@ class DuelService(CoreService):
             if not request_row:
                 return T.hint("没有找到待接受的请求。", "可能已超时或被处理，请让对方重新发起。")
             request = dict(request_row)
+            state_error = self._accept_state_error(client_id, from_id)
+            if state_error:
+                return state_error
 
             if mode == "duel" and not self._spend_accept_stake_conn(conn, client_id, from_id, request):
                 return T.hint("你的源石不足，决斗已取消，发起人的冻结源石已退回。", "补足源石后让对方重新发起决斗。")

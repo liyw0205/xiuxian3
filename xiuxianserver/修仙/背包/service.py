@@ -72,7 +72,7 @@ class BackpackService(CoreService):
         effect = load_json(item.get("effect"), {})
         category = str(effect.get("world_category") or item.get("category") or "")
         if category == "纯经济":
-            return "这是商场货物，可以发送：出售 物品名 数量，或直接自动出售清理背包。<出售><自动出售><商场推荐>"
+            return "这是跑商货物；做价差用 商场出售 商品名 数量，清包可发送：出售 物品名 数量 或 自动出售。<商场推荐><自动出售>"
         if category == "战利品":
             return "这是战利品，可以发送：出售 物品名 数量，或直接自动出售清理背包。<出售><自动出售>"
         if category in {"药路", "民生", "建设", "古物"}:

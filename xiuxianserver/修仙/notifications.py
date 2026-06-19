@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from .common import business_day, dt, load_json, row_value
+from .common import business_day, dt, load_json, money, row_value
 from .constants import (
     ENCOUNTER_SECONDS,
     EXPLORE_MINUTES,
@@ -15,9 +15,12 @@ from .constants import (
     TRADE_ACTIVE_WINDOW_DAYS,
 )
 from .rules import trade_daily_reward_thresholds, trade_global_soft_line, trade_player_soft_line
+from .sect_war import sect_war_in_battle_window, sect_war_in_reward_claim_window, sect_war_is_member_locked
 
+SYSTEM_NOTICE_PREFIX = "🔴 系统："
 NOTICE_PREFIX = "🔴 通知："
 DEFAULT_NOTICE_LIMIT = 3
+DEFAULT_SYSTEM_NOTICE_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,45 @@ class Notification:
     key: str
     text: str
     priority: int
+
+
+@dataclass(frozen=True)
+class SystemMessage:
+    """一条从世界事实派生出来的全服消息。"""
+
+    key: str
+    text: str
+    priority: int
+
+
+def system_message_line(database: Any, limit: int = DEFAULT_SYSTEM_NOTICE_LIMIT) -> str:
+    """生成系统消息队列文本；查询失败时静默，避免回复出口被通知拖垮。"""
+
+    try:
+        messages = collect_system_messages(database)
+    except Exception:
+        return ""
+    if not messages:
+        return ""
+    ordered = sorted(messages, key=lambda item: item.priority)
+    texts = [item.text for item in ordered[: max(1, int(limit))]]
+    return f"{SYSTEM_NOTICE_PREFIX}{'｜'.join(texts)}"
+
+
+def collect_system_messages(
+    database: Any,
+    *,
+    current_time: datetime | None = None,
+) -> list[SystemMessage]:
+    """收集全服系统消息；只展示正在发生、会过期或需要被看见的世界事实。"""
+
+    current = current_time or _now()
+    result: list[SystemMessage] = []
+    result.extend(_sect_war_system_messages(database, current))
+    result.extend(_wormhole_system_messages(database, current))
+    result.extend(_seasonal_boss_system_messages(database, current))
+    result.extend(_treasure_map_system_messages(database, current))
+    return _dedupe_system_messages(result)
 
 
 def notification_line(client_id: str, database: Any, limit: int = DEFAULT_NOTICE_LIMIT) -> str:
@@ -58,6 +100,7 @@ def collect_notifications(
     result.extend(_reward_notifications(client_id, database, current))
     result.extend(_duel_request_notifications(client_id, database, current))
     result.extend(_world_material_notifications(client_id, database, current))
+    result.extend(_second_hand_notifications(client_id, database, current))
     return _dedupe_notifications(result)
 
 
@@ -275,17 +318,144 @@ def _world_material_notifications(client_id: str, database: Any, current: dateti
         if expires_at and expires_at - current <= timedelta(hours=2):
             result.append(Notification("treasure_map_auction", "藏宝图竞拍将结", 75))
 
-    war_prep = database.fetch_one(
+    return result
+
+
+def _second_hand_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
+    """提醒卖家最近成交到账；低优先级，排在待处理事项后面。"""
+
+    cutoff = _ts(current - timedelta(hours=6))
+    row = database.fetch_one(
+        """
+        SELECT r.total_price, r.fee, p.display_name AS buyer_name
+        FROM second_hand_records AS r
+        LEFT JOIN players AS p ON p.client_id = r.buyer_id
+        WHERE r.seller_id = ?
+          AND datetime(replace(r.created_at, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
+        ORDER BY r.created_at DESC
+        LIMIT 1
+        """,
+        (client_id, cutoff),
+    )
+    if not row:
+        return []
+    gain = max(0, int(row_value(row, "total_price", 0) or 0) - int(row_value(row, "fee", 0) or 0))
+    buyer = str(row_value(row, "buyer_name", "某位道友") or "某位道友")
+    return [Notification("second_hand_sale", f"二手成交到账：{buyer}付来{money(gain)}", 90)]
+
+
+def _sect_war_system_messages(database: Any, current: datetime) -> list[SystemMessage]:
+    if not _has_sect_war_activity(database):
+        return []
+    result: list[SystemMessage] = []
+    if sect_war_in_reward_claim_window(current):
+        result.append(SystemMessage("sect_war_reward_day", "宗门战领取日", 20))
+    elif current.weekday() == 5 and sect_war_in_battle_window(current):
+        result.append(SystemMessage("sect_war_final_day", "宗门战收官日", 30))
+    if sect_war_is_member_locked(current):
+        result.append(SystemMessage("sect_war_member_lock", "宗门变动锁定", 90))
+    return result
+
+
+def _has_sect_war_activity(database: Any) -> bool:
+    row = database.fetch_one(
         """
         SELECT 1
-        FROM wormholes
-        WHERE status = '开启'
-          AND result LIKE '%"event_type": "war_prep"%'
+        FROM sects
         LIMIT 1
         """
     )
-    if war_prep:
-        result.append(Notification("war_prep_wormhole", "战备虫洞已开", 80))
+    if row:
+        return True
+    row = database.fetch_one(
+        """
+        SELECT 1
+        FROM sect_war_rewards
+        LIMIT 1
+        """
+    )
+    return bool(row)
+
+
+def _wormhole_system_messages(database: Any, current: datetime) -> list[SystemMessage]:
+    row = database.fetch_one(
+        """
+        SELECT boss_name, location_name, result
+        FROM wormholes
+        WHERE status = '开启'
+          AND datetime(closes_at) > datetime(?)
+        ORDER BY opened_at DESC
+        LIMIT 1
+        """,
+        (_ts(current),),
+    )
+    if not row:
+        return []
+    boss = str(row_value(row, "boss_name", "异界裂隙") or "异界裂隙")
+    location = str(row_value(row, "location_name", "未知地点") or "未知地点")
+    metadata = load_json(row_value(row, "result", "{}"), {})
+    event_type = metadata.get("event_type") if isinstance(metadata, dict) else ""
+    if event_type == "war_prep":
+        force = str(metadata.get("force", "") or "") if isinstance(metadata, dict) else ""
+        if force:
+            return [SystemMessage("war_prep_wormhole", f"战备虫洞：{force}@{location}", 10)]
+        return [SystemMessage("war_prep_wormhole", f"战备虫洞：{boss}@{location}", 10)]
+    return [SystemMessage("normal_wormhole", f"异界虫洞：{boss}@{location}", 40)]
+
+
+def _seasonal_boss_system_messages(database: Any, current: datetime) -> list[SystemMessage]:
+    row = database.fetch_one(
+        """
+        SELECT boss_name, title, weight_type
+        FROM seasonal_boss_events
+        WHERE status = '开启'
+          AND datetime(closes_at) > datetime(?)
+        ORDER BY opened_at DESC
+        LIMIT 1
+        """,
+        (_ts(current),),
+    )
+    if not row:
+        return []
+    boss = str(row_value(row, "boss_name", "岁时情劫") or "岁时情劫")
+    title = str(row_value(row, "title", "") or "")
+    name = f"{title}·{boss}" if title else boss
+    return [SystemMessage("seasonal_boss", f"岁时情劫：{name}", 50)]
+
+
+def _treasure_map_system_messages(database: Any, current: datetime) -> list[SystemMessage]:
+    result: list[SystemMessage] = []
+    auction = database.fetch_one(
+        """
+        SELECT city_name, expires_at
+        FROM treasure_maps
+        WHERE status = '拍卖中'
+        ORDER BY expires_at ASC
+        LIMIT 1
+        """
+    )
+    if auction:
+        expires_at = dt(str(row_value(auction, "expires_at", "") or ""))
+        if expires_at and expires_at > current and expires_at - current <= timedelta(hours=2):
+            city = str(row_value(auction, "city_name", "某城") or "某城")
+            result.append(SystemMessage("treasure_map_auction", f"{city}藏宝图将结", 60))
+
+    pickup = database.fetch_one(
+        """
+        SELECT city_name, x, y, expires_at
+        FROM treasure_maps
+        WHERE status = '可拾取'
+        ORDER BY expires_at ASC
+        LIMIT 1
+        """
+    )
+    if pickup:
+        expires_at = dt(str(row_value(pickup, "expires_at", "") or ""))
+        if not expires_at or expires_at > current:
+            city = str(row_value(pickup, "city_name", "某城") or "某城")
+            x = int(row_value(pickup, "x", 0) or 0)
+            y = int(row_value(pickup, "y", 0) or 0)
+            result.append(SystemMessage("treasure_map_pickup", f"{city}藏宝图散落({x},{y})", 70))
     return result
 
 
@@ -328,6 +498,17 @@ def _dedupe_notifications(notifications: list[Notification]) -> list[Notificatio
     return result
 
 
+def _dedupe_system_messages(messages: list[SystemMessage]) -> list[SystemMessage]:
+    result: list[SystemMessage] = []
+    seen: set[str] = set()
+    for item in sorted(messages, key=lambda value: value.priority):
+        if item.key in seen:
+            continue
+        seen.add(item.key)
+        result.append(item)
+    return result
+
+
 def _rest_ready(player: Any, current: datetime) -> bool:
     rest_full_at = dt(str(row_value(player, "rest_full_at", "") or ""))
     if not rest_full_at:
@@ -351,13 +532,18 @@ def _now() -> datetime:
 
 
 def _ts(value: datetime) -> str:
-    return value.isoformat(timespec="seconds")
+    return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
 __all__ = [
     "DEFAULT_NOTICE_LIMIT",
+    "DEFAULT_SYSTEM_NOTICE_LIMIT",
     "NOTICE_PREFIX",
     "Notification",
+    "SYSTEM_NOTICE_PREFIX",
+    "SystemMessage",
     "collect_notifications",
+    "collect_system_messages",
     "notification_line",
+    "system_message_line",
 ]

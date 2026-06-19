@@ -204,7 +204,7 @@ class PlayerService(CoreService):
             panel = T.panel()
             panel.section("战斗日志")
             panel.line(f"当前模式：**{mode_text(player)}**")
-            panel.line("开启为逐回合详细日志，关闭为简要战斗摘要。")
+            panel.line("开启后网页战斗日志默认展开逐回合明细，关闭后默认只看摘要；群消息始终保持短结算。")
             return panel.render()
 
         on_words = {"开启", "打开", "启用", "开", "on", "ON", "1"}
@@ -224,7 +224,7 @@ class PlayerService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '战斗日志', ?, ?)",
                 (client_id, state, ts()),
             )
-        return f"战斗日志已切换为{state}。"
+        return f"战斗日志已切换为{state}；后续群消息仍保持短结算，网页战斗日志按当前模式默认展开。"
 
     def sign(self, client_id: str) -> str:
         """每日签到。"""
@@ -341,33 +341,39 @@ class PlayerService(CoreService):
             return T.hint("你当前不在休息中。", "血气不足可发送：休息；想查看状态可发送：修仙信息<修仙信息><休息>")
 
         current = now()
-        full_at = dt(player["rest_full_at"]) or current
-        window = self._rest_window_state(player)
-        active_started_at = full_at - timedelta(seconds=window["remaining_seconds"])
-        active_seconds = max(0, int((current - active_started_at).total_seconds()))
-        if active_seconds < REST_FAST_SECONDS:
-            left = max(1, REST_FAST_SECONDS - active_seconds)
-            return T.hint(f"至少需要休息 {REST_FAST_SECONDS} 秒，还差 {left} 秒。", "满 1 分钟后再发送：结束休息")
-        elapsed_seconds = min(REST_FULL_MINUTES * 60, window["elapsed_seconds"] + active_seconds)
-        base_rate = rest_recovery_rate(elapsed_seconds)
-        recover_bonus = float(self.equipment_bonuses(client_id).get("recover_bonus", 0))
         with self.db.transaction() as conn:
+            fresh = conn.execute("SELECT * FROM players WHERE client_id = ?", (client_id,)).fetchone()
+            if not fresh:
+                return T.hint("你还没有创建用户。", "发送：创建用户 你的名字")
+            if fresh["status"] != "休息中":
+                return T.hint("当前状态已变化，不能结束休息。", "发送：修仙信息 查看当前状态。<修仙信息><休息>")
+
+            full_at = dt(fresh["rest_full_at"]) or current
+            window = self._rest_window_state(dict(fresh))
+            active_started_at = full_at - timedelta(seconds=window["remaining_seconds"])
+            active_seconds = max(0, int((current - active_started_at).total_seconds()))
+            if active_seconds < REST_FAST_SECONDS:
+                left = max(1, REST_FAST_SECONDS - active_seconds)
+                return T.hint(f"至少需要休息 {REST_FAST_SECONDS} 秒，还差 {left} 秒。", "满 1 分钟后再发送：结束休息")
+
+            elapsed_seconds = min(REST_FULL_MINUTES * 60, window["elapsed_seconds"] + active_seconds)
+            base_rate = rest_recovery_rate(elapsed_seconds)
+            recover_bonus = float(self.equipment_bonuses_conn(conn, client_id).get("recover_bonus", 0))
             sect_recover_bonus = min(0.12, sect_direction_bonus_conn(conn, client_id, "support") * 0.15)
-        recover_bonus += sect_recover_bonus
-        recover_multiplier = max(0.0, 1 + recover_bonus)
-        recover_rate = max(0.0, min(1.0, base_rate * recover_multiplier))
-        current_hp = int(player["hp"])
-        current_mp = int(player["mp"])
-        max_hp = int(player["max_hp"])
-        max_mp = int(player["max_mp"])
-        base_hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, base_rate)
-        base_mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, base_rate)
-        hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, recover_rate)
-        mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, recover_rate)
-        actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, hp, mp, max_hp, max_mp)
-        base_actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, base_hp, base_mp, max_hp, max_mp)
-        with self.db.transaction() as conn:
-            conn.execute(
+            recover_bonus += sect_recover_bonus
+            recover_multiplier = max(0.0, 1 + recover_bonus)
+            recover_rate = max(0.0, min(1.0, base_rate * recover_multiplier))
+            current_hp = int(fresh["hp"])
+            current_mp = int(fresh["mp"])
+            max_hp = int(fresh["max_hp"])
+            max_mp = int(fresh["max_mp"])
+            base_hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, base_rate)
+            base_mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, base_rate)
+            hp = self._rest_recover_value(window["base_hp"], current_hp, max_hp, recover_rate)
+            mp = self._rest_recover_value(window["base_mp"], current_mp, max_mp, recover_rate)
+            actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, hp, mp, max_hp, max_mp)
+            base_actual_rate = self._actual_rest_recovery_rate(current_hp, current_mp, base_hp, base_mp, max_hp, max_mp)
+            cursor = conn.execute(
                 """
                 UPDATE players
                 SET hp = ?,
@@ -377,10 +383,12 @@ class PlayerService(CoreService):
                     rest_window_hp = ?,
                     rest_window_mp = ?,
                     rest_window_elapsed_seconds = ?
-                WHERE client_id = ?
+                WHERE client_id = ? AND status = '休息中'
                 """,
                 (hp, mp, window["base_hp"], window["base_mp"], elapsed_seconds, client_id),
             )
+            if cursor.rowcount <= 0:
+                return T.hint("当前状态已变化，不能结束休息。", "发送：修仙信息 查看当前状态。<修仙信息><休息>")
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '结束休息', ?, ?)",
                 (
@@ -398,7 +406,7 @@ class PlayerService(CoreService):
         bonus_part = self._rest_recover_bonus_text(recover_multiplier)
         return (
             f"休息结束，已休息 {self._rest_time_text(elapsed_seconds)}，恢复效率 **{rate_text}%**{bonus_part}。"
-            f"血气恢复到 **{hp}**/{player['max_hp']}，精神恢复到 **{mp}**/{player['max_mp']}。<休息>"
+            f"血气恢复到 **{hp}**/{max_hp}，精神恢复到 **{mp}**/{max_mp}。<休息>"
         )
 
     def _rest_window_state(self, player: dict) -> dict[str, int | str]:

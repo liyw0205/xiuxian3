@@ -1,4 +1,4 @@
-"""商场交易、出售和导航 WS 命令。"""
+"""贸易服务交易、出售和导航 WS 命令。"""
 
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ from ..common import CoreService, format_effect, load_json
 from ..sql import db
 
 
-class TreasureService(CoreService):
+class ItemInfoService(CoreService):
     """查询修仙物品定义。
 
     玩家真正的存储只有两个：
@@ -55,7 +55,7 @@ class TreasureService(CoreService):
 
         return T.hint(
             f"没有找到修仙物品：{name}。",
-            "发送：背包、纳戒、武器，复制准确名称后再查；武器实例请发送：查看武器 武器ID。<背包><纳戒><武器>",
+            "发送：背包、纳戒、武器，复制准确名称后再查；武器实例请发送：查看武器，或查看武器 武器ID。<背包><纳戒><武器>",
         )
 
     @staticmethod
@@ -68,11 +68,24 @@ class TreasureService(CoreService):
         panel.line(f"存放：背包｜分类：{item['category']}｜品级：{item['quality']}｜重量：**{item['weight']}**")
         if effect.get("world_category"):
             panel.line(f"归属：{effect['world_category']} / {effect.get('world_subtype') or '未分小类'}")
+            panel.line(f"流向：{ItemInfoService._world_flow_text(str(effect['world_category']))}")
         panel.line(f"跑商：{'可' if item['tradeable'] else '不可'}｜使用：{'可' if item['usable'] else '不可'}")
         panel.line(f"基准价：**{item['base_price']}**")
         panel.line(f"效果：{format_effect(effect)}")
         panel.line(f"说明：{item['desc']}")
         return panel.render()
+
+    @staticmethod
+    def _world_flow_text(category: str) -> str:
+        """展示世界物资当前去路。"""
+
+        if category == "纯经济":
+            return "商场买卖，跑商赚价差"
+        if category in {"药路", "民生", "建设", "古物"}:
+            return "出售/自动出售，转入当前城池状态"
+        if category == "战利品":
+            return "出售/自动出售，流入特殊收购与战备蓄能"
+        return "按对应玩法说明处理"
 
     def _ring_item_text(self, item: dict) -> str:
         """格式化纳戒物品定义。"""
@@ -112,7 +125,7 @@ class TreasureService(CoreService):
         panel.line(f"类型：武器模板｜武器类型：{weapon['weapon_type']}｜掉落：{weapon['drop_location']}")
         panel.line(f"模板基础攻击：**{weapon['base_attack']}**")
         panel.line(f"自带技能：{skill_text}")
-        panel.line("武器详情：发送 查看武器 武器ID")
+        panel.line("武器详情：发送 查看武器，或 查看武器 武器ID")
         return panel.render()
 
     @staticmethod
@@ -181,6 +194,6 @@ class TreasureService(CoreService):
         return self.db.fetch_one("SELECT * FROM physique_defs WHERE name = ?", (name.strip(),))
 
 
-service = TreasureService(db)
+service = ItemInfoService(db)
 
-__all__ = ["TreasureService", "service"]
+__all__ = ["ItemInfoService", "service"]

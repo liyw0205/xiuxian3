@@ -6,7 +6,7 @@ from typing import Any
 
 from .common import row_value
 from .markdown_utils import markdown_message, split_button_tags
-from .notifications import notification_line
+from .notifications import notification_line, system_message_line
 from .sql import db
 
 MAX_REPLY_BUTTONS = 15
@@ -21,14 +21,14 @@ CONTEXT_BUTTONS_BY_GROUP = {
     "修仙物品": ("背包", "纳戒", "保险箱", "宝石", "武器", "装备", "铭刻"),
     "修仙百科": ("修仙百科 武器", "修仙百科 宝石", "修仙百科 跑商", "修仙百科 首领", "修仙百科 断念杖"),
     "源库": ("源库", "源库结息", "升级源库", "签到", "商场推荐", "自动出售", "探险"),
-    "商场": ("商场推荐", "自动出售", "跑商奖励", "跑商限制", "背包", "源库", "地图"),
+    "贸易服务": ("商场推荐", "自动出售", "跑商奖励", "跑商限制", "背包", "源库", "地图"),
     "二手市场": ("二手市场", "背包", "纳戒", "武器", "源库", "商场推荐"),
     "探险": ("探险状态", "结束探险", "探险记录", "探险列表", "背包", "纳戒", "休息", "自动出售"),
     "武器": ("武器", "武器淬锋", "纳戒", "保险箱", "装备", "铭刻", "探险", "修仙百科 武器"),
     "装备": ("装备", "孔位", "宝石", "纳戒", "武器", "源库", "探险"),
     "铭刻": ("铭刻", "铭刻之羽", "首领", "武器", "装备", "纳戒", "修仙百科 铭刻"),
     "对战": ("状态", "修仙信息", "休息", "决斗记录", "背包", "纳戒", "自动出售"),
-    "修仙界历史": ("风云榜", "修仙早报", "修仙界历史", "商场推荐", "首领", "虫洞"),
+    "修仙界历史": ("修仙界历史", "风云榜", "修仙早报", "人物史榜", "宗门史榜", "战斗名局"),
     "宗门": ("宗门", "宗门战", "领取宗门战奖励", "建立宗门", "加入宗门", "退出宗门", "地图", "状态", "修仙信息"),
     "首领": ("首领", "首领状态", "挑战首领", "首领奖励", "状态", "休息", "纳戒"),
     "异界虫洞": ("虫洞", "虫洞状态", "挑战虫洞", "虫洞奖励", "商场推荐", "状态", "休息"),
@@ -52,7 +52,7 @@ PREDICTIVE_BUTTON_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("宗门", "宗主", "建立宗门", "影响力", "淬锋丹"), ("宗门战", "领取宗门战奖励")),
     (("宗门战奖励待领", "宗门战奖励"), ("领取宗门战奖励", "宗门战")),
     (("切磋", "决斗", "抢劫", "仇恨", "死敌", "报复"), ("决斗记录", "状态", "休息")),
-    (("风云榜", "早报", "人物志", "历史"), ("修仙早报", "风云榜")),
+    (("风云榜", "早报", "人物志", "历史", "史榜", "名局", "奇闻", "虫洞录"), ("修仙界历史", "风云榜", "修仙早报")),
     (("保险箱",), ("保险箱", "纳戒")),
 )
 
@@ -99,17 +99,10 @@ def _text_to_markdown(
 ) -> dict:
     """普通文本先加玩家头，再转成带默认按钮的 markdown。"""
 
-    raw_text = str(message)
-    body_text, _ = split_button_tags(raw_text)
-    content, commands = split_button_tags(_prefix_text(header, raw_text))
     return {
         "code": 202,
         "type": "markdown",
-        "message": markdown_message(
-            content,
-            _button_commands(commands, service, auto_buttons, default_buttons, body_text),
-            limit=_reply_button_limit(commands),
-        ),
+        "message": _markdown_from_text(header, str(message), service, auto_buttons, default_buttons),
     }
 
 
@@ -123,19 +116,32 @@ def _prefix_markdown(
     """给已有 markdown 正文加玩家头，并补齐默认按钮。"""
 
     if not isinstance(message, dict):
-        raw_text = str(message)
-        body_text, _ = split_button_tags(raw_text)
-        content, commands = split_button_tags(_prefix_text(header, raw_text))
-        return markdown_message(
-            content,
-            _button_commands(commands, service, auto_buttons, default_buttons, body_text),
-            limit=_reply_button_limit(commands),
-        )
+        return _markdown_from_text(header, str(message), service, auto_buttons, default_buttons)
 
     raw_text = str(message.get("content", ""))
+    return _markdown_from_text(
+        header,
+        raw_text,
+        service,
+        auto_buttons,
+        default_buttons,
+        extra_commands=_keyboard_commands(message),
+    )
+
+
+def _markdown_from_text(
+    header: str,
+    raw_text: str,
+    service: Any,
+    auto_buttons: bool,
+    default_buttons: bool,
+    extra_commands: list[Any] | None = None,
+) -> dict:
+    """把正文加回复头、提取手写按钮，并生成最终 markdown message。"""
+
     body_text, _ = split_button_tags(raw_text)
     content, commands = split_button_tags(_prefix_text(header, raw_text))
-    commands.extend(_keyboard_commands(message))
+    commands.extend(extra_commands or [])
     return markdown_message(
         content,
         _button_commands(commands, service, auto_buttons, default_buttons, body_text),
@@ -178,13 +184,19 @@ def _player_header(client_id: str, database: Any) -> str:
 
 
 def _reply_header(client_id: str, database: Any) -> str:
-    """回复头块：第一行玩家身份，第二行可选通知。"""
+    """回复头块：玩家身份、系统消息队列、个人通知。"""
 
     header = _player_header(client_id, database)
     if header == "【未建档】":
         return header
+    system = system_message_line(database)
     notice = notification_line(client_id, database)
-    return f"{header}\n{notice}" if notice else header
+    lines = [header]
+    if system:
+        lines.append(system)
+    if notice:
+        lines.append(notice)
+    return "\n".join(lines)
 
 
 def _button_commands(

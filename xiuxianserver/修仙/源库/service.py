@@ -27,7 +27,8 @@ class SourceVaultService(CoreService):
         panel.line(f"星级：{level_conf['name']}")
         panel.line(f"随身源石：**{money(player['source_stones'])}**")
         panel.line(f"源库存量：**{money(vault['balance'])}/{money(level_conf['limit'])}**")
-        panel.line(f"今日利息：**{money(vault['daily_interest_claimed'])}/{money(level_conf['daily_interest_limit'])}**")
+        daily_interest_claimed = self._display_daily_interest_claimed(vault)
+        panel.line(f"今日利息：**{money(daily_interest_claimed)}/{money(level_conf['daily_interest_limit'])}**")
         return panel.render() + "<源库结息><升级源库>"
 
     def settle(self, client_id: str) -> str:
@@ -136,12 +137,6 @@ class SourceVaultService(CoreService):
         )
         return self.db.fetch_one("SELECT * FROM source_vaults WHERE client_id = ?", (client_id,)) or {}
 
-    def _settle(self, client_id: str) -> tuple[int, float]:
-        """内部结息。"""
-
-        with self.db.transaction() as conn:
-            return self._settle_conn(conn, client_id)
-
     def _vault_conn(self, conn: sqlite3.Connection, client_id: str) -> dict:
         """在当前事务里读取或创建源库。"""
 
@@ -169,8 +164,7 @@ class SourceVaultService(CoreService):
         conn.execute(
             """
             UPDATE source_vaults
-            SET last_settle_at = ?, last_interest_day = ?, daily_interest_claimed = ?,
-                balance = balance
+            SET last_settle_at = ?, last_interest_day = ?, daily_interest_claimed = ?
             WHERE client_id = ?
             """,
             (ts(), day, daily_interest_claimed + reward, client_id),
@@ -181,6 +175,14 @@ class SourceVaultService(CoreService):
                 (reward, client_id),
             )
         return reward, hours
+
+    @staticmethod
+    def _display_daily_interest_claimed(vault: dict) -> int:
+        """面板展示用今日利息；跨业务日后先按 0 展示。"""
+
+        if vault.get("last_interest_day") != business_day():
+            return 0
+        return max(0, int(vault.get("daily_interest_claimed", 0) or 0))
 
     @staticmethod
     def _rebased_settle_at_after_deposit(vault: dict, new_balance: int) -> str:

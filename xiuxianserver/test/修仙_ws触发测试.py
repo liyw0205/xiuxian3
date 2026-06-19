@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import 修仙.商场 as trade_module
+import 修仙.贸易服务 as trade_module
 import 修仙.异界虫洞 as wormhole_module
 import 修仙.修仙物品 as treasure_module
 import 修仙.对战 as duel_module
@@ -47,8 +47,8 @@ from 修仙.common import business_day, weapon_id_label
 from 修仙.item_effects import ItemEffectService
 from 修仙.sql import XiuxianDB
 from 修仙.weapon_core import WeaponCore
-from 修仙.商场.service import TradeService
-from 修仙.修仙物品.service import TreasureService
+from 修仙.贸易服务.service import TradeService
+from 修仙.修仙物品.service import ItemInfoService
 from 修仙.对战.service import DuelService
 from 修仙.wormhole_service import WormholeService
 from 修仙.二手市场.service import SecondHandService
@@ -61,7 +61,7 @@ from 修仙.玩家.service import PlayerService
 from 修仙.宗门.service import SectService
 from 修仙.纳戒.service import RingService
 from 修仙.背包.service import BackpackService
-from 修仙.保险箱.service import VaultService as InsuranceBoxService
+from 修仙.保险箱.service import InsuranceBoxService
 from 修仙.装备.service import EquipmentService
 from 修仙.铭刻.service import InscriptionService
 from 修仙.首领.service import BOSS_DEFS, SeasonalBossService
@@ -487,7 +487,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
         insurance_module: InsuranceBoxService(db),
         trade_module: TradeService(db),
         wormhole_module: WormholeService(db),
-        treasure_module: TreasureService(db),
+        treasure_module: ItemInfoService(db),
         weapon_module: WeaponService(db),
         encyclopedia_module: EncyclopediaService(db),
         exploration_module: ExplorationService(db),
@@ -498,6 +498,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
         seasonal_boss_module: SeasonalBossService(db),
         history_module: XiuxianHistoryService(db),
     }
+    replacements[sect_module]._is_member_locked = lambda value=None: False  # type: ignore[attr-defined, method-assign]
     for module, service in replacements.items():
         module.service = service
         module.ws_manager = manager
@@ -727,6 +728,12 @@ async def _assert_command_plan() -> None:
         "风云榜",
         "修仙早报",
         "修仙界历史",
+        "人物史榜",
+        "宗门史榜",
+        "城池史榜",
+        "战斗名局",
+        "商路奇闻",
+        "异界虫洞录",
         "人物志 青衫客",
         "人物志[CQ:at,qq=target_ws]",
         "二手市场购买[CQ:at,qq=target_ws]",

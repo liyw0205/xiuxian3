@@ -104,6 +104,13 @@ def level_from_exp(exp: int) -> int:
     return level
 
 
+def player_exp_for_level(level: int) -> int:
+    """计算玩家达到指定等级所需的累计经验。"""
+
+    target = max(1, min(MAX_LEVEL, int(level)))
+    return sum(exp_need(current_level) for current_level in range(1, target))
+
+
 def weapon_exp_need(level: int) -> int:
     """计算武器当前等级升到下一级需要的经验。"""
 
@@ -507,6 +514,7 @@ __all__ = [
     "monster_exp",
     "monster_exp_rate",
     "page_count",
+    "player_exp_for_level",
     "rest_recovery_rate",
     "sign_reward",
     "special_sell_price_rate",

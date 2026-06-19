@@ -10,6 +10,7 @@ import sqlite3
 from typing import Any
 
 from .common import now, ts
+from .constants import SECT_LEVEL_MAX
 
 
 SECT_WAR_REWARD_ITEM_ID = "cuifengdan"
@@ -20,7 +21,6 @@ SECT_WAR_REWARD_TYPE_SECT_RANDOM = "sect_random"
 SECT_WAR_REWARD_TYPE_PERSONAL_TOP = "personal_top"
 SECT_CITY_BONUS_HARD_CAP = 0.75
 SECT_CITY_SYNERGY_FACTORS = (1.0, 0.30, 0.15)
-SECT_LEVEL_MAX = 100
 SECT_SELF_BONUS_CAP = 0.30
 SECT_TOTAL_BONUS_CAP = 0.80
 SECT_MERIT_EXP_WEIGHTS = {
@@ -145,7 +145,9 @@ def sect_level_exp_need(level: int) -> int:
     """宗门升下一级需要的经验。"""
 
     current = max(1, min(SECT_LEVEL_MAX, int(level)))
-    return int(floor(900 * (current ** 1.62) + 2600 * current))
+    if current >= SECT_LEVEL_MAX:
+        return 0
+    return int(floor(1500 * (current ** 1.65) + 3600 * current))
 
 
 def sect_base_bonus(level: int) -> float:
@@ -306,7 +308,8 @@ def record_sect_merit_conn(
 
     old_level = max(1, min(SECT_LEVEL_MAX, int(stats["level"] or 1)))
     current_level = old_level
-    current_exp = max(0, int(stats["exp"] or 0)) + max(1, int(ceil(value * SECT_MERIT_EXP_WEIGHTS[key])))
+    exp_gain = max(1, int(ceil(value * SECT_MERIT_EXP_WEIGHTS[key])))
+    current_exp = 0 if current_level >= SECT_LEVEL_MAX else max(0, int(stats["exp"] or 0)) + exp_gain
     while current_level < SECT_LEVEL_MAX:
         need = sect_level_exp_need(current_level)
         if current_exp < need:
@@ -317,7 +320,6 @@ def record_sect_merit_conn(
         current_exp = 0
 
     column = SECT_MERIT_COLUMNS[key]
-    exp_gain = max(1, int(ceil(value * SECT_MERIT_EXP_WEIGHTS[key])))
     now_text = ts(occurred_at or now())
     conn.execute(
         f"""

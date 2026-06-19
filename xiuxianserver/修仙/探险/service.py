@@ -160,6 +160,7 @@ class ExplorationService(CoreService):
         special_buyer = self._special_buyer_at(x, y)
         recycle = self._recycle_location_at(x, y)
         sect = self._sect_at(x, y)
+        treasure = self._treasure_pickup_at(x, y)
 
         panel = T.panel()
         panel.section("地图·当前位置")
@@ -222,6 +223,12 @@ class ExplorationService(CoreService):
             panel.line(f"{sect['name']}｜宗主：{self._player_name(str(sect['master_client_id']))}｜成员：{self._sect_member_count(int(sect['sect_id']))}")
             buttons.extend([f"加入宗门 {sect['name']}", "宗门"])
 
+        if treasure:
+            panel.hr()
+            panel.section("藏宝图")
+            panel.line(f"{treasure['city_name']}旧藏散落于此：{treasure['weapon_name']}[稀品] 上限{treasure['weapon_max_level']}。")
+            buttons.extend(["领取藏宝图", "藏宝图"])
+
         if not world_point and not sect:
             buttons.extend(["导航 天枢城", "探险列表"])
         else:
@@ -273,6 +280,14 @@ class ExplorationService(CoreService):
             ).fetchone()
             if active:
                 return T.hint("你已经在探险中或有待领取结果。", "发送：探险状态 查看进度；30 分钟后发送：结束探险<探险状态><结束探险>")
+            fresh_player = conn.execute(
+                "SELECT status, hp FROM players WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+            if not fresh_player or fresh_player["status"] != "空闲":
+                return T.hint("当前状态已变化，不能开始探险。", "发送：修仙信息 查看当前状态后再操作。<修仙信息>")
+            if int(fresh_player["hp"]) <= 0:
+                return T.hint("血气不足，不能开始探险。", "发送：休息，时间到后发送：结束休息<休息>")
             for item_id, quantity in result.get("medicine_used", {}).items():
                 row = conn.execute(
                     "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
@@ -284,7 +299,7 @@ class ExplorationService(CoreService):
                 """
                 UPDATE players
                 SET status = '探险中', location_name = ?, x = ?, y = ?
-                WHERE client_id = ? AND status = '空闲'
+                WHERE client_id = ? AND status = '空闲' AND hp > 0
                 """,
                 (location["name"], location["x"], location["y"], client_id),
             )
@@ -385,33 +400,6 @@ class ExplorationService(CoreService):
             if result.get("secret_realm"):
                 return T.hint(f"秘境冷却未结束，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。<探险状态>")
             return T.hint(f"探险还没有到 30 分钟冷却，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。<探险状态>")
-        events = list(result.get("events", []))
-
-        exp_total = sum(int(event.get("exp", 0)) for event in events)
-        weapon_exp_total = self._weapon_exp_total(events)
-        drops: dict[str, int] = {}
-        ring_drops: dict[str, int] = {}
-        weapon_drops: list[str] = []
-        hp_left = player["hp"]
-        mp_left = player["mp"]
-        dead = False
-        for event in events:
-            hp_left = int(event.get("hp_left", hp_left))
-            mp_left = int(event.get("mp_left", mp_left))
-            if event.get("drop_item_id"):
-                drops[event["drop_item_id"]] = drops.get(event["drop_item_id"], 0) + 1
-            if event.get("location_drop_item_id"):
-                item_id = event["location_drop_item_id"]
-                drops[item_id] = drops.get(item_id, 0) + 1
-            if event.get("ring_drop_id"):
-                ring_key = self._ring_drop_key(event["ring_drop_id"], int(event.get("ring_drop_level") or 0))
-                ring_drops[ring_key] = ring_drops.get(ring_key, 0) + 1
-            if hp_left <= 0:
-                dead = True
-                mp_left = 0
-                event["mp_left"] = 0
-                break
-
         with self.db.transaction() as conn:
             active = conn.execute(
                 "SELECT * FROM exploration_records WHERE record_id = ? AND claimed = 0",
@@ -419,11 +407,30 @@ class ExplorationService(CoreService):
             ).fetchone()
             if not active:
                 return T.hint("当前没有可领取探险。", "发送：探险 开始一轮，或发送：探险记录 查看历史。<探险>")
-            if active["ready_at"] != record["ready_at"]:
+            record = dict(active)
+            result = load_json(record["result"], {})
+            ready_at = self._effective_ready_at(record, result)
+            if ready_at and now() < ready_at:
+                left = max(1, int((ready_at - now()).total_seconds() // 60) + 1)
+                if result.get("secret_realm"):
+                    return T.hint(f"秘境冷却未结束，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。<探险状态>")
+                return T.hint(f"探险还没有到 30 分钟冷却，{left} 分钟后才能结束探险。", "先发送：探险状态 查看预计算结果。<探险状态>")
+            if ts(ready_at) != str(record["ready_at"]):
+                record["ready_at"] = ts(ready_at)
                 conn.execute(
                     "UPDATE exploration_records SET ready_at = ? WHERE record_id = ? AND claimed = 0",
                     (record["ready_at"], record["record_id"]),
                 )
+            settlement = self._claim_settlement(player, result)
+            events = settlement["events"]
+            exp_total = settlement["exp_total"]
+            weapon_exp_total = settlement["weapon_exp_total"]
+            drops = settlement["drops"]
+            ring_drops = settlement["ring_drops"]
+            hp_left = settlement["hp_left"]
+            mp_left = settlement["mp_left"]
+            dead = settlement["dead"]
+            weapon_drops: list[str] = []
             for item_id, quantity in drops.items():
                 ok, reason = self.can_add_backpack_conn(conn, client_id, item_id, quantity)
                 if not ok:
@@ -461,7 +468,13 @@ class ExplorationService(CoreService):
             final_hp = max(1, hp_left)
             final_mp = 0 if hp_left <= 0 else max(0, mp_left)
             conn.execute(
-                "UPDATE players SET hp = ?, mp = ?, status = '空闲' WHERE client_id = ?",
+                """
+                UPDATE players
+                SET hp = ?,
+                    mp = ?,
+                    status = CASE WHEN status = '探险中' THEN '空闲' ELSE status END
+                WHERE client_id = ?
+                """,
                 (final_hp, final_mp, client_id),
             )
             if not result.get("secret_realm"):
@@ -715,6 +728,10 @@ class ExplorationService(CoreService):
                 if gem_drop:
                     event["ring_drop_id"] = gem_drop["gem_id"]
                     event["ring_drop_level"] = gem_drop["level"]
+            if random.random() < 0.18 + explore_bonus * 0.25:
+                location_drop = self._roll_secret_realm_location_drop()
+                if location_drop:
+                    event["location_drop_item_id"] = location_drop
             events.append(event)
 
         return self._precompute_result(
@@ -1080,6 +1097,21 @@ class ExplorationService(CoreService):
 
         return self.db.fetch_one("SELECT * FROM recycle_locations WHERE x = ? AND y = ?", (int(x), int(y)))
 
+    def _treasure_pickup_at(self, x: int, y: int) -> dict | None:
+        """读取脚下可拾取藏宝图。"""
+
+        return self.db.fetch_one(
+            """
+            SELECT *
+            FROM treasure_maps
+            WHERE status = '可拾取'
+              AND x = ? AND y = ?
+            ORDER BY generated_at DESC
+            LIMIT 1
+            """,
+            (int(x), int(y)),
+        )
+
     def _sect_at(self, x: int, y: int) -> dict | None:
         """读取当前位置上的玩家宗门山门。"""
 
@@ -1180,6 +1212,34 @@ class ExplorationService(CoreService):
             item = self.item_def(row["item_id"])
             category = str(item["category"]) if item else ""
             weights.append({"药路": 34, "民生": 26, "建设": 28, "古物": 12}.get(category, 10))
+        return random.choices(rows, weights=weights, k=1)[0]["item_id"]
+
+    def _roll_secret_realm_location_drop(self) -> str:
+        """太虚秘境低频掉落古界物资，偏古物、战利品和高阶建设。"""
+
+        rows = self.db.fetch_all(
+            """
+            SELECT item_id, category
+            FROM item_defs
+            WHERE category IN ('古物', '战利品', '建设')
+            """
+        )
+        if not rows:
+            return ""
+        weights = []
+        for row in rows:
+            item = self.item_def(row["item_id"])
+            category = str(item["category"]) if item else str(row["category"])
+            effect = load_json(item["effect"], {}) if item else {}
+            subtype = str(effect.get("subtype") or "")
+            if category == "古物":
+                weights.append({"厚蕴": 36, "中蕴": 24, "微蕴": 12}.get(subtype, 18))
+            elif category == "战利品":
+                weights.append(22)
+            elif category == "建设":
+                weights.append({"阵基": 12, "城防": 14, "华饰": 16}.get(subtype, 4))
+            else:
+                weights.append(1)
         return random.choices(rows, weights=weights, k=1)[0]["item_id"]
 
     @staticmethod
@@ -1383,6 +1443,44 @@ class ExplorationService(CoreService):
             item = self.ring_item_def(item_id)
             texts.append(f"{item['name'] if item else item_id} x{quantity}")
         return "、".join(texts)
+
+    def _claim_settlement(self, player: dict, result: dict) -> dict:
+        """按最终预计算结果整理领取结算，供事务内外保持同一口径。"""
+
+        events = list(result.get("events", []))
+        exp_total = sum(int(event.get("exp", 0)) for event in events)
+        weapon_exp_total = self._weapon_exp_total(events)
+        drops: dict[str, int] = {}
+        ring_drops: dict[str, int] = {}
+        hp_left = int(player["hp"])
+        mp_left = int(player["mp"])
+        dead = False
+        for event in events:
+            hp_left = int(event.get("hp_left", hp_left))
+            mp_left = int(event.get("mp_left", mp_left))
+            if event.get("drop_item_id"):
+                drops[event["drop_item_id"]] = drops.get(event["drop_item_id"], 0) + 1
+            if event.get("location_drop_item_id"):
+                item_id = event["location_drop_item_id"]
+                drops[item_id] = drops.get(item_id, 0) + 1
+            if event.get("ring_drop_id"):
+                ring_key = self._ring_drop_key(event["ring_drop_id"], int(event.get("ring_drop_level") or 0))
+                ring_drops[ring_key] = ring_drops.get(ring_key, 0) + 1
+            if hp_left <= 0:
+                dead = True
+                mp_left = 0
+                event["mp_left"] = 0
+                break
+        return {
+            "events": events,
+            "exp_total": exp_total,
+            "weapon_exp_total": weapon_exp_total,
+            "drops": drops,
+            "ring_drops": ring_drops,
+            "hp_left": hp_left,
+            "mp_left": mp_left,
+            "dead": dead,
+        }
 
     def _claim_log_block(
         self,

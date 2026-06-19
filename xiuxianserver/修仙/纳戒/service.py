@@ -16,12 +16,10 @@ from ..common import (
     weapon_id_label,
     weapon_label_name,
 )
-from ..constants import EQUIPMENT_SLOTS
+from ..constants import EQUIPMENT_DEFAULT_HOLES, EQUIPMENT_MAX_HOLES, EQUIPMENT_SLOTS
 from ..item_effects import service as item_effects
 from ..sql import db
 
-DEFAULT_HOLES = 3
-MAX_HOLES = 9
 HOLE_ITEM_ID = "kaikongqi"
 
 
@@ -164,9 +162,9 @@ class RingService(CoreService):
                 "SELECT * FROM fixed_equipment WHERE client_id = ? AND slot = ?",
                 (client_id, slot),
             ).fetchone()
-            hole_count = int(row["hole_count"]) if row else DEFAULT_HOLES
-            if hole_count >= MAX_HOLES:
-                return T.hint(f"{slot} 已经达到 {MAX_HOLES} 孔上限。", "可以给其他装备开孔，或继续镶嵌、升级宝石。")
+            hole_count = int(row["hole_count"]) if row else EQUIPMENT_DEFAULT_HOLES
+            if hole_count >= EQUIPMENT_MAX_HOLES:
+                return T.hint(f"{slot} 已经达到 {EQUIPMENT_MAX_HOLES} 孔上限。", "可以给其他装备开孔，或继续镶嵌、升级宝石。")
             if not self.remove_ring_conn(conn, client_id, HOLE_ITEM_ID, 1):
                 return T.hint("纳戒里没有开孔器。", "开孔器通过岁时情劫首领奖励获得，获得后发送：开孔 装备位。<首领><纳戒>")
             conn.execute(
@@ -183,7 +181,7 @@ class RingService(CoreService):
             )
         self.recalc_player(client_id)
         equipment = self._equipment_row(client_id, slot)
-        return f"开孔成功：{fixed_equipment_label(equipment) if equipment else slot} 当前孔位 {hole_count + 1}/{MAX_HOLES}。"
+        return f"开孔成功：{fixed_equipment_label(equipment) if equipment else slot} 当前孔位 {hole_count + 1}/{EQUIPMENT_MAX_HOLES}。"
 
     def _equipment_row(self, client_id: str, slot: str) -> dict | None:
         """读取某个装备位。"""

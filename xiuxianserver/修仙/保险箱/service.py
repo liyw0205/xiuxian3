@@ -23,7 +23,7 @@ VAULT_SLOT_LIMIT = 18
 VAULT_OWNER_PREFIX = "__vault__:"
 
 
-class VaultService(CoreService):
+class InsuranceBoxService(CoreService):
     """冻结保存玩家物品，避免出售、回收或上架误操作。"""
 
     def list_items(self, client_id: str) -> str:
@@ -542,6 +542,6 @@ class VaultService(CoreService):
         )
 
 
-service = VaultService(db)
+service = InsuranceBoxService(db)
 
-__all__ = ["VaultService", "service"]
+__all__ = ["InsuranceBoxService", "service"]

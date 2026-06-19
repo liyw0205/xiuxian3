@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import random as random_module
 import sqlite3
 
-from ..common import CoreService, now, split_words, to_int, ts, validate_name
+from ..common import CoreService, split_words, to_int, ts, validate_name
 from ..constants import WORLD_COORD_MAX, WORLD_COORD_MIN
 from ..format_text import T
 from ..sect_war import (
