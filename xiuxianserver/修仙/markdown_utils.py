@@ -13,6 +13,7 @@ MAX_BUTTON_ROWS = (MAX_BUTTONS + MAX_BUTTONS_PER_ROW - 1) // MAX_BUTTONS_PER_ROW
 BUTTON_TAG_RE = re.compile(r"<([^<>\r\n]+)>")
 BUTTON_CMD_SEPARATORS = (":", "：")
 BUTTON_LABEL_PREFIX_ALIASES = {
+    "指南": "指南",
     "修仙百科": "百科",
 }
 BUTTON_LABEL_EXACT_ALIASES = {
@@ -21,9 +22,10 @@ BUTTON_LABEL_EXACT_ALIASES = {
     "探险状态": "探险状态",
     "结束探险": "结束探险",
     "商场推荐": "商路推荐",
-    "商场自动出售": "货物出售",
-    "特殊自动出售": "战利品出售",
-    "自动出售战利品": "战利品出售",
+    "自动出售": "自动出售",
+    "出售全部 武器": "卖武器",
+    "出售全部 宝石": "卖宝石",
+    "出售全部 技能书": "卖技能书",
     "源库结息": "源库结息",
     "修仙早报": "早报",
     "修仙界历史": "历史",

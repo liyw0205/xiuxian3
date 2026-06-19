@@ -7,8 +7,8 @@ from ..format_text import T
 from ..common import (
     business_day,
     computed_weapon_enchant_slots,
-    computed_weapon_attack,
     computed_weapon_potential_slots,
+    computed_weapon_attack,
     dump_json,
     enchant_label_name,
     load_json,
@@ -22,10 +22,6 @@ from ..common import (
     weapon_label_name,
 )
 from ..rules import (
-    book_recycle_price_rate,
-    book_recycle_single_cap,
-    weapon_recycle_price_rate,
-    weapon_recycle_single_cap,
     weapon_upgrade_cost,
     weapon_exp_for_level,
     weapon_exp_progress,
@@ -188,77 +184,6 @@ class WeaponService(WeaponCore):
             f"经验补满 +{exp_gain}，攻击 {attack}，附魔栏 {slots}。"
         )
 
-    def temper(self, client_id: str, message: str) -> str:
-        """消耗淬锋丹提升武器等级上限。"""
-
-        _, error = self.require_player(client_id)
-        if error:
-            return error
-        self.ensure_starter_weapon(client_id)
-        weapon_id = parse_weapon_ref(message)
-        if weapon_id <= 0 and message.strip():
-            return T.hint("武器淬锋格式不正确。", "发送：武器淬锋，或发送：武器淬锋 武器ID。<武器><纳戒>")
-
-        with self.db.transaction() as conn:
-            if weapon_id <= 0:
-                equipped = conn.execute(
-                    """
-                    SELECT weapon_id
-                    FROM player_weapons
-                    WHERE holder_id = ? AND equipped = 1
-                    ORDER BY weapon_id
-                    LIMIT 1
-                    """,
-                    (client_id,),
-                ).fetchone()
-                weapon_id = int(equipped["weapon_id"]) if equipped else 0
-            weapon = conn.execute(
-                """
-                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
-                FROM player_weapons AS w
-                JOIN weapon_defs AS d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.holder_id = ? AND w.weapon_id = ?
-                """,
-                (client_id, weapon_id),
-            ).fetchone()
-            if not weapon:
-                return T.hint("没有找到可淬锋的武器。", "发送：武器 查看自己的武器列表。<武器>")
-
-            item = conn.execute(
-                "SELECT * FROM ring_item_defs WHERE ring_item_id = 'cuifengdan'",
-            ).fetchone()
-            if not item:
-                return T.hint("淬锋丹配置不存在。", "请先检查纳戒物品配置。")
-            effect = load_json(item["effect"], {})
-            delta = max(1, int(effect.get("weapon_max_level_delta") or 1))
-            cap = max(1, int(effect.get("weapon_max_level_cap") or 100))
-            old_max = int(weapon["max_level"])
-            if old_max >= cap:
-                return T.hint(
-                    f"{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} 已达到上限 {cap}。",
-                    "淬锋丹无法继续提升这把武器。",
-                    buttons=("武器", "纳戒"),
-                )
-            if not self.remove_ring_conn(conn, client_id, "cuifengdan", 1):
-                return T.hint("纳戒里没有淬锋丹。", "淬锋丹只能从宗门战奖励获得。<宗门战>")
-
-            new_max = min(cap, old_max + delta)
-            next_weapon = dict(weapon)
-            next_weapon["max_level"] = new_max
-            conn.execute(
-                "UPDATE player_weapons SET max_level = ? WHERE holder_id = ? AND weapon_id = ?",
-                (new_max, client_id, weapon_id),
-            )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '武器淬锋', ?, ?)",
-                (client_id, f"weapon_id={weapon_id}, max_level={old_max}->{new_max}", ts()),
-            )
-
-        return (
-            f"淬锋成功：{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} "
-            f"等级上限 {old_max}->{new_max}，潜力附魔栏 {computed_weapon_potential_slots(next_weapon)}。"
-        )
-
     @staticmethod
     def _resolve_default_weapon(rows: list[dict], message: str) -> dict | None:
         """空参数时默认当前装备武器，有参数时按 ID 精确查找。"""
@@ -272,238 +197,6 @@ class WeaponService(WeaponCore):
         if weapon_id <= 0:
             return None
         return next((row for row in rows if int(row["weapon_id"]) == weapon_id), None)
-
-    def recycle(self, client_id: str, message: str) -> str:
-        """在武器回收地点处理备用武器。"""
-
-        player, error = self.require_player(client_id)
-        if error:
-            return error
-        assert player is not None
-
-        location = self.recycle_location(player["location_name"], "weapon")
-        if not location:
-            return T.hint("当前位置不是武器回收地点。", "发送：商场列表 查看地点，再发送：导航 铸剑阁<导航 铸剑阁>")
-
-        text = message.strip()
-        if not text:
-            return self._recycle_preview(client_id, location)
-
-        with self.db.transaction() as conn:
-            recycle_all = self._is_recycle_all(text)
-            weapon_ids = self._recyclable_weapon_ids_conn(conn, client_id) if recycle_all else self._parse_recycle_weapon_ids(text)
-            if not weapon_ids:
-                if recycle_all:
-                    return T.hint("当前没有可批量回收的备用武器。", "已装备武器和最后一把武器不能回收；发送：武器 查看列表。<武器>")
-                return T.hint("武器回收格式不正确。", "发送：回收武器 武器ID，或一次发送：回收武器 12 13 14。")
-
-            weapons = self._weapon_rows_for_recycle_conn(conn, client_id, weapon_ids)
-            missing_ids = [weapon_id for weapon_id in weapon_ids if weapon_id not in weapons]
-            if missing_ids:
-                return T.hint(f"没有找到武器：{self._format_weapon_ids(missing_ids)}。", "发送：武器 查看自己的武器 ID。<武器>")
-
-            equipped_ids = [weapon_id for weapon_id in weapon_ids if int(weapons[weapon_id]["equipped"])]
-            if equipped_ids:
-                return T.hint(f"已装备武器不能回收：{self._format_weapon_ids(equipped_ids)}。", "先切换到其他武器，再回收备用武器。<武器>")
-
-            count = conn.execute(
-                "SELECT COUNT(*) AS total FROM player_weapons WHERE holder_id = ?",
-                (client_id,),
-            ).fetchone()
-            total_count = int(count["total"])
-            if total_count - len(weapon_ids) < 1:
-                return T.hint("不能回收最后一把武器。", "至少保留一把自用武器，避免无法探险战斗。")
-
-            today_income = self._today_recycle_income_conn(conn, client_id)
-            records = []
-            total_value = 0
-            for weapon_id in weapon_ids:
-                record = self._recycle_weapon_conn(
-                    conn,
-                    client_id,
-                    dict(weapons[weapon_id]),
-                    location,
-                    int(player["level"]),
-                    today_income,
-                )
-                records.append(record)
-                total_value += int(record["value"])
-                today_income += int(record["value"])
-
-            conn.execute("UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?", (total_value, client_id))
-
-        return self._format_recycle_result(records)
-
-    def recycle_book(self, client_id: str, message: str) -> str:
-        """在回收地点处理纳戒里的未附魔技能书。"""
-
-        player, error = self.require_player(client_id)
-        if error:
-            return error
-        assert player is not None
-
-        location = self.recycle_location(player["location_name"], "book")
-        if not location:
-            return T.hint("当前位置不是技能书回收地点。", "发送：商场列表 查看地点，再发送：导航 藏经阁<导航 藏经阁>")
-
-        text = message.strip()
-        if not text:
-            return self._book_recycle_preview(client_id, location)
-        if self._is_book_recycle_all(text):
-            return self._recycle_all_books(client_id, player, location)
-
-        book_name, quantity = self._parse_book_recycle_message(text)
-        if quantity <= 0:
-            return T.hint("技能书回收格式不正确。", "发送：回收技能书 技能书名 数量，例如：回收技能书 风刃书 1")
-        book = self.ring_item_def_by_name(book_name)
-        if not book or book["category"] != "技能书":
-            return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书名称。<纳戒>")
-
-        with self.db.transaction() as conn:
-            row = conn.execute(
-                """
-                SELECT quantity FROM ring_items
-                WHERE client_id = ? AND ring_item_id = ?
-                """,
-                (client_id, book["ring_item_id"]),
-            ).fetchone()
-            owned = int(row["quantity"]) if row else 0
-            if owned < quantity:
-                return T.hint(f"纳戒里 {book['name']} 只有 {owned} 本。", "发送：纳戒 查看库存后再回收。<纳戒>")
-
-            today_income = self._today_book_recycle_income_conn(conn, client_id)
-            quote = self._book_recycle_quote(
-                book,
-                quantity,
-                float(location["price_factor"]),
-                int(player["level"]),
-                today_income,
-            )
-            if not self.remove_ring_conn(conn, client_id, book["ring_item_id"], quantity):
-                return T.hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-            conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
-                (quote["value"], client_id),
-            )
-            conn.execute(
-                """
-                INSERT INTO book_recycle_records (
-                    client_id, book_id, book_name, quality, quantity,
-                    raw_value, capped_value, price_rate, total_price,
-                    location_name, business_day, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    client_id,
-                    book["ring_item_id"],
-                    book["name"],
-                    book["quality"],
-                    quantity,
-                    quote["raw_value"],
-                    quote["capped_value"],
-                    quote["rate"],
-                    quote["value"],
-                    location["name"],
-                    business_day(),
-                    ts(),
-                ),
-            )
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书回收', ?, ?)",
-                (client_id, f"book={book['ring_item_id']}, quantity={quantity}, stones={quote['value']}", ts()),
-            )
-        return (
-            f"回收成功：{book['name']} x{quantity}，"
-            f"获得源石 {money(quote['value'])}，当前倍率 {int(quote['rate'] * 100)}%。"
-        )
-
-    def _recycle_all_books(self, client_id: str, player: dict, location: dict) -> str:
-        """一键回收纳戒里的全部未附魔技能书。"""
-
-        records: list[dict[str, object]] = []
-        total_value = 0
-        total_quantity = 0
-        with self.db.transaction() as conn:
-            rows = conn.execute(
-                """
-                SELECT r.ring_item_id, r.quantity, e.name, e.quality
-                FROM ring_items r
-                JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
-                WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
-                ORDER BY e.quality, e.name
-                """,
-                (client_id,),
-            ).fetchall()
-            if not rows:
-                return T.hint(f"{location['name']}可以回收纳戒里的未附魔技能书，但你当前没有技能书。", "继续探险、挑战虫洞或首领获取技能书。")
-
-            today_income = self._today_book_recycle_income_conn(conn, client_id)
-            for row in rows:
-                quantity = int(row["quantity"])
-                quote = self._book_recycle_quote(
-                    row,
-                    quantity,
-                    float(location["price_factor"]),
-                    int(player["level"]),
-                    today_income,
-                )
-                if not self.remove_ring_conn(conn, client_id, row["ring_item_id"], quantity):
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO book_recycle_records (
-                        client_id, book_id, book_name, quality, quantity,
-                        raw_value, capped_value, price_rate, total_price,
-                        location_name, business_day, created_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        client_id,
-                        row["ring_item_id"],
-                        row["name"],
-                        row["quality"],
-                        quantity,
-                        quote["raw_value"],
-                        quote["capped_value"],
-                        quote["rate"],
-                        quote["value"],
-                        location["name"],
-                        business_day(),
-                        ts(),
-                    ),
-                )
-                today_income += int(quote["value"])
-                total_value += int(quote["value"])
-                total_quantity += quantity
-                records.append(
-                    {
-                        "name": row["name"],
-                        "quality": row["quality"],
-                        "quantity": quantity,
-                        "value": int(quote["value"]),
-                        "rate": float(quote["rate"]),
-                    }
-                )
-
-            if not records:
-                return T.hint("技能书库存已变化，回收失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-            conn.execute("UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?", (total_value, client_id))
-            conn.execute(
-                "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '技能书批量回收', ?, ?)",
-                (client_id, f"quantity={total_quantity}, stones={total_value}", ts()),
-            )
-
-        panel = T.panel()
-        panel.section("技能书批量回收")
-        panel.line(f"回收 **{total_quantity}** 本，获得源石 **{money(total_value)}**。")
-        for record in records:
-            panel.line(
-                f"{record['name']}[{record['quality']}] x{record['quantity']}｜"
-                f"收入 **{money(record['value'])}**｜倍率 {int(float(record['rate']) * 100)}%"
-            )
-        return panel.render()
 
     def enchant(self, client_id: str, message: str) -> str:
         """给武器附魔。"""
@@ -521,6 +214,7 @@ class WeaponService(WeaponCore):
             return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。<纳戒>")
         effect = load_json(book["effect"], {})
         enchant_id = effect.get("enchant_id")
+        base_enchant_id = str(effect.get("base_enchant_id") or enchant_id or "")
         enchant = self.db.fetch_one("SELECT * FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
         if not enchant:
             return T.hint("这本技能书暂时不能附魔。", "换一本技能书，或发送：查看修仙物品 技能书名 查看说明。")
@@ -539,9 +233,10 @@ class WeaponService(WeaponCore):
             current = load_json(weapon["enchant_effects"], [])
             if not isinstance(current, list):
                 current = []
-            if str(enchant_id) in {str(item) for item in current}:
+            current_bases = self._base_enchant_ids(current)
+            if base_enchant_id in current_bases:
                 return T.hint(
-                    f"这把武器已经附魔过《{book['name']}》，同一本技能书不能重复附魔。",
+                    f"这把武器已经附魔过《{self._enchant_base_name(base_enchant_id)}》，同模板技能书不能重复附魔。",
                     "可以选择同流派的其他技能书继续组合。",
                 )
             if len(current) >= computed_weapon_enchant_slots(weapon):
@@ -559,181 +254,26 @@ class WeaponService(WeaponCore):
             )
         return f"附魔成功：{weapon_label_name(weapon)} 获得 {book['name']}。"
 
-    def _recycle_preview(self, client_id: str, location: dict) -> str:
-        """展示当前可回收武器和估价。"""
+    def _base_enchant_ids(self, enchant_ids: list[object]) -> set[str]:
+        """把普通/极版附魔都折算成基础模板，避免极版绕过同书判重。"""
 
-        self.ensure_starter_weapon(client_id)
-        rows = self.weapons(client_id)
-        spares = [row for row in rows if not int(row["equipped"])]
-        if not spares:
-            return T.hint(
-                f"{location['name']}可以稳定回收备用武器，但你当前没有可回收武器。",
-                "继续探险获取备用武器；已装备武器和最后一把武器不能回收。",
-            )
+        result: set[str] = set()
+        for enchant_id in enchant_ids:
+            value = str(enchant_id)
+            base_id = value
+            for row in self.db.fetch_all("SELECT effect FROM ring_item_defs WHERE category = '技能书'"):
+                effect = load_json(row["effect"], {})
+                if str(effect.get("enchant_id") or "") == value:
+                    base_id = str(effect.get("base_enchant_id") or value)
+                    break
+            result.add(base_id)
+        return result
 
-        player = self.player(client_id) or {}
-        today_income = self._today_recycle_income(client_id)
-        rate = weapon_recycle_price_rate(int(player.get("level", 1)), today_income)
-        panel = T.panel()
-        panel.section(f"{location['name']}武器回收")
-        panel.line(f"当前倍率：**{int(rate * 100)}%**")
-        panel.line(f"今日已回收：**{money(today_income)}**。估价会随今日回收收入降低。")
-        panel.line("已装备武器和最后一把武器不能回收。")
-        for row in spares:
-            quote = self._recycle_quote(
-                row,
-                float(location["price_factor"]),
-                int(player.get("level", 1)),
-                today_income,
-            )
-            enchants = len(load_json(row["enchant_effects"], []))
-            panel.line(
-                f"{weapon_id_label(row['weapon_id'])} {weapon_label_name(row)}[{row['quality']}] "
-                f"等级:{row['level']}/{row['max_level']} 攻击:{computed_weapon_attack(row)} "
-                f"附魔:{enchants}/{computed_weapon_enchant_slots(row)} 估价：**{money(quote['value'])}**"
-            )
-        panel.line("批量回收：回收武器 12 13 14；回收全部备用武器：回收武器 全部")
-        return panel.render()
+    def _enchant_base_name(self, base_enchant_id: str) -> str:
+        """读取附魔基础模板名，提示里尽量说人话。"""
 
-    @staticmethod
-    def _is_recycle_all(message: str) -> bool:
-        """是否回收全部备用武器。"""
-
-        return message.strip() in {"全部", "全部备用", "全回收", "一键回收"}
-
-    @staticmethod
-    def _parse_recycle_weapon_ids(message: str) -> list[int]:
-        """解析一个或多个武器 ID。"""
-
-        normalized = message
-        for separator in ("，", ",", "、", "；", ";"):
-            normalized = normalized.replace(separator, " ")
-
-        weapon_ids = []
-        for token in split_words(normalized):
-            if token in {"武器", "武器ID"}:
-                continue
-            weapon_id = parse_weapon_ref(token)
-            if weapon_id <= 0:
-                return []
-            if weapon_id not in weapon_ids:
-                weapon_ids.append(weapon_id)
-        return weapon_ids
-
-    @staticmethod
-    def _format_weapon_ids(weapon_ids: list[int]) -> str:
-        """把多个武器 ID 排成玩家可读文本。"""
-
-        return "、".join(weapon_id_label(weapon_id) for weapon_id in weapon_ids)
-
-    @staticmethod
-    def _recyclable_weapon_ids_conn(conn, client_id: str) -> list[int]:
-        """读取全部备用武器 ID。"""
-
-        rows = conn.execute(
-            """
-            SELECT weapon_id
-            FROM player_weapons
-            WHERE holder_id = ? AND equipped = 0
-            ORDER BY weapon_id
-            """,
-            (client_id,),
-        ).fetchall()
-        return [int(row["weapon_id"]) for row in rows]
-
-    @staticmethod
-    def _weapon_rows_for_recycle_conn(conn, client_id: str, weapon_ids: list[int]) -> dict[int, dict]:
-        """读取本次回收涉及的武器行。"""
-
-        rows = {}
-        for weapon_id in weapon_ids:
-            row = conn.execute(
-                """
-                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
-                FROM player_weapons w
-                JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
-                WHERE w.holder_id = ? AND w.weapon_id = ?
-                """,
-                (client_id, weapon_id),
-            ).fetchone()
-            if row:
-                rows[weapon_id] = dict(row)
-        return rows
-
-    def _recycle_weapon_conn(
-        self,
-        conn,
-        client_id: str,
-        weapon: dict,
-        location: dict,
-        player_level: int,
-        today_income: int,
-    ) -> dict[str, object]:
-        """在事务中回收一把武器并写入回收流水。"""
-
-        weapon_id = int(weapon["weapon_id"])
-        quote = self._recycle_quote(weapon, float(location["price_factor"]), player_level, today_income)
-        value = int(quote["value"])
-        conn.execute("DELETE FROM weapon_enchant_names WHERE weapon_id = ?", (weapon_id,))
-        conn.execute("DELETE FROM player_weapons WHERE holder_id = ? AND weapon_id = ?", (client_id, weapon_id))
-        conn.execute(
-            """
-            INSERT INTO weapon_recycle_records (
-                client_id, weapon_id, weapon_name, quality, level, max_level,
-                raw_value, capped_value, price_rate, total_price,
-                location_name, business_day, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                client_id,
-                weapon_id,
-                weapon_label_name(weapon),
-                weapon["quality"],
-                int(weapon["level"]),
-                int(weapon["max_level"]),
-                quote["raw_value"],
-                quote["capped_value"],
-                quote["rate"],
-                value,
-                location["name"],
-                business_day(),
-                ts(),
-            ),
-        )
-        conn.execute(
-            "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '武器回收', ?, ?)",
-            (client_id, f"weapon_id={weapon_id}, stones={value}, rate={quote['rate']:.2f}", ts()),
-        )
-        return {
-            "weapon_id": weapon_id,
-            "name": weapon_label_name(weapon),
-            "quality": weapon["quality"],
-            "value": value,
-            "rate": float(quote["rate"]),
-        }
-
-    @staticmethod
-    def _format_recycle_result(records: list[dict[str, object]]) -> str:
-        """格式化单把或批量武器回收结果。"""
-
-        if len(records) == 1:
-            record = records[0]
-            return (
-                f"回收成功：{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]，"
-                f"获得源石 {money(int(record['value']))}，当前倍率 {int(float(record['rate']) * 100)}%。"
-            )
-
-        total_value = sum(int(record["value"]) for record in records)
-        panel = T.panel()
-        panel.section("武器批量回收")
-        panel.line(f"回收 **{len(records)}** 把，获得源石 **{money(total_value)}**。")
-        for record in records:
-            panel.line(
-                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]｜"
-                f"收入 **{money(int(record['value']))}**｜倍率 {int(float(record['rate']) * 100)}%"
-            )
-        return panel.render()
+        row = self.db.fetch_one("SELECT name FROM weapon_enchants WHERE enchant_id = ?", (base_enchant_id,))
+        return row["name"] if row else base_enchant_id
 
     def _enchant_text(self, weapon_id: int, enchant_ids: object) -> str:
         """把武器已附魔技能书按槽位展示出来。"""
@@ -863,13 +403,13 @@ class WeaponService(WeaponCore):
 
     @staticmethod
     def _recycle_state_text(weapon: dict, total_count: int) -> str:
-        """展示当前武器是否能系统回收。"""
+        """展示当前武器是否能通过商场统一入口出售。"""
 
         if int(weapon["equipped"]):
-            return "已装备，不能回收；先切换到其他武器"
+            return "已装备，不能出售；先切换到其他武器"
         if total_count <= 1:
-            return "最后一把武器，不能回收"
-        return "可在铸剑阁回收"
+            return "最后一把武器，不能出售"
+        return "可发送：出售全部 武器；或发送：出售 武器ID 1"
 
     @staticmethod
     def _next_slot_text(weapon: dict, unlocked_slots: int, potential_slots: int) -> str:
@@ -952,158 +492,6 @@ class WeaponService(WeaponCore):
         if mp_delta:
             texts.append(f"精神消耗{mp_delta:+d}")
         return "、".join(texts) if texts else "无数值效果"
-
-    def _today_recycle_income(self, client_id: str) -> int:
-        """读取玩家今日武器回收收入。"""
-
-        with self.db.transaction() as conn:
-            return self._today_recycle_income_conn(conn, client_id)
-
-    @staticmethod
-    def _today_recycle_income_conn(conn, client_id: str) -> int:
-        """在事务里读取玩家今日武器回收收入。"""
-
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(total_price), 0) AS total
-            FROM weapon_recycle_records
-            WHERE client_id = ? AND business_day = ?
-            """,
-            (client_id, business_day()),
-        ).fetchone()
-        return int(row["total"]) if row else 0
-
-    @staticmethod
-    def _recycle_quote(weapon: dict, price_factor: float, player_level: int, today_income: int) -> dict[str, float | int]:
-        """计算武器回收报价。
-
-        先按武器属性估价，再限制单把上限，最后按今日回收收入降价。
-        """
-
-        enchants = len(load_json(weapon.get("enchant_effects"), []))
-        raw_value = int(
-            (
-                computed_weapon_attack(weapon) * 60
-                + int(weapon["max_level"]) * 100
-                + int(weapon["level"]) * 250
-                + enchants * 5_000
-            )
-            * quality_factor(weapon["quality"])
-            * price_factor
-        )
-        single_cap = weapon_recycle_single_cap(player_level)
-        capped_value = min(raw_value, single_cap)
-        rate = weapon_recycle_price_rate(player_level, today_income + capped_value // 2)
-        value = max(1, int(capped_value * rate))
-        return {
-            "raw_value": raw_value,
-            "single_cap": single_cap,
-            "capped_value": capped_value,
-            "rate": rate,
-            "value": value,
-        }
-
-    def _book_recycle_preview(self, client_id: str, location: dict) -> str:
-        """展示当前可回收技能书和估价。"""
-
-        rows = self.db.fetch_all(
-            """
-            SELECT r.ring_item_id, r.quantity, e.name, e.quality
-            FROM ring_items r
-            JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
-            WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
-            ORDER BY e.quality, e.name
-            """,
-            (client_id,),
-        )
-        if not rows:
-            return T.hint(f"{location['name']}可以回收纳戒里的未附魔技能书，但你当前没有技能书。", "继续探险、挑战虫洞或首领获取技能书。")
-
-        player = self.player(client_id) or {}
-        player_level = int(player.get("level", 1))
-        today_income = self._today_book_recycle_income(client_id)
-        rate = book_recycle_price_rate(player_level, today_income)
-        panel = T.panel()
-        panel.section(f"{location['name']}技能书回收")
-        panel.line(f"当前倍率：**{int(rate * 100)}%**")
-        panel.line(f"今日已回收：**{money(today_income)}**。估价会随今日回收收入降低。")
-        panel.line("只回收纳戒里未附魔的技能书；已经附魔到武器上的技能书不能取下。")
-        for row in rows:
-            quote = self._book_recycle_quote(
-                row,
-                1,
-                float(location["price_factor"]),
-                player_level,
-                today_income,
-            )
-            panel.line(f"{row['name']}[{row['quality']}] x{row['quantity']}｜单本估价：**{money(quote['value'])}**")
-        return panel.render()
-
-    def _today_book_recycle_income(self, client_id: str) -> int:
-        """读取玩家今日技能书回收收入。"""
-
-        with self.db.transaction() as conn:
-            return self._today_book_recycle_income_conn(conn, client_id)
-
-    @staticmethod
-    def _today_book_recycle_income_conn(conn, client_id: str) -> int:
-        """在事务里读取玩家今日技能书回收收入。"""
-
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(total_price), 0) AS total
-            FROM book_recycle_records
-            WHERE client_id = ? AND business_day = ?
-            """,
-            (client_id, business_day()),
-        ).fetchone()
-        return int(row["total"]) if row else 0
-
-    @staticmethod
-    def _book_recycle_quote(
-        book: dict,
-        quantity: int,
-        price_factor: float,
-        player_level: int,
-        today_income: int,
-    ) -> dict[str, float | int]:
-        """计算技能书回收报价。"""
-
-        amount = max(1, int(quantity))
-        raw_unit = int(4000 * quality_factor(book["quality"]) * price_factor)
-        single_cap = book_recycle_single_cap(player_level)
-        capped_unit = min(raw_unit, single_cap)
-        raw_value = raw_unit * amount
-        capped_value = capped_unit * amount
-        rate = book_recycle_price_rate(player_level, today_income + capped_value // 2)
-        value = max(1, int(capped_value * rate))
-        return {
-            "raw_value": raw_value,
-            "single_cap": single_cap,
-            "capped_value": capped_value,
-            "rate": rate,
-            "value": value,
-        }
-
-    @staticmethod
-    def _parse_book_recycle_message(message: str) -> tuple[str, int]:
-        """解析 回收技能书 技能书名 [数量]。"""
-
-        parts = split_words(message)
-        if not parts:
-            return "", 0
-        quantity = 1
-        if len(parts) > 1 and parts[-1].isdigit():
-            quantity = to_int(parts[-1], 1)
-            parts = parts[:-1]
-        return " ".join(parts), quantity
-
-    @staticmethod
-    def _is_book_recycle_all(message: str) -> bool:
-        """是否一键回收全部技能书。"""
-
-        return "".join(split_words(message)) in {"全部", "全部技能书", "全回收", "一键回收"}
-
 
 service = WeaponService(db)
 

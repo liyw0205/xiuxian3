@@ -62,27 +62,36 @@ class TreasureService(CoreService):
     def _backpack_item_text(item: dict) -> str:
         """格式化背包物品定义。"""
 
+        effect = load_json(item["effect"], {})
         panel = T.panel()
         panel.section(item["name"])
         panel.line(f"存放：背包｜分类：{item['category']}｜品级：{item['quality']}｜重量：**{item['weight']}**")
+        if effect.get("world_category"):
+            panel.line(f"归属：{effect['world_category']} / {effect.get('world_subtype') or '未分小类'}")
         panel.line(f"跑商：{'可' if item['tradeable'] else '不可'}｜使用：{'可' if item['usable'] else '不可'}")
         panel.line(f"基准价：**{item['base_price']}**")
-        panel.line(f"效果：{format_effect(item['effect'])}")
+        panel.line(f"效果：{format_effect(effect)}")
         panel.line(f"说明：{item['desc']}")
         return panel.render()
 
     def _ring_item_text(self, item: dict) -> str:
         """格式化纳戒物品定义。"""
 
+        effect = load_json(item["effect"], {})
         panel = T.panel()
         panel.section(item["name"])
         panel.line(f"存放：纳戒｜分类：{item['category']}｜品级：{item['quality']}")
         panel.line(f"目标：{item['target_type']}｜使用：{'可' if item['usable'] else '不可'}")
-        panel.line(f"效果：{format_effect(item['effect'])}")
+        panel.line(f"效果：{format_effect(effect)}")
         panel.line(f"说明：{item['desc']}")
         if item["name"] == "淬锋丹":
-            panel.line("专属命令：武器淬锋")
-        enchant_id = load_json(item["effect"], {}).get("enchant_id")
+            panel.line("纳戒专属命令：武器淬锋")
+        base_enchant_id = effect.get("base_enchant_id")
+        if base_enchant_id:
+            base = self._weapon_enchant_by_id(str(base_enchant_id))
+            if base:
+                panel.line(f"极版模板：{base['name']}｜来源：民生恩赐触发的技能书升级")
+        enchant_id = effect.get("enchant_id")
         enchant = self._weapon_enchant_by_id(enchant_id) if enchant_id else None
         if enchant:
             panel.line(f"附魔效果：{format_effect(enchant['effect'])}｜精神消耗变化：{enchant['mp_delta']:+d}")

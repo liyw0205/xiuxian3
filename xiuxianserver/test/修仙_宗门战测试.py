@@ -20,14 +20,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from 修仙.common import format_effect, ts
 from 修仙.sect_war import (
+    record_sect_merit_conn,
     record_sect_robbery_influence_conn,
+    sect_bonus_conn,
+    sect_city_bonus_for_position_conn,
+    sect_direction_bonus_conn,
     sect_war_cycle_bounds,
     sect_war_in_battle_window,
     sect_war_in_reward_claim_window,
     sect_war_is_member_locked,
+    sect_war_reward_member_count,
+    sect_war_robbery_influence,
 )
 from 修仙.sql import XiuxianDB
 from 修仙.背包.service import BackpackService
+from 修仙.纳戒.service import RingService
 from 修仙.玩家.service import PlayerService
 from 修仙.宗门 import scheduler as sect_scheduler
 from 修仙.宗门.service import SectService
@@ -41,6 +48,7 @@ def main() -> None:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_sect_war_test.db")
         player = PlayerService(db)
         backpack = BackpackService(db)
+        ring = RingService(db)
         sect = SectService(db)
         weapon = WeaponService(db)
         try:
@@ -52,6 +60,26 @@ def main() -> None:
             weapon.ensure_starter_weapon("member")
             _build_sect(db, sect, "owner", "青云宗")
             _join_sect(db, sect, "member", "青云宗")
+            owner_sect = db.fetch_one("SELECT sect_id FROM sects WHERE name = ?", ("青云宗",))
+            assert owner_sect is not None
+            owner_sect_id = int(owner_sect["sect_id"])
+            stats = _sect_stats(db, owner_sect_id)
+            assert stats is not None
+            assert int(stats["level"]) == 1
+            db.execute("UPDATE city_world_states SET city_level = 40 WHERE location_name = '流沙海市'")
+            with db.transaction() as conn:
+                city_bonus = sect_city_bonus_for_position_conn(conn, -49, -49)
+                sect_bonus = sect_bonus_conn(conn, owner_sect_id)
+            assert float(city_bonus["bonus"]) > 0
+            assert city_bonus["covers"][0]["location_name"] == "流沙海市"
+            assert float(sect_bonus["total_bonus"]) > float(sect_bonus["base_bonus"]) > 0
+
+            overview_text = sect.overview("owner")
+            assert "宗门等级" in overview_text
+            assert "底蕴" in overview_text
+            assert "宗门加持" in overview_text
+            assert "原始城池增益" in overview_text
+            assert "主影响：流沙海市" in overview_text
 
             monday = datetime(2026, 6, 15, 12, 0, 0)
             saturday = datetime(2026, 6, 20, 12, 0, 0)
@@ -74,13 +102,42 @@ def main() -> None:
             assert sect_war_is_member_locked(saturday)
             assert sect_war_is_member_locked(sunday)
 
+            base_influence = sect_war_robbery_influence(
+                success=True,
+                item_value=3000,
+                battle={"actions": [1, 2, 3], "left_level": 10, "right_level": 12},
+            )
+            assert sect_war_reward_member_count(10) == 3
+            assert sect_war_reward_member_count(10, 0.8) == 6
             owner_influence = _record_robbery_influence(db, "owner", finished_monday)
+            assert owner_influence > base_influence
             _record_robbery_influence(db, "owner", finished_monday)
             member_influence = _record_robbery_influence(db, "member", finished_saturday)
+            stats = _sect_stats(db, owner_sect_id)
+            assert stats is not None
+            assert int(stats["influence_merit"]) >= owner_influence * 2 + member_influence
+            assert int(stats["exp"]) > 0
+            assert _sect_merit_count(db, owner_sect_id, "influence") >= 3
+            with db.transaction() as conn:
+                record_sect_merit_conn(conn, "owner", "support", 1000, source="测试供养")
+                support_bonus = sect_direction_bonus_conn(conn, "owner", "support")
+            assert support_bonus > 0
             assert _cycle_record_count(db, finished_cycle_start) == 1
             assert _cycle_influence(db, finished_cycle_start) > 0
             assert _personal_influence(db, "owner", finished_cycle_start) == owner_influence * 2
             assert _personal_influence(db, "member", finished_cycle_start) == member_influence
+            with db.transaction() as conn:
+                wrong_sect = record_sect_robbery_influence_conn(
+                    conn,
+                    "owner",
+                    sect_id=999999,
+                    success=True,
+                    item_value=3000,
+                    battle={"actions": [1, 2, 3], "left_level": 10, "right_level": 12},
+                    detail="wrong sect",
+                    occurred_at=finished_monday,
+                )
+            assert wrong_sect == 0
             before_sunday = _cycle_influence(db, finished_cycle_start)
             _record_robbery_influence(db, "owner", finished_sunday)
             assert _cycle_influence(db, finished_cycle_start) == before_sunday
@@ -96,6 +153,8 @@ def main() -> None:
             assert "本期影响力" in war_text
             assert "个人贡献" in war_text
             assert "宗主甲" in war_text
+            assert "宗门加持" in war_text
+            assert "城池范围" in war_text
             assert "%" in war_text
 
             reward = sect.claim_war_reward("owner")
@@ -112,8 +171,6 @@ def main() -> None:
 
             db.execute("DELETE FROM sect_members WHERE client_id = ?", ("member",))
             _build_sect(db, sect, "member", "临时宗", x=-48, y=-48)
-            db.execute("DELETE FROM sect_members WHERE client_id = ?", ("member",))
-            assert "创立过仍存世的宗门" in sect.create("member", "-47 -47 再起宗")
             temp_sect = db.fetch_one("SELECT sect_id FROM sects WHERE name = ?", ("临时宗",))
             assert temp_sect is not None
             temp_sect_id = int(temp_sect["sect_id"])
@@ -129,6 +186,8 @@ def main() -> None:
                     occurred_at=datetime(2026, 6, 1, 12, 0, 0),
                 )
             assert any(row["name"] == "临时宗" for row in sect._cycle_rankings("2026-06-01"))
+            db.execute("DELETE FROM sect_members WHERE client_id = ?", ("member",))
+            assert "创立过仍存世的宗门" in sect.create("member", "-47 -47 再起宗")
             with db.transaction() as conn:
                 conn.execute("DELETE FROM sect_members WHERE sect_id = ?", (temp_sect_id,))
                 conn.execute("DELETE FROM sects WHERE sect_id = ?", (temp_sect_id,))
@@ -182,12 +241,12 @@ def main() -> None:
             weapon_id = int(db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ?", ("owner",))["weapon_id"])
             extra_weapon_id = weapon.create_weapon("owner", "qinglan_duanjian", "凡品", 40)
 
-            default_temper_text = weapon.temper("owner", "")
+            default_temper_text = ring.temper_weapon("owner", "")
             assert "淬锋成功" in default_temper_text
             row = db.fetch_one("SELECT max_level FROM player_weapons WHERE weapon_id = ?", (weapon_id,))
             assert row is not None and int(row["max_level"]) == 41
 
-            temper_text = weapon.temper("owner", str(extra_weapon_id))
+            temper_text = ring.temper_weapon("owner", str(extra_weapon_id))
             assert "淬锋成功" in temper_text
             row = db.fetch_one("SELECT max_level FROM player_weapons WHERE weapon_id = ?", (extra_weapon_id,))
             assert row is not None and int(row["max_level"]) == 41
@@ -269,6 +328,22 @@ def _cycle_influence(db: XiuxianDB, cycle_start: str) -> int:
         (cycle_start,),
     )
     return int(row["influence"]) if row else 0
+
+
+def _sect_stats(db: XiuxianDB, sect_id: int):
+    """读取宗门长期底蕴。"""
+
+    return db.fetch_one("SELECT * FROM sect_stats WHERE sect_id = ?", (int(sect_id),))
+
+
+def _sect_merit_count(db: XiuxianDB, sect_id: int, category: str) -> int:
+    """读取某类宗门底蕴流水数量。"""
+
+    row = db.fetch_one(
+        "SELECT COUNT(*) AS count FROM sect_merit_records WHERE sect_id = ? AND category = ?",
+        (int(sect_id), category),
+    )
+    return int(row["count"]) if row else 0
 
 
 def _reward_count_for_sect(db: XiuxianDB, sect_id: int, cycle_start: str) -> int:

@@ -8,9 +8,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Callable
 
+from .battle_log_links import battle_log_markdown
+
 
 def wants_detail(player: dict[str, Any] | None) -> bool:
-    """玩家是否开启旧版详细逐次出手日志。"""
+    """玩家是否让战斗日志链接默认展开逐次出手。"""
 
     if not player:
         return False
@@ -50,6 +52,7 @@ def exploration_brief(
     medicine_text: str,
     stop_reason: str,
     event_drop_text: Callable[[dict[str, Any]], str],
+    detail: bool = False,
 ) -> dict[str, Any]:
     """探险结算的简要战斗日志。"""
 
@@ -58,6 +61,8 @@ def exploration_brief(
     hp_left = int(player.get("hp", 1))
     mp_left = int(player.get("mp", 0))
     level_text = f"{old_level} → {new_level}" if new_level > old_level else f"{new_level}，未升级"
+    record_id = int(record["record_id"])
+    log_link = battle_log_markdown(f"探险战斗日志〔{record_id}〕", "explore", record_id, detail=detail)
 
     lines = [
         "> **探险结束**",
@@ -82,6 +87,7 @@ def exploration_brief(
             f"> 纳戒：{ring_drops_text}",
             f"> 武器：{weapon_drops_text}",
             f"> 自动用药：{medicine_text or '无'}",
+            f"> 战斗日志：{log_link}",
             "> 当前状态：空闲",
         ]
     )
@@ -103,6 +109,10 @@ def boss_brief(
     killed_text: str,
     alive_text: str,
     hurt_text: str,
+    log_kind: str = "",
+    record_id: int = 0,
+    client_id: str = "",
+    detail: bool = False,
 ) -> dict[str, Any]:
     """虫洞和首领挑战的简要战斗日志。"""
 
@@ -115,6 +125,10 @@ def boss_brief(
     if int(result.get("hp_left", 0)) <= 0:
         state_text = f"{hurt_text}；{state_text}"
     reward_text = f"｜武器经验 **+{weapon_exp}**" if weapon_exp > 0 else ""
+    log_line = ""
+    if log_kind and record_id:
+        label = f"{boss_label}战斗日志〔{record_id}〕"
+        log_line = f"> 战斗日志：{battle_log_markdown(label, log_kind, record_id, client_id=client_id, detail=detail)}"
 
     lines = [
         f"> **{title}**",
@@ -130,6 +144,8 @@ def boss_brief(
             f"> {state_text}",
         ]
     )
+    if log_line:
+        lines.append(log_line)
     return markdown_reply("\n".join(lines))
 
 
@@ -139,6 +155,9 @@ def duel_brief(
     result: dict[str, Any],
     settlement: str,
     format_player_name: Callable[[str], str],
+    log_kind: str = "",
+    record_id: int = 0,
+    detail: bool = False,
 ) -> dict[str, Any]:
     """切磋和决斗的简要战斗日志。"""
 
@@ -181,6 +200,9 @@ def duel_brief(
         lines.append(f"> 武器经验：{'｜'.join(weapon_exp_parts)}")
     if settlement:
         lines.append(f"> {settlement}")
+    if log_kind and record_id:
+        label = f"{title.replace('结束', '')}战斗日志〔{record_id}〕"
+        lines.append(f"> 战斗日志：{battle_log_markdown(label, log_kind, record_id, detail=detail)}")
     return markdown_reply("\n".join(lines))
 
 

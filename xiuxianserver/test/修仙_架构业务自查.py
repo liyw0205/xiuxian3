@@ -25,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from 修仙.sql import XiuxianDB
+from 修仙.sql import TRADE_FORBIDDEN_SPECIALTY_TYPES, XiuxianDB
 from 修仙.修仙物品.service import TreasureService
 
 
@@ -169,6 +169,59 @@ def _check_seed_data() -> None:
             _assert_no_rows(
                 conn,
                 """
+                SELECT name, specialties
+                FROM trade_locations
+                WHERE (length(specialties) - length(replace(specialties, ',', '')) + 1) != 3
+                """,
+                "跑商地点必须正好 3 个特产",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT t.name
+                FROM trade_locations t
+                LEFT JOIN exploration_locations e ON e.name = t.name
+                WHERE e.name IS NULL OR t.name = '太虚秘境'
+                """,
+                "跑商地点必须与普通探险地点重合，且不能包含太虚秘境",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT e.name
+                FROM exploration_locations e
+                LEFT JOIN trade_locations t ON t.name = e.name
+                WHERE e.name != '太虚秘境' AND t.name IS NULL
+                """,
+                "普通探险地点必须都有跑商入口",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT name, json_extract(effect, '$.trade_type') AS trade_type
+                FROM item_defs
+                WHERE tradeable = 1
+                  AND category = '纯经济'
+                  AND json_extract(effect, '$.trade_group') != '纯经济'
+                """,
+                "跑商特产必须统一为纯经济商品",
+            )
+            forbidden_placeholders = ",".join("?" for _ in TRADE_FORBIDDEN_SPECIALTY_TYPES)
+            _assert_no_rows(
+                conn,
+                f"""
+                SELECT name, json_extract(effect, '$.trade_type') AS trade_type
+                FROM item_defs
+                WHERE tradeable = 1
+                  AND category = '纯经济'
+                  AND json_extract(effect, '$.trade_type') IN ({forbidden_placeholders})
+                """,
+                "跑商特产不能使用旧民生类或药路类",
+                tuple(sorted(TRADE_FORBIDDEN_SPECIALTY_TYPES)),
+            )
+            _assert_no_rows(
+                conn,
+                """
                 SELECT m.monster_id, m.drop_item_id
                 FROM monster_defs m
                 LEFT JOIN item_defs i ON i.item_id = m.drop_item_id
@@ -246,6 +299,7 @@ def _check_known_effect_keys() -> None:
     """检查物品、宝石、体质的效果字段都已经接入业务。"""
 
     allowed = {
+        "base_enchant_id",
         "crit_resist_bonus",
         "defense_bonus",
         "dodge_bonus",
@@ -267,10 +321,13 @@ def _check_known_effect_keys() -> None:
         "recover_bonus",
         "source_stones_delta",
         "trade_bonus",
+        "trade_group",
         "trade_type",
         "weapon_max_level_cap",
         "weapon_max_level_delta",
         "wash_physique",
+        "world_category",
+        "world_subtype",
     }
     with TemporaryDirectory() as temp_dir:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_effect_audit.db")
@@ -403,11 +460,14 @@ def _check_deprecated_commands_removed() -> None:
         "换武器",
         "武器升级",
         "武器回收",
+        "回收武器",
         "技能书回收",
+        "回收技能书",
         "武器附魔",
         "升级装备",
         "升级宝石",
         "宝石回收",
+        "回收宝石",
         "装备铭刻",
         "武器铭刻",
         "附魔铭刻",
@@ -553,10 +613,10 @@ def _count(conn, table: str) -> int:
     return int(row["total"] if row else 0)
 
 
-def _assert_no_rows(conn, sql: str, title: str) -> None:
+def _assert_no_rows(conn, sql: str, title: str, params: tuple = ()) -> None:
     """断言查询没有异常记录。"""
 
-    rows = conn.execute(sql).fetchall()
+    rows = conn.execute(sql, params).fetchall()
     assert not rows, title + "：\n" + "\n".join(str(dict(row)) for row in rows)
 
 

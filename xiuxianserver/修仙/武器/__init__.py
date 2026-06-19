@@ -43,27 +43,6 @@ async def ws_weapon_upgrade(client_id: str, message: str) -> None:
     await send_reply(client_id, service.upgrade(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="武器淬锋", priority=100, block=True)
-async def ws_weapon_temper(client_id: str, message: str) -> None:
-    """消耗淬锋丹提升武器上限。"""
-
-    await send_reply(client_id, service.temper(client_id, message), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="回收武器", priority=100, block=True)
-async def ws_weapon_recycle(client_id: str, message: str) -> None:
-    """在回收地点处理备用武器。"""
-
-    await send_reply(client_id, service.recycle(client_id, message), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="回收技能书", priority=100, block=True)
-async def ws_weapon_recycle_book(client_id: str, message: str) -> None:
-    """在回收地点处理纳戒里的未附魔技能书。"""
-
-    await send_reply(client_id, service.recycle_book(client_id, message), ws_manager, service)
-
-
 @WsMessageHandler.handler(cmd="附魔武器", priority=100, block=True)
 async def ws_weapon_enchant(client_id: str, message: str) -> None:
     """附魔武器。"""

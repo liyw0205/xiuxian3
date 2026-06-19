@@ -28,6 +28,7 @@ import 修仙.对战 as duel_module
 import 修仙.二手市场 as second_hand_module
 import 修仙.探险 as exploration_module
 import 修仙.武器 as weapon_module
+import 修仙.修仙百科 as encyclopedia_module
 import 修仙.源库 as vault_module
 import 修仙.修仙帮助 as help_module
 import 修仙.玩家 as player_module
@@ -53,6 +54,7 @@ from 修仙.wormhole_service import WormholeService
 from 修仙.二手市场.service import SecondHandService
 from 修仙.探险.service import ExplorationService
 from 修仙.武器.service import WeaponService
+from 修仙.修仙百科.service import EncyclopediaService
 from 修仙.源库.service import SourceVaultService
 from 修仙.修仙帮助.service import HelpService
 from 修仙.玩家.service import PlayerService
@@ -86,6 +88,7 @@ WS_MODULES = (
     wormhole_module,
     treasure_module,
     weapon_module,
+    encyclopedia_module,
     exploration_module,
     duel_module,
     equipment_module,
@@ -125,6 +128,10 @@ async def main_async() -> None:
             _must_image_reply(manager, "player_ws")
 
             await _dispatch(manager, "player_ws", "指南")
+            _must_reply(manager, "player_ws", "修行成长")
+
+            await _dispatch(manager, "player_ws", "指南 战斗")
+            _must_reply(manager, "player_ws", "指南·探险战斗")
             _must_reply(manager, "player_ws", "探险状态")
 
             await _dispatch(manager, "player_ws", "创建用户 青衫客")
@@ -212,7 +219,7 @@ async def main_async() -> None:
             with db.transaction() as conn:
                 item = conn.execute(
                     "SELECT item_id FROM item_defs WHERE name = ?",
-                    ("星纹玉简",),
+                    ("星官旧简",),
                 ).fetchone()
                 assert item is not None
                 SecondHandService(db).add_backpack_conn(conn, "target_ws", item["item_id"], 1)
@@ -220,7 +227,7 @@ async def main_async() -> None:
                     "UPDATE players SET source_stones = source_stones + 1000 WHERE client_id = ?",
                     ("player_ws",),
                 )
-            await _dispatch(manager, "target_ws", "二手市场上架 星纹玉简 1 100")
+            await _dispatch(manager, "target_ws", "二手市场上架 星官旧简 1 100")
             _must_reply(manager, "target_ws", "上架成功")
             await _dispatch(manager, "player_ws", "二手市场购买[CQ:at,qq=target_ws]")
             _must_reply(manager, "player_ws", "购买成功")
@@ -341,9 +348,7 @@ async def main_async() -> None:
                 "UPDATE players SET location_name = '铸剑阁', x = -120, y = 760 WHERE client_id = ?",
                 ("player_ws",),
             )
-            await _dispatch(manager, "player_ws", "回收武器")
-            _must_reply(manager, "player_ws", weapon_id_label(recycle_weapon_id))
-            await _dispatch(manager, "player_ws", f"回收武器 {recycle_weapon_id}")
+            await _dispatch(manager, "player_ws", f"出售 {recycle_weapon_id} 1")
             _must_reply(manager, "player_ws", "回收成功")
             with db.transaction() as conn:
                 EquipmentService(db).add_gem_conn(conn, "player_ws", "huxinyu", 2, 2)
@@ -351,9 +356,7 @@ async def main_async() -> None:
                     "UPDATE players SET location_name = '琢玉楼', x = 320, y = 760 WHERE client_id = ?",
                     ("player_ws",),
                 )
-            await _dispatch(manager, "player_ws", "回收宝石")
-            _must_reply(manager, "player_ws", "护心玉 2级")
-            await _dispatch(manager, "player_ws", "回收宝石 护心玉 2级 1")
+            await _dispatch(manager, "player_ws", "出售 护心玉 2级 1")
             _must_reply(manager, "player_ws", "回收成功")
             with db.transaction() as conn:
                 WeaponService(db).add_ring_conn(conn, "player_ws", "fengren_shu", 2)
@@ -361,9 +364,7 @@ async def main_async() -> None:
                     "UPDATE players SET location_name = '藏经阁', x = 120, y = 820 WHERE client_id = ?",
                     ("player_ws",),
                 )
-            await _dispatch(manager, "player_ws", "回收技能书")
-            _must_reply(manager, "player_ws", "风刃书")
-            await _dispatch(manager, "player_ws", "回收技能书 风刃书 1")
+            await _dispatch(manager, "player_ws", "出售 风刃书 1")
             _must_reply(manager, "player_ws", "回收成功")
             db.execute(
                 "UPDATE players SET location_name = '天枢城', x = 0, y = 0 WHERE client_id = ?",
@@ -385,7 +386,7 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "镶嵌 头部 4 玄龟石 1级")
             _must_reply(manager, "player_ws", "镶嵌成功")
 
-            await _dispatch(manager, "player_ws", "商场列表")
+            await _dispatch(manager, "player_ws", "探险列表")
             _must_reply(manager, "player_ws", "天枢城")
             await _dispatch(manager, "player_ws", "跑商奖励")
             _must_reply(manager, "player_ws", "普通跑商")
@@ -409,10 +410,14 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "虫洞奖励")
             _must_reply(manager, "player_ws", "还没有结束")
 
-            await _dispatch(manager, "player_ws", "查看修仙物品 星纹玉简")
-            _must_reply(manager, "player_ws", "星纹玉简")
+            await _dispatch(manager, "player_ws", "查看修仙物品 星官旧简")
+            _must_reply(manager, "player_ws", "星官旧简")
             await _dispatch(manager, "player_ws", "查看修仙物品 福袋")
             _must_reply(manager, "player_ws", "存放：纳戒")
+
+            await _dispatch(manager, "player_ws", "修仙百科 宗门战奖励机制")
+            _must_reply(manager, "player_ws", "参考：")
+            _must_reply(manager, "player_ws", "宗门")
 
             db.execute(
                 "UPDATE players SET location_name = '天枢城', x = 0, y = 0, status = '空闲', hp = max_hp, mp = max_mp WHERE client_id = ?",
@@ -439,12 +444,10 @@ async def main_async() -> None:
             assert isinstance(payload, dict), payload
             assert payload.get("type") == "markdown", payload
             body = _message_text(payload)
-            assert "```javascript" in body, payload
             assert "领取动作" not in body, payload
-            assert "一、战斗明细" in body, payload
-            assert "我方出手" in body, payload
-            assert "敌方出手" in body, payload
-            assert "二、最终结算" in body, payload
+            assert "战斗日志" in body, payload
+            assert "zhandou-rizhi/explore" in body, payload
+            assert "detail=1" in body, payload
             assert "武器经验" in body, payload
         finally:
             _restore_modules(old_state)
@@ -465,7 +468,9 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
     exploration_service_module.combat_service = combat_core
     duel_service_module.combat_service = combat_core
     wormhole_service_module.weapon_service = weapon_core
+    wormhole_service_module.combat_service = combat_core
     seasonal_boss_service_module.weapon_service = weapon_core
+    seasonal_boss_service_module.combat_service = combat_core
 
     old_state: dict[str, Any] = {
         "services": {module: module.service for module in WS_MODULES},
@@ -484,6 +489,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
         wormhole_module: WormholeService(db),
         treasure_module: TreasureService(db),
         weapon_module: WeaponService(db),
+        encyclopedia_module: EncyclopediaService(db),
         exploration_module: ExplorationService(db),
         duel_module: DuelService(db),
         equipment_module: EquipmentService(db),

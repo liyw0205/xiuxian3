@@ -85,7 +85,7 @@ async def ws_command_guide(client_id: str, message: str) -> None:
         {
             "code": 202,
             "type": "text",
-            "message": service.command_guide(),
+            "message": service.command_guide(message),
             "auto_buttons": False,
             "default_buttons": False,
         },

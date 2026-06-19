@@ -283,13 +283,13 @@ def ring_item_use_hint(item: dict[str, Any]) -> str:
     if item["name"] == "洗髓液":
         return "<洗髓><宝石><武器>"
     if item["name"] == "淬锋丹":
-        return "淬锋丹请发送：武器淬锋；默认淬锋已装备武器，也可发送：武器淬锋 武器ID。<武器><纳戒>"
+        return "淬锋丹由纳戒承接消耗，请发送：武器淬锋；默认淬锋已装备武器，也可发送：武器淬锋 武器ID。<纳戒><武器>"
     if item["category"] == "宝石":
         return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<洗髓><宝石><武器>"
     if item["category"] == "技能书":
         return "技能书请发送：附魔武器 武器ID 技能书名。<洗髓><宝石><武器>"
     if item["name"] == "开孔器":
-        return "开孔器请发送：开孔 装备位。<洗髓><宝石><武器>"
+        return "开孔器由纳戒承接消耗，请发送：开孔 装备位。<纳戒><宝石><装备>"
     return "只有恢复类物品可以直接发送：使用 物品名，或使用 物品名 数量。<洗髓><宝石><武器>"
 
 
@@ -609,6 +609,8 @@ class CoreService:
         today = business_day()
         battle_cutoff = ts(now() - timedelta(days=BATTLE_RECORD_RETENTION_DAYS))
         direct_cutoff = ts(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
+        world_short_cutoff = ts(now() - timedelta(days=5))
+        world_long_cutoff = ts(now() - timedelta(days=15))
         direct_business_day = business_day(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
         newspaper_business_day = business_day(now() - timedelta(days=NEWSPAPER_RETENTION_DAYS))
         with self.db.transaction() as conn:
@@ -639,6 +641,23 @@ class CoreService:
             conn.execute("DELETE FROM trade_daily_rewards WHERE business_day < ?", (direct_business_day,))
             conn.execute(
                 """
+                DELETE FROM treasure_map_bids
+                WHERE active = 0
+                  AND datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+                """,
+                (world_short_cutoff,),
+            )
+            conn.execute(
+                """
+                DELETE FROM treasure_maps
+                WHERE status = '已领取'
+                  AND settled_at IS NOT NULL
+                  AND datetime(replace(settled_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+                """,
+                (world_long_cutoff,),
+            )
+            conn.execute(
+                """
                 DELETE FROM trade_buy_locks
                 WHERE datetime(replace(last_buy_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
                 """,
@@ -648,8 +667,8 @@ class CoreService:
             conn.execute("DELETE FROM daily_newspapers WHERE business_day < ?", (newspaper_business_day,))
 
             stats_start_at = self._lifetime_stats_started_at_conn(conn)
-            self._rollup_lifetime_records_conn(conn, stats_start_at, direct_cutoff)
-            self._cleanup_lifetime_source_records_conn(conn, direct_cutoff)
+            self._rollup_lifetime_records_conn(conn, stats_start_at, direct_cutoff, world_long_cutoff)
+            self._cleanup_lifetime_source_records_conn(conn, direct_cutoff, world_long_cutoff)
             conn.execute(
                 """
                 INSERT INTO schema_meta (key, value)
@@ -792,13 +811,20 @@ class CoreService:
         )
         return started_at
 
-    def _rollup_lifetime_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
+    def _rollup_lifetime_records_conn(
+        self,
+        conn: sqlite3.Connection,
+        start_at: str,
+        cutoff_at: str,
+        world_cutoff_at: str | None = None,
+    ) -> None:
         """把即将清理的长期来源流水汇总到玩家长期统计。"""
 
         self._rollup_game_logs_conn(conn, start_at, cutoff_at)
         self._rollup_trade_records_conn(conn, start_at, cutoff_at)
         self._rollup_second_hand_records_conn(conn, start_at, cutoff_at)
         self._rollup_recycle_records_conn(conn, start_at, cutoff_at)
+        self._rollup_world_material_records_conn(conn, start_at, world_cutoff_at or cutoff_at)
         self._rollup_exploration_records_conn(conn, start_at, cutoff_at)
         self._rollup_boss_records_conn(conn, start_at, cutoff_at)
         self._rollup_duel_records_conn(conn, start_at, cutoff_at)
@@ -847,7 +873,12 @@ class CoreService:
         ).fetchall()
         for row in rows:
             client_id = row["client_id"]
-            for stat_key in ("trade_count", "trade_sell_count", "trade_buy_count", "trade_net"):
+            for stat_key in (
+                "trade_count",
+                "trade_sell_count",
+                "trade_buy_count",
+                "trade_net",
+            ):
                 self.add_lifetime_stat_conn(conn, client_id, stat_key, int(row[stat_key] or 0))
 
     def _rollup_second_hand_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
@@ -880,7 +911,7 @@ class CoreService:
             self.add_lifetime_stat_conn(conn, row["client_id"], "second_hand_buy_count", int(row["total"] or 0))
 
     def _rollup_recycle_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
-        """汇总武器、宝石和技能书回收次数与收入。"""
+        """汇总武器、宝石和技能书出售次数与收入。"""
 
         configs = (
             ("weapon_recycle_records", "weapon_recycle_count", "weapon_recycle_income"),
@@ -901,6 +932,36 @@ class CoreService:
             for row in rows:
                 self.add_lifetime_stat_conn(conn, row["client_id"], count_key, int(row["total"] or 0))
                 self.add_lifetime_stat_conn(conn, row["client_id"], income_key, int(row["income"] or 0))
+
+    def _rollup_world_material_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
+        """汇总世界物资回收流水，清理后仍保留玩家长期倾向和收入账。"""
+
+        rows = conn.execute(
+            """
+            SELECT client_id,
+                   category,
+                   COUNT(*) AS total,
+                   COALESCE(SUM(quantity), 0) AS quantity,
+                   COALESCE(SUM(stones), 0) AS income
+            FROM world_material_records
+            WHERE datetime(replace(created_at, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
+              AND datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+            GROUP BY client_id, category
+            """,
+            (start_at, cutoff_at),
+        ).fetchall()
+        for row in rows:
+            client_id = row["client_id"]
+            category = str(row["category"] or "未分")
+            total = int(row["total"] or 0)
+            quantity = int(row["quantity"] or 0)
+            income = int(row["income"] or 0)
+            self.add_lifetime_stat_conn(conn, client_id, "world_material_count", total)
+            self.add_lifetime_stat_conn(conn, client_id, "world_material_quantity", quantity)
+            self.add_lifetime_stat_conn(conn, client_id, "world_material_income", income)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_count", total)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_quantity", quantity)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_income", income)
 
     def _rollup_exploration_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
         """汇总已领取探险次数；未领取探险保留，不进入清理。"""
@@ -1009,9 +1070,15 @@ class CoreService:
         for row in rows:
             self.add_lifetime_stat_conn(conn, row["client_id"], "robbed_count", int(row["total"] or 0))
 
-    def _cleanup_lifetime_source_records_conn(self, conn: sqlite3.Connection, cutoff_at: str) -> None:
+    def _cleanup_lifetime_source_records_conn(
+        self,
+        conn: sqlite3.Connection,
+        cutoff_at: str,
+        world_cutoff_at: str | None = None,
+    ) -> None:
         """清理已经能由长期统计承接的明细流水。"""
 
+        world_cutoff = world_cutoff_at or cutoff_at
         conn.execute(
             """
             DELETE FROM game_logs
@@ -1027,6 +1094,13 @@ class CoreService:
                 """,
                 (cutoff_at,),
             )
+        conn.execute(
+            """
+            DELETE FROM world_material_records
+            WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+            """,
+            (world_cutoff,),
+        )
         conn.execute(
             """
             DELETE FROM exploration_records
@@ -1045,6 +1119,13 @@ class CoreService:
         conn.execute(
             """
             DELETE FROM robbery_records
+            WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+            """,
+            (cutoff_at,),
+        )
+        conn.execute(
+            """
+            DELETE FROM wormhole_challenge_records
             WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
             """,
             (cutoff_at,),
@@ -1079,6 +1160,13 @@ class CoreService:
                   SELECT 1 FROM wormhole_participants p
                   WHERE p.wormhole_id = wormholes.wormhole_id
               )
+            """,
+            (cutoff_at,),
+        )
+        conn.execute(
+            """
+            DELETE FROM boss_challenge_records
+            WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
             """,
             (cutoff_at,),
         )
@@ -1568,7 +1656,25 @@ class CoreService:
             "total_assets": source_stones + vault_balance,
             "sign_count": self.stat_count_conn(conn, client_id, "sign_count", "game_logs", "client_id = ? AND action = '签到'", (client_id,)),
             "explore_count": self.stat_count_conn(conn, client_id, "explore_count", "exploration_records", "client_id = ?", (client_id,)),
+            "recent_explore_count": self._recent_count_conn(
+                conn,
+                "exploration_records",
+                "client_id = ?",
+                (client_id,),
+                time_column="started_at",
+            ),
             "trade_sell_count": self.stat_count_conn(conn, client_id, "trade_sell_count", "trade_records", "client_id = ? AND action = 'sell'", (client_id,)),
+            "recent_trade_sell_count": self._recent_count_conn(conn, "trade_records", "client_id = ? AND action = 'sell'", (client_id,)),
+            "recent_world_med_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '药路'", (client_id,)),
+            "recent_world_life_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '民生'", (client_id,)),
+            "recent_world_build_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '建设'", (client_id,)),
+            "recent_world_relic_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '古物'", (client_id,)),
+            "recent_special_sell_count": self._recent_count_conn(
+                conn,
+                "trade_records",
+                "client_id = ? AND action IN ('special_sell', 'special_auto_sell')",
+                (client_id,),
+            ),
             "trade_net": self.stat_total_conn(
                 conn,
                 client_id,
@@ -1607,6 +1713,7 @@ class CoreService:
                 (client_id,),
             ),
             "duel_win_count": self.stat_count_conn(conn, client_id, "duel_win_count", "duel_records", "winner_id = ?", (client_id,)),
+            "recent_duel_win_count": self._recent_count_conn(conn, "duel_records", "winner_id = ?", (client_id,)),
             "inscription_count": self.stat_count_conn(
                 conn,
                 client_id,
@@ -1629,28 +1736,51 @@ class CoreService:
     def _title_rules(stats: dict[str, Any]) -> tuple[tuple[int, str, str, bool], ...]:
         """把玩家统计转成称号规则。"""
 
+        explore_regular = stats["recent_explore_count"] >= 3 or stats["explore_count"] >= 5
+        explore_regular_reason = (
+            f"近况探险 {stats['recent_explore_count']} 次"
+            if stats["recent_explore_count"] >= 3
+            else f"累计探险 {stats['explore_count']} 次"
+        )
+        trade_regular = stats["recent_trade_sell_count"] >= 5 or stats["trade_sell_count"] >= 20
+        trade_regular_reason = (
+            f"近况跑商出售 {stats['recent_trade_sell_count']} 次"
+            if stats["recent_trade_sell_count"] >= 5
+            else f"普通跑商出售 {stats['trade_sell_count']} 次"
+        )
+        duel_regular = stats["recent_duel_win_count"] >= 2 or stats["duel_win_count"] >= 3
+        duel_regular_reason = (
+            f"近况对战胜利 {stats['recent_duel_win_count']} 次"
+            if stats["recent_duel_win_count"] >= 2
+            else f"对战胜利 {stats['duel_win_count']} 次"
+        )
         rules = (
             (10, "初入仙途", "已经创建修仙角色", True),
             (18, "晨钟常客", f"累计签到 {stats['sign_count']} 次", stats["sign_count"] >= 7),
             (20, "小富即安", "随身源石达到 5 万", stats["source_stones"] >= 50_000),
             (24, "藏源有道", "源库余额达到 10 万", stats["vault_balance"] >= 100_000),
             (28, "财气盈门", "明面资产达到 30 万", stats["total_assets"] >= 300_000),
-            (30, "探险常客", f"累计探险 {stats['explore_count']} 次", stats["explore_count"] >= 5),
+            (30, "探险常客", explore_regular_reason, explore_regular),
             (34, "山河熟客", f"累计探险 {stats['explore_count']} 次", stats["explore_count"] >= 30),
-            (35, "跑商老手", f"普通跑商出售 {stats['trade_sell_count']} 次", stats["trade_sell_count"] >= 20),
+            (35, "跑商老手", trade_regular_reason, trade_regular),
+            (36, "丹火借道客", f"近况回收药路 {stats['recent_world_med_count']} 次", stats["recent_world_med_count"] >= 3),
+            (37, "灯火续命人", f"近况回收民生 {stats['recent_world_life_count']} 次", stats["recent_world_life_count"] >= 3),
+            (39, "护城搬山客", f"近况回收建设 {stats['recent_world_build_count']} 次", stats["recent_world_build_count"] >= 3),
             (38, "商路识途", f"跑商净利润 {money(stats['trade_net'])}", stats["trade_net"] >= 100_000),
+            (41, "秘库经手人", f"近况回收古物 {stats['recent_world_relic_count']} 次", stats["recent_world_relic_count"] >= 2),
+            (42, "战备供货人", f"近况战利品出售 {stats['recent_special_sell_count']} 次", stats["recent_special_sell_count"] >= 3),
             (40, "兵器收藏家", f"拥有武器 {stats['weapon_count']} 把", stats["weapon_count"] >= 5),
             (43, "百炼持刃", f"最高武器等级 {stats['highest_weapon_level']}", stats["highest_weapon_level"] >= 40),
-            (45, "铸剑客", f"回收武器 {stats['weapon_recycle_count']} 次", stats["weapon_recycle_count"] >= 3),
-            (46, "藏经归客", f"回收技能书 {stats['book_recycle_count']} 次", stats["book_recycle_count"] >= 3),
-            (47, "琢玉散人", f"回收宝石 {stats['gem_recycle_count']} 次", stats["gem_recycle_count"] >= 3),
+            (45, "铸剑客", f"出售武器 {stats['weapon_recycle_count']} 次", stats["weapon_recycle_count"] >= 3),
+            (46, "藏经归客", f"出售技能书 {stats['book_recycle_count']} 次", stats["book_recycle_count"] >= 3),
+            (47, "琢玉散人", f"出售宝石 {stats['gem_recycle_count']} 次", stats["gem_recycle_count"] >= 3),
             (50, "虫洞先锋", f"参与异界虫洞 {stats['wormhole_count']} 次", stats["wormhole_count"] > 0),
             (52, "虫洞鏖战者", f"虫洞累计伤害 {stats['wormhole_damage']}", stats["wormhole_damage"] >= 20_000),
             (55, "欧气外露", "拥有稀品或珍品武器", stats["rare_weapon"]),
             (58, "满锋候选", f"最高武器上限 {stats['max_weapon_level']}", stats["max_weapon_level"] >= 80),
             (60, "岁时赴约人", f"挑战岁时首领 {stats['boss_count']} 次", stats["boss_count"] > 0),
             (62, "情劫破阵者", f"首领累计伤害 {stats['boss_damage']}", stats["boss_damage"] >= 20_000),
-            (64, "斗法胜手", f"对战胜利 {stats['duel_win_count']} 次", stats["duel_win_count"] >= 3),
+            (64, "斗法胜手", duel_regular_reason, duel_regular),
             (66, "羽墨留名", f"铭刻 {stats['inscription_count']} 次", stats["inscription_count"] >= 1),
         )
         return rules
@@ -1662,7 +1792,7 @@ class CoreService:
         rules: tuple[tuple[int, str, str, bool], ...],
         current: str,
     ) -> list[tuple[int, str]]:
-        """写入已达成称号，并返回可佩戴称号列表。"""
+        """写入当前有效称号，并返回可佩戴称号列表。"""
 
         valid: list[tuple[int, str]] = []
         for score, title, reason, ok in rules:
@@ -1688,6 +1818,55 @@ class CoreService:
 
         row = conn.execute(f"SELECT COUNT(*) AS count FROM {table} WHERE {where}", params).fetchone()
         return int(row["count"]) if row else 0
+
+    @staticmethod
+    def _recent_count_conn(
+        conn: sqlite3.Connection,
+        table: str,
+        where: str,
+        params: tuple[Any, ...],
+        *,
+        time_column: str = "created_at",
+        days: int = DIRECT_FLOW_RETENTION_DAYS,
+    ) -> int:
+        """统计当前明细保留窗口内的近期行为次数。"""
+
+        cutoff_at = ts(now() - timedelta(days=days))
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM {table}
+            WHERE {where}
+              AND datetime(replace({time_column}, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
+            """,
+            (*params, cutoff_at),
+        ).fetchone()
+        return int(row["count"] or 0) if row else 0
+
+    @staticmethod
+    def _recent_total_conn(
+        conn: sqlite3.Connection,
+        table: str,
+        field: str,
+        where: str,
+        params: tuple[Any, ...],
+        *,
+        time_column: str = "created_at",
+        days: int = DIRECT_FLOW_RETENTION_DAYS,
+    ) -> int:
+        """统计当前明细保留窗口内的近期行为数量。"""
+
+        cutoff_at = ts(now() - timedelta(days=days))
+        row = conn.execute(
+            f"""
+            SELECT COALESCE(SUM({field}), 0) AS total
+            FROM {table}
+            WHERE {where}
+              AND datetime(replace({time_column}, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
+            """,
+            (*params, cutoff_at),
+        ).fetchone()
+        return int(row["total"] or 0) if row else 0
 
     @staticmethod
     def _exists_conn(conn: sqlite3.Connection, table: str, where: str, params: tuple[Any, ...]) -> bool:
@@ -2256,6 +2435,61 @@ class CoreService:
             (ring_item_id,),
         )
 
+    def maybe_upgrade_extreme_book(self, ring_item_id: str, location_name: str, play_bonus: float = 0.0) -> str:
+        """按城池民生恩赐把普通技能书升级为极版；没有命中时返回原 id。"""
+
+        item_id = str(ring_item_id or "")
+        if not item_id or item_id.startswith("extreme_"):
+            return item_id
+        item = self.ring_item_def(item_id)
+        if not item or item.get("category") != "技能书":
+            return item_id
+        extreme_id = f"extreme_{item_id}"
+        if not self.ring_item_def(extreme_id):
+            return item_id
+        chance = self._extreme_book_upgrade_chance(location_name, play_bonus)
+        if chance <= 0 or random.random() >= chance:
+            return item_id
+        return extreme_id
+
+    def maybe_upgrade_extreme_book_item(
+        self,
+        item: dict[str, Any] | None,
+        location_name: str,
+        play_bonus: float = 0.0,
+    ) -> dict[str, Any] | None:
+        """把抽到的技能书行替换为极版行，方便掉落文本直接使用新名字。"""
+
+        if not item:
+            return None
+        upgraded_id = self.maybe_upgrade_extreme_book(str(item.get("ring_item_id") or ""), location_name, play_bonus)
+        if upgraded_id == str(item.get("ring_item_id") or ""):
+            return item
+        return self.ring_item_def(upgraded_id) or item
+
+    def _extreme_book_upgrade_chance(self, location_name: str, play_bonus: float = 0.0) -> float:
+        """极版技能书概率：民生阶数提供底盘，玩法入口再给少量修正。"""
+
+        row = self.db.fetch_one(
+            "SELECT * FROM city_world_states WHERE location_name = ?",
+            (str(location_name or ""),),
+        )
+        tier = 0
+        if row:
+            values = [
+                int(row.get("life_food") or 0),
+                int(row.get("life_salt") or 0),
+                int(row.get("life_water") or 0),
+                int(row.get("life_cloth") or 0),
+                int(row.get("life_fuel") or 0),
+            ]
+            thresholds = (100, 240, 430, 680, 1000, 1400, 1900, 2500, 3200, 4000)
+            tiers = [sum(1 for threshold in thresholds if value >= threshold) for value in values]
+            tier = int(sum(tiers) / len(tiers)) if tiers else 0
+            if tiers and min(tiers) <= tier - 2:
+                tier -= 1
+        return min(0.06, max(0.0, 0.002 + max(0, min(10, tier)) * 0.0045 + float(play_bonus)))
+
     def add_backpack_conn(self, conn: sqlite3.Connection, client_id: str, item_id: str, quantity: int) -> None:
         """在事务里增加背包物品。"""
 
@@ -2307,7 +2541,7 @@ class CoreService:
         if weight_after > int(player["weight_limit"]):
             return False, T.hint(
                 f"背包负重不足，放入后会变成 {weight_after}/{player['weight_limit']}。",
-                "先发送：商场出售 商品名 数量，或发送：商场自动出售 清理跑商货物。<商场自动出售><特殊自动出售>",
+                "先发送：自动出售 清理背包，或发送：出售 物品名 数量 处理指定物品。<自动出售><背包>",
             )
 
         current = conn.execute(

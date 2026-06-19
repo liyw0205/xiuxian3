@@ -25,6 +25,7 @@ class KnowledgeEntry:
     kind: str
     body: str
     keywords: tuple[str, ...]
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -234,7 +235,7 @@ class EncyclopediaService:
             if score:
                 scored.append((entry, score))
         scored.sort(key=lambda item: (item[1], _priority(item[0])), reverse=True)
-        return scored[:12]
+        return scored[:24]
 
     def _search_with_player_names(self, client_id: str, query: str) -> list[tuple[KnowledgeEntry, int]]:
         """检索全局知识，并把玩家自己的铭刻名也纳入匹配。"""
@@ -253,7 +254,7 @@ class EncyclopediaService:
             seen.add(key)
             result.append((entry, score))
         result.sort(key=lambda item: (item[1], _priority(item[0])), reverse=True)
-        return result[:12]
+        return result[:24]
 
     def _player_named_matches(self, client_id: str, query: str) -> list[tuple[KnowledgeEntry, int]]:
         """让玩家自己的铭刻武器名、技能名、附魔名也能被百科识别。"""
@@ -395,10 +396,15 @@ class EncyclopediaService:
                     core_structured.sort(key=lambda item: _reward_rank(item[0]), reverse=True)
                 return core_structured[:4]
 
+        if _should_use_document_synthesis(query, matches):
+            doc_matches = [item for item in matches if item[0].kind == "文档"]
+            structured_matches = [item for item in matches if item[0].kind != "文档"]
+            return (doc_matches[:8] + structured_matches[:4])[:10]
+
         structured = [item for item in matches if item[0].kind != "文档"]
         if structured and intent in {"usage", "source", "build"}:
             return structured[:4]
-        return matches[:3]
+        return matches[:8]
 
     def _load_markdown_entries(self) -> list[KnowledgeEntry]:
         """读取 Markdown 文档章节，作为说明类知识。"""
@@ -407,16 +413,20 @@ class EncyclopediaService:
         for path in _markdown_paths():
             content = path.read_text(encoding="utf-8")
             group = _doc_group(path)
+            source = path.relative_to(XIUXIAN_DIR).as_posix()
             for title, body in _markdown_sections(content, path.stem):
                 if not body.strip():
                     continue
+                heading, _, summary = body.partition("\n")
+                body_text = summary.strip() or body.strip()
                 entries.append(
                     KnowledgeEntry(
-                        title=title,
+                        title=heading.strip() or title,
                         group=group,
                         kind="文档",
-                        body=body,
-                        keywords=_keywords(title, group, body),
+                        body=body_text,
+                        keywords=_keywords(title, group, source, body_text),
+                        source=source,
                     )
                 )
         return entries
@@ -601,7 +611,8 @@ class EncyclopediaService:
                 f"等级：{row.get('level', 0)}",
                 f"类型：{row.get('kind', '')}",
                 f"血气/攻击/防御：{row.get('hp', 0)} / {row.get('attack', 0)} / {row.get('defense', 0)}",
-                f"掉落：{row.get('drop_name') or '无'}，概率 {row.get('drop_chance', 0)}",
+                f"偏向掉落：{row.get('drop_name') or '无'}，概率 {row.get('drop_chance', 0)}",
+                "实际探险会再按族群自然池滚动战利品，怪物原掉落只是偏向，不是唯一结果。",
             )
             entries.append(
                 KnowledgeEntry(
@@ -631,7 +642,7 @@ class EncyclopediaService:
                     group="商场",
                     kind="特殊收购",
                     body=body,
-                    keywords=_keywords(row.get("buyer_name"), *names, "特殊出售", "特殊自动出售"),
+                    keywords=_keywords(row.get("buyer_name"), *names, "出售", "自动出售"),
                 )
             )
         return entries
@@ -725,28 +736,33 @@ def _doc_group(path: Path) -> str:
 def _markdown_sections(content: str, fallback_title: str) -> list[tuple[str, str]]:
     """把 Markdown 切成可检索章节。"""
 
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[tuple[str, tuple[str, ...], list[str]]] = []
+    heading_stack: list[str] = [fallback_title]
     current_title = fallback_title
     current_lines: list[str] = []
     for line in content.splitlines():
         heading = re.match(r"^(#{1,3})\s+(.+)$", line.strip())
         if heading:
             if current_lines:
-                sections.append((current_title, current_lines))
+                sections.append((current_title, tuple(heading_stack), current_lines))
             current_title = heading.group(2).strip()
+            level = len(heading.group(1))
+            heading_stack = heading_stack[:level]
+            heading_stack.append(current_title)
             current_lines = []
             continue
         current_lines.append(line)
     if current_lines:
-        sections.append((current_title, current_lines))
+        sections.append((current_title, tuple(heading_stack), current_lines))
 
     result: list[tuple[str, str]] = []
-    for title, lines in sections:
+    for title, heading_path, lines in sections:
         body = "\n".join(line.strip() for line in lines if line.strip())
         body = re.sub(r"```.*?```", "", body, flags=re.S)
         body = re.sub(r"\s+", " ", body).strip()
         if body:
-            result.append((title, body[:900]))
+            display_path = " > ".join(dict.fromkeys(part.strip() for part in heading_path if part.strip()))
+            result.append((title, f"{display_path}\n{body[:1100]}"))
     return result
 
 
@@ -961,8 +977,11 @@ def _answer_buttons(query: str, entries: list[KnowledgeEntry]) -> str:
 
     commands: list[str] = ["帮助"]
     primary = entries[0] if entries else None
+    if _is_broad_document_query(query) or (primary and primary.kind == "文档"):
+        commands.extend(_document_answer_commands(query, entries))
+        return T.buttons(*commands[:5])
     if "跑商" in query or "商场" in query:
-        commands.extend(["商场推荐", "商场列表", "背包"])
+        commands.extend(["商场推荐", "自动出售", "背包"])
     elif "开荒" in query or "探险" in query:
         commands.extend(["探险状态", "地图", "修仙信息"])
     elif "首领" in query or "虫洞" in query:
@@ -981,6 +1000,27 @@ def _answer_buttons(query: str, entries: list[KnowledgeEntry]) -> str:
     return T.buttons(*commands[:5])
 
 
+def _document_answer_commands(query: str, entries: list[KnowledgeEntry]) -> list[str]:
+    """综合文档回答的下一步入口。"""
+
+    commands: list[str] = []
+    text = f"{query} {' '.join(entry.group for entry in entries)} {' '.join(entry.title for entry in entries)}"
+    if any(word in text for word in ("按钮", "富文本", "帮助", "指南")):
+        commands.extend(["指南", "修仙帮助"])
+    if any(word in text for word in ("宗门", "宗门战")):
+        commands.extend(["指南 世界", "宗门", "宗门战"])
+    if any(word in text for word in ("商场", "跑商", "出售", "交易")):
+        commands.extend(["指南 交易", "商场推荐", "自动出售"])
+    if any(word in text for word in ("探险", "地图", "秘境")):
+        commands.extend(["指南 战斗", "地图", "探险列表"])
+    if any(word in text for word in ("武器", "装备", "宝石", "纳戒", "背包")):
+        commands.extend(["指南 行囊", "武器", "纳戒"])
+    if any(word in text for word in ("玩家", "状态", "休息", "源库", "成长")):
+        commands.extend(["指南 成长", "状态", "源库"])
+    commands.extend(["指南", "修仙帮助"])
+    return list(dict.fromkeys(commands))
+
+
 def _smart_answer_lines(query: str, entries: list[KnowledgeEntry], context: PlayerContext | None = None) -> list[str]:
     """把命中资料合成答案，而不是展示搜索结果。"""
 
@@ -989,6 +1029,10 @@ def _smart_answer_lines(query: str, entries: list[KnowledgeEntry], context: Play
 
     primary = entries[0]
     intent = _query_intent(query)
+    document_answer = _document_synthesis_lines(query, entries)
+    if document_answer and (primary.kind == "文档" or _is_broad_document_query(query)):
+        return document_answer
+
     clarify = _personal_clarify_lines(query, primary, context)
     if clarify:
         return clarify
@@ -1025,6 +1069,9 @@ def _smart_answer_lines(query: str, entries: list[KnowledgeEntry], context: Play
 
     if topic:
         return topic
+
+    if document_answer:
+        return document_answer
 
     return [
         _answer_conclusion(query, entries),
@@ -1177,7 +1224,7 @@ def _topic_answer_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
     if "跑商" in query or "商场" in query:
         return [
             "结论：跑商是资金玩法，核心不是“随便买随便卖”，而是当前位置能买、背包装得下、卖出后扣掉成本和手续费仍有净利润。",
-            "优先用“商场推荐”，它应该只推荐当前能购买的跑商商品；特殊战利品走“特殊自动出售”，别和普通跑商净利润混在一起。",
+            "优先用“商场推荐”，它只推荐当前能购买的跑商商品；背包战利品和世界物资走“自动出售”，别和普通跑商净利润混在一起。",
             "赚不到钱时先查三件事：当前位置是否有货、背包容量和负重是否够、出售地点是否真的有价差。",
         ]
     if "首领" in query or "岁时" in query:
@@ -1205,6 +1252,205 @@ def _topic_answer_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
             "附魔时按流派堆：高频连击、重击破防、持续伤害、压制控制、生存续航、反击护身、斩杀收割、首领协作、决斗扰乱。",
         ]
     return []
+
+
+def _document_synthesis_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
+    """把多个 Markdown 章节综合成百科式回答。"""
+
+    documents = _dedupe_entries([entry for entry in entries if entry.kind == "文档"])
+    if not documents:
+        return []
+
+    relevant = _rank_document_sentences(query, documents)
+    if not relevant:
+        return []
+
+    lines = [f"结论：这个问题要综合 {len(documents)} 个文档章节看，核心是{_document_topic(query, documents)}。"]
+    for label, sentence, source in relevant[:4]:
+        prefix = f"{label}：" if label else ""
+        lines.append(f"{prefix}{sentence}")
+
+    sources = _document_sources(documents)
+    if sources:
+        lines.append(f"参考：{'；'.join(sources[:4])}。")
+    return lines
+
+
+def _dedupe_entries(entries: list[KnowledgeEntry]) -> list[KnowledgeEntry]:
+    """按来源和标题去重。"""
+
+    result: list[KnowledgeEntry] = []
+    seen: set[tuple[str, str, str]] = set()
+    for entry in entries:
+        key = (entry.source, entry.group, entry.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(entry)
+    return result
+
+
+def _rank_document_sentences(query: str, documents: list[KnowledgeEntry]) -> list[tuple[str, str, str]]:
+    """从文档章节中抽取最有用的句子。"""
+
+    terms = _query_terms(query)
+    scored: list[tuple[int, str, str, str]] = []
+    for entry in documents:
+        source = _document_source_text(entry)
+        for sentence in _document_sentences(entry.body):
+            normalized_sentence = _normalize(sentence)
+            if not normalized_sentence:
+                continue
+            score = 0
+            for term in terms:
+                if term and term in normalized_sentence:
+                    score += max(2, min(10, len(term)))
+            if _normalize(entry.title) and _normalize(entry.title) in _normalize(query):
+                score += 10
+            if _normalize(entry.group) and _normalize(entry.group) in _normalize(query):
+                score += 6
+            if any(word in sentence for word in ("必须", "不能", "只", "统一", "当前", "核心", "上限", "入口")):
+                score += 3
+            if any(word in query for word in ("怎么", "如何", "流程", "玩法", "规则")) and any(word in sentence for word in ("发送", "入口", "流程", "规则", "命令")):
+                score += 5
+            if "按钮" in query:
+                if any(word in sentence for word in ("手写按钮", "预测按钮", "默认按钮", "回复层", "CONTEXT_BUTTONS_BY_GROUP", "T.buttons")):
+                    score += 12
+                if any(word in sentence for word in ("图片消息", "调试回复", "例外")):
+                    score -= 6
+            if "宗门战" in query or ("宗门" in query and "奖励" in query):
+                if any(word in sentence for word in ("周期", "周日", "领取", "奖励", "影响力", "贡献", "淬锋丹", "成员")):
+                    score += 10
+                if any(word in sentence for word in ("建立宗门", "加入宗门", "退出宗门")):
+                    score -= 4
+            if "世界物资" in query or "闭环" in query:
+                if any(word in sentence for word in ("闭环", "六大类", "出售", "自动出售", "流入", "城池", "承接", "状态", "回收")):
+                    score += 10
+                if any(word in sentence for word in ("极·技能书", "角色成长道具")):
+                    score -= 4
+            if score > 0:
+                label = _sentence_label(sentence)
+                scored.append((score, label, sentence, source))
+    scored.sort(key=lambda item: (item[0], len(item[2])), reverse=True)
+
+    result: list[tuple[str, str, str]] = []
+    seen_sentences: set[str] = set()
+    for _score, label, sentence, source in scored:
+        key = _normalize(sentence)
+        if key in seen_sentences:
+            continue
+        seen_sentences.add(key)
+        result.append((label, sentence, source))
+        if len(result) >= 6:
+            break
+    return result
+
+
+def _document_sentences(body: str) -> list[str]:
+    """把文档正文拆成适合回答的短句。"""
+
+    text = re.sub(r"[`*_>#-]+", "", body)
+    raw_parts = re.split(r"[。；;]\s*|(?<=\S)\s+-\s+|(?<=\S)\s+[-*]\s+", text)
+    result: list[str] = []
+    for part in raw_parts:
+        value = re.sub(r"\s+", " ", part).strip(" ，,。；;")
+        if len(value) < 8:
+            continue
+        if len(value) > 120:
+            value = value[:117].rstrip() + "..."
+        result.append(value)
+    return result
+
+
+def _sentence_label(sentence: str) -> str:
+    """给文档句子加短标签。"""
+
+    if any(word in sentence for word in ("不能", "不得", "不再", "只", "必须", "上限", "限制")):
+        return "规则"
+    if any(word in sentence for word in ("发送", "命令", "入口", "按钮")):
+        return "入口"
+    if any(word in sentence for word in ("奖励", "产出", "来源", "掉落", "获得")):
+        return "来源"
+    if any(word in sentence for word in ("流程", "先", "再", "领取", "结算")):
+        return "流程"
+    if any(word in sentence for word in ("收益", "价格", "经验", "等级", "概率", "增益")):
+        return "数值"
+    return "要点"
+
+
+def _document_topic(query: str, documents: list[KnowledgeEntry]) -> str:
+    """生成文档综合回答的主题短句。"""
+
+    if any(word in query for word in ("宗门", "宗门战")):
+        return "宗门归属、周期结算、领取制奖励和世界增益之间的关系"
+    if any(word in query for word in ("商场", "跑商", "出售", "交易")):
+        return "商路交易、自动出售和世界物资流向之间的分工"
+    if any(word in query for word in ("探险", "地图", "秘境")):
+        return "地点、探险状态、奖励领取和特殊秘境的边界"
+    if any(word in query for word in ("按钮", "富文本", "回复")):
+        return "手写按钮优先、预测按钮克制、入口页分流"
+    if any(word in query for word in ("物品", "世界物资", "古物", "民生", "建设", "药路")):
+        return "物品分类、流入地点和后续世界状态影响"
+    if any(word in query for word in ("武器", "附魔", "技能书", "装备", "宝石")):
+        return "装备成长、武器技能和附魔流派的配合"
+    title = documents[0].title if documents else query
+    return f"{title} 相关规则"
+
+
+def _document_sources(documents: list[KnowledgeEntry]) -> list[str]:
+    """列出文档来源。"""
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for entry in documents:
+        source = _document_source_text(entry)
+        if not source or source in seen:
+            continue
+        seen.add(source)
+        result.append(source)
+    return result
+
+
+def _document_source_text(entry: KnowledgeEntry) -> str:
+    """格式化文档来源。"""
+
+    source = entry.source or entry.group
+    return f"{source}｜{entry.title}"
+
+
+def _is_broad_document_query(query: str) -> bool:
+    """判断问题是否更像综合设定问答。"""
+
+    return any(
+        word in query
+        for word in (
+            "设定",
+            "规则",
+            "流程",
+            "系统",
+            "机制",
+            "怎么运作",
+            "怎么玩",
+            "为什么",
+            "限制",
+            "入口",
+            "按钮",
+            "关系",
+            "影响",
+            "闭环",
+            "规划",
+        )
+    )
+
+
+def _should_use_document_synthesis(query: str, matches: list[tuple[KnowledgeEntry, int]]) -> bool:
+    """判断检索结果是否应保留更多文档章节。"""
+
+    if _is_broad_document_query(query):
+        return True
+    doc_count = sum(1 for entry, _score in matches if entry.kind == "文档")
+    structured_count = sum(1 for entry, _score in matches if entry.kind != "文档")
+    return doc_count >= 3 and structured_count == 0
 
 
 def _should_answer_as_topic(query: str, primary: KnowledgeEntry) -> bool:

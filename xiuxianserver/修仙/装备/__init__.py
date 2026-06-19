@@ -29,13 +29,6 @@ async def ws_equipment_holes(client_id: str, message: str) -> None:
     await send_reply(client_id, service.holes(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="开孔", priority=100, block=True)
-async def ws_equipment_open_hole(client_id: str, message: str) -> None:
-    """装备开孔。"""
-
-    await send_reply(client_id, service.open_hole(client_id, message), ws_manager, service)
-
-
 @WsMessageHandler.handler(cmd="镶嵌", priority=100, block=True)
 async def ws_equipment_inlay(client_id: str, message: str) -> None:
     """镶嵌宝石。"""
@@ -55,13 +48,6 @@ async def ws_equipment_upgrade_inlay(client_id: str, message: str) -> None:
     """升级宝石。"""
 
     await send_reply(client_id, service.upgrade_inlay(client_id, message), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="回收宝石", priority=100, block=True)
-async def ws_equipment_recycle_gem(client_id: str, message: str) -> None:
-    """在回收地点处理纳戒里的未镶嵌宝石。"""
-
-    await send_reply(client_id, service.recycle_gem(client_id, message), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="宝石", priority=100, block=True)

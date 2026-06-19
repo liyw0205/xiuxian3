@@ -23,6 +23,7 @@ from ..common import (
 )
 from ..constants import EQUIPMENT_SLOTS, NEWBIE_GIFT_STONES, REST_FAST_SECONDS, REST_FULL_MINUTES
 from ..rules import rest_recovery_rate, sign_reward
+from ..sect_war import sect_direction_bonus_conn
 from ..sql import db
 
 
@@ -350,6 +351,9 @@ class PlayerService(CoreService):
         elapsed_seconds = min(REST_FULL_MINUTES * 60, window["elapsed_seconds"] + active_seconds)
         base_rate = rest_recovery_rate(elapsed_seconds)
         recover_bonus = float(self.equipment_bonuses(client_id).get("recover_bonus", 0))
+        with self.db.transaction() as conn:
+            sect_recover_bonus = min(0.12, sect_direction_bonus_conn(conn, client_id, "support") * 0.15)
+        recover_bonus += sect_recover_bonus
         recover_multiplier = max(0.0, 1 + recover_bonus)
         recover_rate = max(0.0, min(1.0, base_rate * recover_multiplier))
         current_hp = int(player["hp"])
@@ -383,7 +387,7 @@ class PlayerService(CoreService):
                     client_id,
                     (
                         f"active={active_seconds}, elapsed={elapsed_seconds}, "
-                        f"base_rate={base_rate:.3f}, recover_bonus={recover_bonus:.3f}, "
+                        f"base_rate={base_rate:.3f}, recover_bonus={recover_bonus:.3f}, sect_recover_bonus={sect_recover_bonus:.3f}, "
                         f"recover_multiplier={recover_multiplier:.3f}, recover_rate={recover_rate:.3f}, "
                         f"base_actual_rate={base_actual_rate:.3f}, actual_rate={actual_rate:.3f}, hp={hp}, mp={mp}"
                     ),
@@ -796,7 +800,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if recycle_count:
-            entries.append(("weapon_recycle", f"累计回收武器 {recycle_count} 把，得源石 {money(recycle_income)}。", now_text))
+            entries.append(("weapon_recycle", f"累计出售武器 {recycle_count} 把，得源石 {money(recycle_income)}。", now_text))
         gem_recycle_count = self.stat_count(
             client_id,
             "gem_recycle_count",
@@ -810,7 +814,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if gem_recycle_count:
-            entries.append(("gem_recycle", f"累计回收宝石 {gem_recycle_count} 次，得源石 {money(gem_recycle_income)}。", now_text))
+            entries.append(("gem_recycle", f"累计出售宝石 {gem_recycle_count} 次，得源石 {money(gem_recycle_income)}。", now_text))
         book_recycle_count = self.stat_count(
             client_id,
             "book_recycle_count",
@@ -824,7 +828,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if book_recycle_count:
-            entries.append(("book_recycle", f"累计回收技能书 {book_recycle_count} 次，得源石 {money(book_recycle_income)}。", now_text))
+            entries.append(("book_recycle", f"累计出售技能书 {book_recycle_count} 次，得源石 {money(book_recycle_income)}。", now_text))
         return entries
 
     def _battle_diary_entries(self, client_id: str, now_text: str) -> list[tuple[str, str, str]]:

@@ -57,6 +57,7 @@ def collect_notifications(
     result.extend(_exploration_notifications(client_id, database, current))
     result.extend(_reward_notifications(client_id, database, current))
     result.extend(_duel_request_notifications(client_id, database, current))
+    result.extend(_world_material_notifications(client_id, database, current))
     return _dedupe_notifications(result)
 
 
@@ -240,6 +241,52 @@ def _duel_request_notifications(client_id: str, database: Any, current: datetime
     if row:
         return [Notification("duel_request", "对战请求待处理", 70)]
     return []
+
+
+def _world_material_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
+    """世界物资相关强通知，只放需要行动的事项。"""
+
+    result: list[Notification] = []
+    sect_map = database.fetch_one(
+        """
+        SELECT 1
+        FROM treasure_maps
+        WHERE owner_client_id = ? AND status IN ('宗主待领', '已成交')
+        LIMIT 1
+        """,
+        (client_id,),
+    )
+    if sect_map:
+        result.append(Notification("treasure_map_claim", "藏宝图待领", 55))
+
+    auction = database.fetch_one(
+        """
+        SELECT expires_at
+        FROM treasure_maps
+        WHERE status = '拍卖中'
+          AND highest_bidder = ?
+        ORDER BY expires_at ASC
+        LIMIT 1
+        """,
+        (client_id,),
+    )
+    if auction:
+        expires_at = dt(str(row_value(auction, "expires_at", "") or ""))
+        if expires_at and expires_at - current <= timedelta(hours=2):
+            result.append(Notification("treasure_map_auction", "藏宝图竞拍将结", 75))
+
+    war_prep = database.fetch_one(
+        """
+        SELECT 1
+        FROM wormholes
+        WHERE status = '开启'
+          AND result LIKE '%"event_type": "war_prep"%'
+        LIMIT 1
+        """
+    )
+    if war_prep:
+        result.append(Notification("war_prep_wormhole", "战备虫洞已开", 80))
+    return result
 
 
 def _effective_exploration_ready_at(row: Any) -> datetime | None:

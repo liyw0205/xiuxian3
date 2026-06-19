@@ -12,6 +12,9 @@ from ..format_text import T
 from ..sect_war import (
     SECT_WAR_REWARD_ITEM_ID,
     SECT_WAR_REWARD_ITEM_NAME,
+    ensure_sect_stats_conn,
+    sect_bonus_conn,
+    sect_city_bonus_conn,
     sect_war_cycle_finished,
     sect_war_cycle_bounds,
     sect_war_display_cycle_end,
@@ -220,6 +223,7 @@ class SectService(CoreService):
         personal_rank = self._personal_rankings(cycle_start)
         pending_rewards = self._pending_rewards(client_id, cycle_start)
         all_pending_rewards = self._pending_rewards_all(client_id)
+        own_sect = self._member_sect(client_id)
 
         panel = T.panel()
         panel.section("宗门战")
@@ -229,6 +233,8 @@ class SectService(CoreService):
         else:
             panel.line("战斗日：周一到周六；宗门成员抢劫会按结果和战利品价值增加影响力。")
         panel.line(f"成员变动：{self._member_lock_text()}")
+        if own_sect:
+            panel.lines(self._sect_bonus_lines(self._sect_bonus(int(own_sect["sect_id"])), compact=True))
         panel.hr()
         panel.section("本期影响力")
         if current_rank:
@@ -414,6 +420,7 @@ class SectService(CoreService):
                     """,
                     (client_id, sect_id, ts()),
                 )
+                ensure_sect_stats_conn(conn, sect_id)
                 conn.execute(
                     "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '建立宗门', ?, ?)",
                     (client_id, sect_name, ts()),
@@ -459,6 +466,7 @@ class SectService(CoreService):
         role = self._member_role(client_id)
         current_start, _current_end = self._cycle_bounds()
         influence = self._sect_influence(int(sect["sect_id"]), current_start)
+        sect_bonus = self._sect_bonus(int(sect["sect_id"]))
         panel = T.panel()
         panel.section("宗门")
         if joined:
@@ -470,6 +478,7 @@ class SectService(CoreService):
         panel.line(f"宗主：{self._player_name(str(sect['master_client_id']))}")
         panel.line(f"成员：{member_count}")
         panel.line(f"本期影响力：{influence}")
+        panel.lines(self._sect_bonus_lines(sect_bonus, compact=False))
         panel.line(f"成员变动：{self._member_lock_text()}")
         panel.line(f"创建时间：{sect['created_at']}")
         if joined:
@@ -556,6 +565,74 @@ class SectService(CoreService):
             (int(sect_id), cycle_start),
         )
         return int(row["influence"]) if row else 0
+
+    def _city_bonus(self, sect_id: int) -> dict[str, object]:
+        """读取宗门山门受到的城池范围增益。"""
+
+        with self.db.transaction() as conn:
+            return sect_city_bonus_conn(conn, int(sect_id))
+
+    def _sect_bonus(self, sect_id: int) -> dict[str, object]:
+        """读取宗门等级、底蕴和最终增益。"""
+
+        with self.db.transaction() as conn:
+            return sect_bonus_conn(conn, int(sect_id))
+
+    def _sect_bonus_lines(self, sect_bonus: dict[str, object], compact: bool) -> list[str]:
+        """格式化宗门等级、底蕴和增益。"""
+
+        level = int(sect_bonus.get("level", 1) or 1)
+        exp = int(sect_bonus.get("exp", 0) or 0)
+        next_exp = int(sect_bonus.get("next_exp", 0) or 0)
+        total_bonus = float(sect_bonus.get("total_bonus", 0.0) or 0.0)
+        base_bonus = float(sect_bonus.get("base_bonus", 0.0) or 0.0)
+        city_bonus = float(sect_bonus.get("city_bonus", 0.0) or 0.0)
+        carry = float(sect_bonus.get("city_carry_rate", 0.0) or 0.0)
+        effective_city = float(sect_bonus.get("effective_city_bonus", 0.0) or 0.0)
+        lines = [
+            f"宗门等级：Lv.{level}" + (f"｜经验 {exp}/{next_exp}" if next_exp > 0 else "｜已满级"),
+            (
+                f"宗门加持：总 {total_bonus * 100:.1f}%｜"
+                f"自强 {base_bonus * 100:.1f}%｜地利 {effective_city * 100:.1f}%"
+            ),
+        ]
+        if not compact:
+            lines.append(
+                "底蕴："
+                f"影响力 {int(sect_bonus.get('influence_merit', 0) or 0)}｜"
+                f"供养 {int(sect_bonus.get('support_merit', 0) or 0)}｜"
+                f"山门建设 {int(sect_bonus.get('build_merit', 0) or 0)}"
+            )
+            lines.append(f"城池承载：{carry * 100:.1f}%｜原始城池增益 {city_bonus * 100:.1f}%")
+        city = sect_bonus.get("city") if isinstance(sect_bonus.get("city"), dict) else {}
+        lines.extend(self._city_bonus_lines(city))
+        return lines
+
+    def _city_bonus_lines(self, city_bonus: dict[str, object]) -> list[str]:
+        """格式化宗门面板里的城池影响。"""
+
+        bonus = max(0.0, float(city_bonus.get("bonus", 0.0) or 0.0))
+        covers = city_bonus.get("covers") if isinstance(city_bonus.get("covers"), list) else []
+        if not covers:
+            return ["城池影响：暂无城池覆盖山门。"]
+        lines = [f"城池范围：原始地利 {bonus * 100:.1f}%。"]
+        for cover in covers[:3]:
+            if not isinstance(cover, dict):
+                continue
+            role = str(cover.get("role") or "协同")
+            factor = float(cover.get("synergy_factor", 1.0) or 1.0)
+            factor_text = "" if factor >= 1 else f"｜协同 {factor * 100:.0f}%"
+            distance = float(cover.get("distance", 0.0) or 0.0)
+            distance_text = f"{distance:.1f}".rstrip("0").rstrip(".")
+            lines.append(
+                f"{role}：{cover.get('location_name')} Lv.{int(cover.get('city_level', 1) or 1)}"
+                f"｜距离 {distance_text}/{int(cover.get('radius', 1) or 1)}"
+                f"｜贡献 {float(cover.get('applied_bonus', 0.0) or 0.0) * 100:.1f}%{factor_text}"
+            )
+        extra_count = max(0, int(city_bonus.get("all_cover_count", len(covers)) or len(covers)) - len(covers))
+        if extra_count > 0:
+            lines.append(f"另有 {extra_count} 座城池覆盖，因协同上限未计入。")
+        return lines
 
     def _cycle_rankings(self, cycle_start: str) -> list[dict[str, object]]:
         """读取周期影响力排行榜，只统计正影响力宗门。"""
@@ -686,7 +763,8 @@ class SectService(CoreService):
             ]
             if not members:
                 continue
-            reward_count = self._reward_member_count(len(members))
+            sect_bonus = sect_bonus_conn(conn, int(rank["sect_id"]))
+            reward_count = self._reward_member_count(len(members), float(sect_bonus.get("total_bonus", 0.0) or 0.0))
             rng = random_module.Random(f"{cycle_start}:{int(rank['sect_id'])}:sect-war-rewards")
             winners = rng.sample(members, min(reward_count, len(members)))
             for member_id in winners:
@@ -834,10 +912,10 @@ class SectService(CoreService):
         return sect_war_qualified_count(total)
 
     @staticmethod
-    def _reward_member_count(total: int) -> int:
+    def _reward_member_count(total: int, bonus_rate: float = 0.0) -> int:
         """入围宗门 30% 成员获得奖励，向上取整。"""
 
-        return sect_war_reward_member_count(total)
+        return sect_war_reward_member_count(total, bonus_rate)
 
     @staticmethod
     def _personal_reward_count(total: int) -> int:

@@ -14,6 +14,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Iterable, Iterator
 
+from .common import ts
 from .constants import DEFAULT_LOCATION, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
 
 
@@ -52,41 +53,76 @@ PHYSIQUE_DEFS = (
 )
 
 
-ITEM_DEFS = (
-    ("yaodan", "妖丹", "怪物战利品", "良品", 2, 50, 0, 0, 800, {}, "镇妖司高价收购。"),
-    ("yaogu", "妖骨", "怪物战利品", "凡品", 3, 50, 0, 0, 300, {}, "镇妖司收购。"),
-    ("mohe", "魔核", "怪物战利品", "珍品", 2, 30, 0, 0, 1600, {}, "伏魔殿高价收购。"),
-    ("yinhunzhu", "阴魂珠", "怪物战利品", "良品", 1, 50, 0, 0, 900, {}, "鬼市高价收购。"),
-    ("jiaolin", "蛟鳞", "怪物战利品", "珍品", 2, 30, 0, 0, 2200, {}, "龙渊阁高价收购。"),
-    ("shoujin", "兽筋", "怪物战利品", "良品", 2, 50, 0, 0, 650, {}, "万兽盟收购。"),
-    ("junhunyin", "军魂印", "怪物战利品", "稀品", 1, 10, 0, 0, 4500, {}, "破军营高价收购。"),
-    ("yaoxue", "妖血", "怪物战利品", "凡品", 1, 50, 0, 0, 260, {}, "镇妖司收购。"),
-    ("yaopi", "妖皮", "怪物战利品", "凡品", 2, 50, 0, 0, 340, {}, "镇妖司收购。"),
-    ("yaotong", "妖瞳", "怪物战利品", "良品", 1, 40, 0, 0, 760, {}, "镇妖司高价收购。"),
-    ("yaohun_suipian", "妖魂碎片", "怪物战利品", "良品", 1, 40, 0, 0, 980, {}, "镇妖司高价收购。"),
-    ("mojiao", "魔角", "怪物战利品", "良品", 2, 40, 0, 0, 920, {}, "伏魔殿收购。"),
-    ("moxue", "魔血", "怪物战利品", "良品", 1, 40, 0, 0, 880, {}, "伏魔殿收购。"),
-    ("mopi", "魔皮", "怪物战利品", "良品", 2, 40, 0, 0, 840, {}, "伏魔殿收购。"),
-    ("mozhao", "魔爪", "怪物战利品", "珍品", 2, 30, 0, 0, 1800, {}, "伏魔殿高价收购。"),
-    ("moyanhui", "魔焰灰", "怪物战利品", "珍品", 1, 30, 0, 0, 1500, {}, "伏魔殿高价收购。"),
-    ("guihuo", "鬼火", "怪物战利品", "凡品", 1, 50, 0, 0, 280, {}, "鬼市收购。"),
-    ("canhunfan", "残魂幡", "怪物战利品", "良品", 2, 40, 0, 0, 900, {}, "鬼市高价收购。"),
-    ("baigupian", "白骨片", "怪物战利品", "凡品", 2, 50, 0, 0, 320, {}, "鬼市收购。"),
-    ("mingzhi", "冥纸", "怪物战利品", "凡品", 1, 50, 0, 0, 240, {}, "鬼市收购。"),
-    ("yuanqiping", "怨气瓶", "怪物战利品", "良品", 1, 40, 0, 0, 860, {}, "鬼市高价收购。"),
-    ("longxu", "龙须", "怪物战利品", "珍品", 1, 30, 0, 0, 2400, {}, "龙渊阁高价收购。"),
-    ("longxueshi", "龙血石", "怪物战利品", "稀品", 1, 20, 0, 0, 5200, {}, "龙渊阁高价收购。"),
-    ("shouya", "兽牙", "怪物战利品", "凡品", 2, 50, 0, 0, 300, {}, "万兽盟收购。"),
-    ("shougu", "兽骨", "怪物战利品", "凡品", 3, 50, 0, 0, 360, {}, "万兽盟收购。"),
-    ("shoupi", "兽皮", "怪物战利品", "凡品", 3, 50, 0, 0, 420, {}, "万兽盟收购。"),
-    ("shoujiao", "兽角", "怪物战利品", "良品", 2, 40, 0, 0, 780, {}, "万兽盟高价收购。"),
-    ("shouxin", "兽心", "怪物战利品", "良品", 1, 40, 0, 0, 920, {}, "万兽盟高价收购。"),
-    ("pojia_pian", "破甲片", "怪物战利品", "良品", 2, 40, 0, 0, 820, {}, "破军营收购。"),
-    ("canbingfu", "残兵符", "怪物战利品", "良品", 1, 40, 0, 0, 760, {}, "破军营收购。"),
-    ("zhanqi_suibu", "战旗碎布", "怪物战利品", "良品", 1, 40, 0, 0, 720, {}, "破军营收购。"),
-    ("xiuxuetie", "锈血铁", "怪物战利品", "珍品", 3, 30, 0, 0, 1700, {}, "破军营高价收购。"),
-    ("duanrenpian", "断刃片", "怪物战利品", "珍品", 2, 30, 0, 0, 1600, {}, "破军营高价收购。"),
+WORLD_MATERIAL_GROUPS = (
+    ("药路", "med", "血契丹", "xueqidan", ("血藤籽", "赤契砂", "伏火炭"), ("凡品", "良品", "凡品"), 1, 80, 260, "古界药圃、残破丹坊和旧炉火种带出的药路物资，用来解释血契丹补给来源。"),
+    ("药路", "med", "阴冥草", "yinmingcao", ("阴冥芽", "寒魄霜", "冷炉灰"), ("凡品", "良品", "凡品"), 1, 80, 260, "阴湿遗迹和废炉灰烬里收出的药路物资，用来解释阴冥草补给来源。"),
+    ("药路", "med", "回春露", "huichunlu", ("回春露草", "蜂王浆", "温木炭"), ("凡品", "良品", "凡品"), 1, 80, 300, "旧灵田、古蜂巢和温炉余火带出的药路物资，用来解释回春露补给来源。"),
+    ("药路", "med", "凝神露", "ningshenlu", ("水镜草", "静神兰", "清炉烟"), ("凡品", "良品", "凡品"), 1, 80, 300, "清气遗草和古炉残烟带出的药路物资，用来解释凝神露补给来源。"),
+    ("药路", "med", "生骨丹", "shenggudan", ("生骨泥", "赤骨石", "炎晶片"), ("良品", "良品", "珍品"), 3, 50, 560, "遗迹骨池、赤骨矿脉和爆炉炎晶带出的药路物资，用来解释生骨丹补给来源。"),
+    ("药路", "med", "养魂丹", "yanghundan", ("养魂叶", "朱羽引", "醒魂草"), ("良品", "珍品", "良品"), 1, 60, 580, "旧魂园、朱羽残影和荒坟灵草带出的药路物资，用来解释养魂丹补给来源。"),
+    ("民生", "life", "城食", "chengshi", ("遗田灵粟", "月井麦", "地乳豆", "青髓薯", "玉壳谷"), "凡品", 4, 120, 180, "古界废田里可被凡城粮仓吸收的城食物资，量大、耐用、能稳住许多张嘴。"),
+    ("民生", "life", "盐鲜", "yanxian", ("赤潮盐", "寒泉盐", "灵藻干", "银鳞脯", "荒兽腊"), "凡品", 3, 120, 190, "古潮、寒泉和荒兽巢带出的盐鲜物资，是凡城日常和军营伙食的刚需。"),
+    ("民生", "life", "水净", "shuijing", ("净泉砂", "澄水石", "清浊炭", "避瘴灰", "甘露瓮"), "凡品", 3, 120, 200, "古渠、旧井和避瘴设施里带出的水净物资，用来维持城池饮水和灾后稳定。"),
+    ("民生", "life", "衣被", "yibei", ("雪蚕絮", "火绒麻", "青藤线", "暖玉棉", "寒兽毡"), "凡品", 2, 120, 210, "遗迹巢穴和古界灵田里带出的衣被物资，凡人过冬、行军和安置灾民都要用。"),
+    ("民生", "life", "燃安", "ranan", ("地肺炭", "长明油", "萤芯草", "雷松脂", "驱疫香"), "良品", 2, 100, 320, "古炉、雷木和旧祠香库带出的燃安物资，能照明、取暖、驱疫和稳住夜巡。"),
+    ("建设", "build", "基础", "jichu", ("古城砖", "青罡石", "玄灰泥", "铁木梁", "鳞纹瓦"), "良品", 7, 80, 420, "古界断城和旧山门拆出的基础建材，能让凡城修得更结实。"),
+    ("建设", "build", "城防", "chengfang", ("镇妖石", "破邪木", "惊妖铃", "兽纹拒马", "玄铁闸"), "良品", 7, 60, 620, "残阵城墙和镇妖设施里带出的城防物资，后续服务抗妖、防灾和据点守备。"),
+    ("建设", "build", "水火", "shuihuo", ("净渠玉", "寒泉管", "避火砂", "引雷桩", "锁潮箍"), "良品", 5, 60, 560, "古渠、火库、雷桩和潮闸里带出的水火物资，后续服务城市运转和灾害治理。"),
+    ("建设", "build", "阵基", "zhenji", ("护城砖", "聚灵砂", "封妖灰", "辟邪钉", "镇宅锁"), "良品", 4, 80, 520, "旧护城阵和封妖阵里带出的阵基物资，后续服务设施升级和地标建设。"),
+    ("建设", "build", "华饰", "huashi", ("琉光檐", "玉兽环", "云纹壁", "月庭灯", "金纹坊"), "珍品", 5, 50, 900, "古界宗门门面上拆出的华饰物资，既撑门面，也能提升地方繁荣。"),
+    ("古物", "relic", "微蕴", "weiyun", ("灰月碎币", "旧王庭徽", "星门断钥", "白塔残页", "雾海铜铃", "失语镜砂", "眠龙骨片", "空舟铆钉"), "良品", 1, 40, 1300, "含少量神秘物质的古界旧物，卖给懂行修仙者或回收势力。"),
+    ("古物", "relic", "中蕴", "zhongyun", ("灰烬圣杯", "银环星图", "界树枯种", "无面王冠", "夜航罗盘", "封门魔典", "逆潮沙漏", "龙眠石碑"), "珍品", 2, 30, 3100, "含中量神秘物质的古界遗珍，名字和重量都足够让修仙者认真验货。"),
+    ("古物", "relic", "厚蕴", "houyun", ("群星命轮", "旧神冠冕", "界门王钥", "终焉圣杯", "万象禁书", "昼夜双镜", "天灾方舟", "原初界标"), "稀品", 3, 10, 7600, "含大量神秘物质的古界重宝，主要用于高价回收和后续神秘物质闭环。"),
+    ("战利品", "loot", "妖类", "yao", ("古妖丹", "妖脊骨", "妖煞血", "妖甲皮", "妖瞳珠", "妖魂晶"), ("良品", "凡品", "凡品", "凡品", "良品", "良品"), 2, 50, 760, "古界妖物身上剥离的战斗掉落，主要供镇妖司特殊收购。"),
+    ("战利品", "loot", "魔类", "mo", ("魔魇核", "魔煞角", "魔烬血", "魔纹皮", "裂魔爪", "魔焰灰"), ("珍品", "良品", "良品", "良品", "珍品", "珍品"), 2, 40, 920, "魔影和魔物残躯里取出的战斗掉落，主要供伏魔殿特殊收购。"),
+    ("战利品", "loot", "鬼类", "gui", ("阴魂珠", "鬼火芯", "残魂幡", "白骨片", "冥路纸", "怨气瓶"), ("良品", "凡品", "良品", "凡品", "凡品", "良品"), 1, 50, 620, "鬼物和阴魂遗留的战斗掉落，主要供鬼市特殊收购。"),
+    ("战利品", "loot", "龙类", "long", ("蛟逆鳞", "龙须丝", "龙血石"), ("珍品", "珍品", "稀品"), 1, 30, 2300, "古龙残裔和蛟影留下的战斗掉落，主要供龙渊阁特殊收购。"),
+    ("战利品", "loot", "兽类", "shou", ("荒兽筋", "凶兽牙", "荒兽骨", "兽纹皮", "灵兽角", "兽魄心"), ("良品", "凡品", "凡品", "凡品", "良品", "良品"), 3, 50, 620, "荒兽和灵兽残躯中取得的战斗掉落，主要供万兽盟特殊收购。"),
+    ("战利品", "loot", "兵戈类", "bing", ("军魂印", "破甲片", "残兵符", "血战旗", "锈血铁", "断寒刃"), ("稀品", "良品", "良品", "良品", "珍品", "珍品"), 2, 40, 820, "遗迹战场、残兵怨灵和旧甲刃留下的战斗掉落，主要供破军营特殊收购。"),
 )
+
+
+def _material_quality(quality: str | tuple[str, ...], index: int) -> str:
+    """按组配置取物资品级。"""
+
+    if isinstance(quality, tuple):
+        return quality[min(index, len(quality) - 1)]
+    return quality
+
+
+def _material_item_id(category_code: str, subtype_code: str, index: int) -> str:
+    """生成稳定 ASCII 物资 id；战利品 id 单独短一点，方便掉落池引用。"""
+
+    if category_code == "loot":
+        return f"loot_{subtype_code}_{index + 1}"
+    return f"world_{category_code}_{subtype_code}_{index + 1}"
+
+
+def _build_world_items() -> tuple[tuple[str, str, str, str, int, int, int, int, int, dict[str, str], str], ...]:
+    """把六大类世界物资设定展开为 item_defs 行。"""
+
+    rows = []
+    for category, category_code, subtype, subtype_code, names, quality, weight, stack_limit, base_price, desc in WORLD_MATERIAL_GROUPS:
+        for index, name in enumerate(names):
+            rows.append(
+                (
+                    _material_item_id(category_code, subtype_code, index),
+                    name,
+                    category,
+                    _material_quality(quality, index),
+                    int(weight),
+                    int(stack_limit),
+                    0,
+                    0,
+                    int(base_price) + index * 40,
+                    {"world_category": category, "world_subtype": subtype},
+                    f"{name}：{desc}",
+                )
+            )
+    return tuple(rows)
+
+
+ITEM_DEFS = _build_world_items()
 
 
 RING_ITEM_DEFS = (
@@ -115,7 +151,7 @@ RING_ITEM_DEFS = (
     ("yanghundan", "养魂丹", "恢复类", "珍品", 1, "玩家", {"mp_ratio": 0.7}, "恢复 70% 精神。"),
     ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "装备", {}, "装备开孔材料，通过岁时情劫首领奖励获得。"),
     ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的洗髓消耗品，通过洗髓命令消耗。"),
-    ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门战奖励。通过武器淬锋消耗后，使指定武器等级上限 +1，最高 100。"),
+    ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门战奖励。进入纳戒后通过武器淬锋消耗，使指定武器等级上限 +1，最高 100。"),
     ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "高频连击流派。技能蓄势更快、命中更稳，但单次威力下降。"),
     ("shaying_shu", "沙影书", "技能书", "良品", 0, "武器", {"enchant_id": "shaying_shu"}, "高频连击流派。更容易追加连击，但连击伤害偏低。"),
     ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "高频连击流派。技能节奏更快，但单次爆发降低。"),
@@ -162,6 +198,57 @@ RING_ITEM_DEFS = (
     ("jucai zijing", "聚财紫晶", "宝石", "珍品", 0, "装备", {"trade_bonus": 0.02}, "小幅提高跑商收益。"),
     ("kangbao fuwen", "抗暴符文", "宝石", "稀品", 0, "装备", {"crit_resist_bonus": 0.04}, "提高抗暴和承伤稳定性。"),
 )
+
+
+def _extreme_book_effect(effect: dict[str, float]) -> dict[str, float]:
+    """极版技能书去负面，并把正面数值提升 20%。"""
+
+    upgraded: dict[str, float] = {}
+    for key, value in effect.items():
+        if not isinstance(value, int | float):
+            continue
+        if key == "interval_delta":
+            if value < 0:
+                upgraded[key] = value
+            continue
+        if value <= 0:
+            continue
+        upgraded[key] = round(float(value) * 1.2, 4)
+    return upgraded
+
+
+def _extreme_book_mp_delta(mp_delta: int) -> int:
+    """极版技能书去掉额外精神消耗；若未来有减耗词条，则强化减耗。"""
+
+    value = int(mp_delta)
+    if value >= 0:
+        return 0
+    return int(round(value * 1.2))
+
+
+def _extreme_book_defs() -> tuple[tuple[str, str, str, str, int, str, dict[str, str], str], ...]:
+    """为每本普通技能书生成极版纳戒物品。"""
+
+    rows = []
+    for ring_item_id, name, category, _quality, _usable, target_type, effect, desc in RING_ITEM_DEFS:
+        if category != "技能书":
+            continue
+        rows.append(
+            (
+                f"extreme_{ring_item_id}",
+                f"极·{name}",
+                category,
+                "稀品",
+                0,
+                target_type,
+                {"enchant_id": f"extreme_{ring_item_id}", "base_enchant_id": ring_item_id},
+                f"民生恩赐中偶得的极版技能书。无负面效果，正面效果比原版提高 20%。原流派：{desc}",
+            )
+        )
+    return tuple(rows)
+
+
+EXTREME_BOOK_DEFS = _extreme_book_defs()
 
 
 SEASONAL_BOSS_REWARD_RATES = (
@@ -212,170 +299,97 @@ SEASONAL_BOSS_REWARD_RATES = (
 )
 
 
-TRADE_LOCATIONS = (
-    ("天枢城", 0, 0, "星纹玉简,天枢铜钱,灵契纸,城隍香,白玉绳,古器残片"),
-    ("青岚坊", 8, 22, "青岚玉,青竹简,风纹纸,竹灵简,岚光砂,轻羽绸"),
-    ("赤霞港", 31, -6, "赤霞珠,火纹贝,霞光绸,赤盐,炎晶片,潮火鱼"),
-    ("玄铁岭", -28, 12, "玄铁矿,黑曜砂,山铜,铁木炭,岩心石,锻炉灰"),
-    ("万药谷", -18, 32, "万药籽,药王锄,灵蜂蜜,药香泥,丹炉灰,药篓藤"),
-    ("云梦泽", 18, -24, "云梦贝,水镜草,幻雾珠,泽兰,梦纹鱼,雾纹纱"),
-    ("流沙海市", -35, -18, "流沙晶,沙金,风蚀骨,驼铃草,月牙砂,毒云石"),
-    ("寒霜关", -3, 39, "寒霜石,冰魄花,雪纹铁,霜盐,冷玉髓,寒魄草"),
-    ("雷泽城", 29, 24, "雷泽鼓,雷纹木,电光砂,鸣蛇鳞,紫雷石,震雷符"),
-    ("碧潮岛", 38, -32, "碧潮珊瑚,潮汐珠,海心藻,水府残玉,龙骨片,海兽牙"),
-    ("丹霞镇", -13, -33, "丹砂,赤云石,火绒布,朱雀羽,炉心炭,丹霞瓷"),
-    ("灵木寨", -36, 34, "灵木心,藤甲片,木纹珠,鹿角牌,花纹木盒,青藤绳"),
-    ("镜湖城", 14, 11, "镜湖玉,水镜牌,月影纱,清心铃,银鳞片,映月杯"),
-    ("幽篁林", -24, 3, "幽篁笛,竹露,墨竹卷,静心香,翠竹符,影叶"),
-    ("星陨墟", 5, -43, "星陨石,星砂瓶,星辉片,残碑拓,陨铁片,无相竹"),
-    ("玉京台", 1, 45, "玉京符诏,白玉冠,云纹佩,天香锦,仙鹤羽,金缕册"),
-    ("黑水渡", 43, 8, "黑水珠,墨鳞甲,渡魂灯,玄水瓶,夜航图,乌木桨"),
-    ("百兽原", -43, -5, "兽骨牌,狼毫笔,虎纹皮,灵角,兽魂铃,草原玉"),
+TRADE_SPECIALTY_GROUPS = (
+    ("天枢城", 0, 0, ("星官旧简", "白契纸", "旧朝钱")),
+    ("青岚坊", 8, 22, ("风骨玉", "听风纸", "雨竹简")),
+    ("赤霞港", 31, -6, ("晚潮珠", "火纹贝", "舶牙牌")),
+    ("玄铁岭", -28, 12, ("山铜契", "黑矿票", "老炉印")),
+    ("万药谷", -18, 32, ("谷市筹", "灵圃帖", "青囊账")),
+    ("云梦泽", 18, -24, ("雾泽贝", "蜃雾珠", "水市牌")),
+    ("流沙海市", -35, -18, ("走沙晶", "驼铃金", "驼队牌")),
+    ("寒霜关", -3, 39, ("冷玉髓", "雪关牒", "霜市帖")),
+    ("雷泽城", 29, 24, ("伏雷鼓", "惊雷符", "旧雷令")),
+    ("碧潮岛", 38, -32, ("青潮珊", "月汐珠", "水府玉")),
+    ("星陨墟", 5, -43, ("星砂瓶", "陨碑拓", "观星券")),
 )
+
+
+TRADE_LOCATIONS = tuple(
+    (location, x, y, ",".join(specialties))
+    for location, x, y, specialties in TRADE_SPECIALTY_GROUPS
+)
+
+
+def trade_item_id(name: str) -> str:
+    """跑商纯经济物品 id 只由最终名称决定。"""
+
+    return "trade_" + hashlib.md5(name.encode("utf-8")).hexdigest()[:12]
+
+
+def _trade_item_def(location: str, location_index: int, item_index: int, name: str) -> tuple[str, str, int, int, int, str]:
+    """生成纯经济特产定义。"""
+
+    quality = ("良品", "良品", "凡品")[item_index]
+    weight = (2, 1, 1)[item_index] + (1 if item_index == 0 and location_index % 3 == 0 else 0)
+    stack_limit = (50, 70, 80)[item_index]
+    base_price = (900, 760, 600)[item_index] + location_index * 35
+    desc = f"{location}流通的地方特产：{name}。它只服务本界商路差价和地区供需，不从探险或秘境掉落。"
+    return ("纯经济", quality, weight, stack_limit, base_price, desc)
 
 
 TRADE_ITEM_DEFS = {
-    "星纹玉简": ("文书", "良品", 3, 50, 900, "天枢城书院常用玉简，适合卖往需要文书契据的城镇。"),
-    "天枢铜钱": ("货币", "凡品", 2, 80, 520, "天枢城铸钱局旧钱，分量稳定，远地也认。"),
-    "灵契纸": ("文书", "良品", 1, 80, 680, "可写灵契的纸材，商户和宗门都消耗。"),
-    "城隍香": ("香料", "良品", 1, 60, 740, "祭庙香料，礼仪重地需求更高。"),
-    "白玉绳": ("玉石", "良品", 1, 60, 620, "白玉细绳，多用于礼器和佩饰。"),
-    "古器残片": ("古器", "珍品", 3, 30, 1180, "旧器碎片，古玩商和考据修士会高价收。"),
-    "青岚玉": ("玉石", "良品", 2, 50, 780, "青岚坊山玉，色清质轻。"),
-    "青竹简": ("竹器", "凡品", 2, 80, 460, "青竹制成的书简，轻便耐用。"),
-    "风纹纸": ("文书", "凡品", 1, 80, 560, "带风纹的纸材，适合符契抄写。"),
-    "竹灵简": ("竹器", "良品", 2, 60, 680, "灵竹削成的简册，竹木城寨更认货。"),
-    "岚光砂": ("沙货", "良品", 2, 50, 720, "青岚山风口细砂，炼器可作辅料。"),
-    "轻羽绸": ("纺织", "良品", 1, 60, 900, "轻如羽的绸料，宫台和湖城需求不错。"),
-    "赤霞珠": ("玉石", "良品", 2, 50, 860, "赤霞港暖色珠材，可作饰品。"),
-    "火纹贝": ("海货", "凡品", 2, 60, 640, "贝壳带火纹，港口和海岛常用。"),
-    "霞光绸": ("纺织", "良品", 1, 60, 900, "霞色绸料，适合卖到礼仪和服饰需求高的地方。"),
-    "赤盐": ("盐鲜", "凡品", 3, 80, 420, "赤霞港晒盐，重但好走量。"),
-    "炎晶片": ("丹材", "良品", 2, 50, 980, "温热晶片，丹炉和锻炉都用得上。"),
-    "潮火鱼": ("水产", "凡品", 3, 50, 580, "赤霞港近海鱼货，新鲜时价更好。"),
-    "玄铁矿": ("矿材", "良品", 5, 40, 760, "玄铁岭主矿，重货，远运才有利润。"),
-    "黑曜砂": ("矿材", "凡品", 4, 50, 620, "黑曜矿砂，炼器铺常收。"),
-    "山铜": ("矿材", "良品", 5, 40, 880, "山中赤铜，锻造需求稳定。"),
-    "铁木炭": ("燃料", "凡品", 4, 60, 540, "铁木烧成的炭，丹炉和锻炉通用。"),
-    "岩心石": ("矿材", "良品", 5, 30, 950, "岩心中取出的硬石，重而值钱。"),
-    "锻炉灰": ("燃料", "凡品", 3, 60, 420, "旧炉灰，炼器辅料，低价走量。"),
-    "万药籽": ("药材", "良品", 1, 99, 520, "万药谷常见药籽，轻货好带。"),
-    "药王锄": ("工具", "良品", 3, 40, 860, "药农常用灵锄，药谷外也稀罕。"),
-    "灵蜂蜜": ("药材", "良品", 1, 60, 760, "灵蜂采药成蜜，药修和食肆都收。"),
-    "药香泥": ("药材", "凡品", 3, 60, 460, "带药香的泥土，培育灵植常用。"),
-    "丹炉灰": ("丹材", "凡品", 2, 60, 420, "废炉灰，可作低阶丹材。"),
-    "药篓藤": ("木材", "凡品", 2, 70, 500, "编药篓的藤条，木寨和药谷互通。"),
-    "云梦贝": ("水产", "良品", 2, 50, 680, "云梦泽水贝，纹理如雾。"),
-    "水镜草": ("药材", "良品", 1, 70, 620, "水面映影的灵草，药修常收。"),
-    "幻雾珠": ("幻材", "珍品", 1, 30, 980, "凝雾成珠，幻术材料。"),
-    "泽兰": ("药材", "凡品", 1, 80, 520, "泽地香草，轻货好走。"),
-    "梦纹鱼": ("水产", "良品", 2, 50, 720, "鱼鳞有梦纹，湖泽城镇爱收。"),
-    "雾纹纱": ("纺织", "良品", 1, 50, 880, "雾纹轻纱，远销玉京和镜湖。"),
-    "流沙晶": ("沙货", "良品", 3, 50, 760, "流沙中淘出的晶粒，耐磨耐热。"),
-    "沙金": ("矿材", "良品", 3, 40, 950, "沙海淘金，价高但重。"),
-    "风蚀骨": ("沙货", "凡品", 3, 50, 620, "风沙磨出的骨片，异地少见。"),
-    "驼铃草": ("药材", "凡品", 1, 70, 560, "驼队识路草，药效温和。"),
-    "月牙砂": ("沙货", "良品", 2, 50, 720, "月牙形细砂，符墨可用。"),
-    "毒云石": ("矿材", "良品", 3, 40, 880, "带毒云纹的石材，炼器需谨慎。"),
-    "寒霜石": ("寒材", "良品", 3, 50, 780, "寒霜关冷石，可保寒气。"),
-    "冰魄花": ("药材", "珍品", 1, 30, 900, "冰中开花，药谷和寒关都认。"),
-    "雪纹铁": ("矿材", "良品", 4, 40, 860, "带雪纹的铁材，韧性不错。"),
-    "霜盐": ("盐鲜", "凡品", 3, 80, 480, "寒地霜盐，易存易卖。"),
-    "冷玉髓": ("寒材", "珍品", 2, 30, 1050, "冷玉内髓，清心定神。"),
-    "寒魄草": ("药材", "良品", 1, 50, 620, "寒地灵草，精神类丹方常用。"),
-    "雷泽鼓": ("雷材", "珍品", 4, 30, 1300, "雷泽城法鼓，声中带雷。"),
-    "雷纹木": ("木材", "良品", 3, 50, 760, "雷击不焦的木材，符器常用。"),
-    "电光砂": ("雷材", "良品", 2, 50, 880, "砂中偶有电光，炼器辅材。"),
-    "鸣蛇鳞": ("兽材", "珍品", 2, 30, 1050, "鸣蛇脱鳞，可入符器。"),
-    "紫雷石": ("雷材", "珍品", 4, 30, 1500, "紫雷凝石，高阶雷器材料。"),
-    "震雷符": ("符箓", "良品", 1, 40, 980, "雷泽城常见符货，轻而值钱。"),
-    "碧潮珊瑚": ("海货", "珍品", 3, 30, 1180, "碧潮岛珊瑚，色泽通透。"),
-    "潮汐珠": ("海货", "良品", 2, 40, 980, "随潮涨落而明暗变化。"),
-    "海心藻": ("水产", "凡品", 1, 80, 560, "海心处采来的灵藻，轻货。"),
-    "水府残玉": ("古器", "珍品", 3, 30, 1350, "水府旧玉，古玩商喜欢。"),
-    "龙骨片": ("龙材", "珍品", 3, 20, 1500, "疑似龙骨碎片，价高量少。"),
-    "海兽牙": ("兽材", "良品", 2, 40, 920, "海兽尖牙，可制器。"),
-    "丹砂": ("丹材", "凡品", 2, 70, 560, "丹霞镇常见丹砂，炼丹基础货。"),
-    "赤云石": ("丹材", "良品", 3, 50, 820, "赤云纹石，炉火稳定。"),
-    "火绒布": ("纺织", "凡品", 1, 60, 640, "耐火绒布，丹房常用。"),
-    "朱雀羽": ("丹材", "珍品", 1, 20, 1500, "朱羽如火，稀有丹材。"),
-    "炉心炭": ("燃料", "凡品", 3, 60, 520, "炉心余炭，火力温和。"),
-    "丹霞瓷": ("瓷器", "良品", 2, 40, 880, "丹霞镇烧制的瓷器，适合礼赠。"),
-    "灵木心": ("木材", "珍品", 3, 30, 950, "灵木中心材，器修常收。"),
-    "藤甲片": ("木材", "良品", 2, 50, 740, "藤甲拆片，轻而坚韧。"),
-    "木纹珠": ("木材", "良品", 1, 60, 620, "木纹凝珠，可作饰物。"),
-    "鹿角牌": ("兽材", "良品", 2, 50, 680, "鹿角磨成的牌片，百兽原也收。"),
-    "花纹木盒": ("木材", "凡品", 2, 60, 520, "雕花木盒，走礼品路线。"),
-    "青藤绳": ("木材", "凡品", 1, 80, 420, "青藤搓绳，低价轻货。"),
-    "镜湖玉": ("湖产", "良品", 2, 50, 920, "镜湖底玉，水润明净。"),
-    "水镜牌": ("湖产", "良品", 2, 50, 780, "可映水纹的小牌。"),
-    "月影纱": ("纺织", "良品", 1, 50, 980, "月影下织成的纱，玉京需求高。"),
-    "清心铃": ("礼器", "良品", 1, 50, 720, "铃音清心，修士常佩。"),
-    "银鳞片": ("水产", "良品", 2, 50, 860, "银鳞鱼脱片，可入器。"),
-    "映月杯": ("礼器", "珍品", 2, 30, 1120, "杯中映月，礼器市场喜欢。"),
-    "幽篁笛": ("竹器", "良品", 1, 50, 820, "幽篁林竹笛，声音清远。"),
-    "竹露": ("药材", "凡品", 1, 80, 460, "竹叶夜露，药效清淡。"),
-    "墨竹卷": ("文书", "良品", 2, 50, 720, "墨竹制卷，可书符文。"),
-    "静心香": ("香料", "良品", 1, 60, 640, "静心用香，城镇消耗稳定。"),
-    "翠竹符": ("符箓", "良品", 1, 50, 780, "翠竹刻符，轻货高价。"),
-    "影叶": ("药材", "凡品", 1, 80, 560, "夜色中才显纹理的竹叶。"),
-    "星陨石": ("星材", "珍品", 5, 20, 1700, "星陨墟主材，重而昂贵。"),
-    "星砂瓶": ("星材", "珍品", 2, 30, 1180, "瓶中星砂，可作阵材。"),
-    "星辉片": ("星材", "良品", 2, 40, 980, "带星辉的薄片，炼器常收。"),
-    "残碑拓": ("古器", "良品", 1, 40, 860, "古碑拓片，文修和古玩商需要。"),
-    "陨铁片": ("矿材", "珍品", 4, 30, 1450, "陨铁碎片，武器工坊高价收。"),
-    "无相竹": ("竹器", "珍品", 3, 30, 1250, "星陨墟异竹，质地奇特。"),
-    "玉京符诏": ("宫货", "珍品", 1, 30, 1600, "玉京台符诏，权贵往来常用。"),
-    "白玉冠": ("宫货", "珍品", 2, 30, 1400, "白玉制冠，礼器和宫货兼具。"),
-    "云纹佩": ("玉石", "良品", 1, 40, 1180, "云纹玉佩，远销各地。"),
-    "天香锦": ("纺织", "良品", 1, 40, 980, "带天香的锦料，礼服常用。"),
-    "仙鹤羽": ("宫货", "珍品", 1, 30, 1500, "仙鹤羽饰，轻而稀有。"),
-    "金缕册": ("文书", "珍品", 2, 30, 1300, "金线装册，文书礼器两用。"),
-    "黑水珠": ("渡货", "良品", 2, 50, 820, "黑水渡水珠，颜色沉亮。"),
-    "墨鳞甲": ("兽材", "珍品", 3, 30, 1100, "墨鳞制甲片，防具工坊常收。"),
-    "渡魂灯": ("古器", "珍品", 2, 30, 1350, "渡魂用灯，鬼市和古玩商都爱。"),
-    "玄水瓶": ("水产", "良品", 2, 50, 760, "能盛玄水的瓶器。"),
-    "夜航图": ("文书", "凡品", 1, 60, 640, "黑水渡夜航路线图。"),
-    "乌木桨": ("木材", "凡品", 4, 50, 480, "乌木船桨，重货低价。"),
-    "兽骨牌": ("兽材", "凡品", 2, 60, 620, "兽骨磨牌，草原常货。"),
-    "狼毫笔": ("文书", "凡品", 1, 60, 560, "狼毫制笔，书院和商会都能卖。"),
-    "虎纹皮": ("兽材", "良品", 3, 40, 900, "虎纹兽皮，防具和装饰都用。"),
-    "灵角": ("兽材", "珍品", 2, 30, 1180, "灵兽角，器修爱收。"),
-    "兽魂铃": ("礼器", "珍品", 2, 30, 1350, "能安兽魂的铃，稀有礼器。"),
-    "草原玉": ("玉石", "良品", 2, 50, 760, "草原河滩玉，质朴耐看。"),
+    name: _trade_item_def(location, location_index, item_index, name)
+    for location_index, (location, _x, _y, specialties) in enumerate(TRADE_SPECIALTY_GROUPS)
+    for item_index, name in enumerate(specialties)
 }
+
+
+WORLD_ITEM_IDS = tuple(row[0] for row in ITEM_DEFS) + tuple(trade_item_id(name) for name in TRADE_ITEM_DEFS)
 
 
 TRADE_LOCATION_DEMANDS = {
-    "天枢城": {"文书": 1.16, "礼器": 1.12, "宫货": 1.08, "古器": 1.12},
-    "青岚坊": {"竹器": 1.15, "木材": 1.12, "纺织": 1.08, "药材": 1.06},
-    "赤霞港": {"水产": 1.15, "盐鲜": 1.12, "海货": 1.08, "丹材": 1.08},
-    "玄铁岭": {"矿材": 1.18, "燃料": 1.10, "锻材": 1.14},
-    "万药谷": {"药材": 1.18, "香料": 1.08, "木材": 1.06, "丹材": 1.08},
-    "云梦泽": {"水产": 1.14, "幻材": 1.15, "纺织": 1.10, "药材": 1.06},
-    "流沙海市": {"沙货": 1.18, "矿材": 1.08, "药材": 1.05},
-    "寒霜关": {"寒材": 1.18, "矿材": 1.08, "药材": 1.06, "盐鲜": 1.05},
-    "雷泽城": {"雷材": 1.20, "符箓": 1.10, "木材": 1.05},
-    "碧潮岛": {"海货": 1.18, "水产": 1.10, "龙材": 1.12, "兽材": 1.06},
-    "丹霞镇": {"丹材": 1.18, "燃料": 1.10, "瓷器": 1.08},
-    "灵木寨": {"木材": 1.18, "兽材": 1.08, "竹器": 1.06},
-    "镜湖城": {"湖产": 1.16, "玉石": 1.10, "纺织": 1.08, "礼器": 1.06},
-    "幽篁林": {"竹器": 1.18, "香料": 1.10, "文书": 1.08, "符箓": 1.08},
-    "星陨墟": {"星材": 1.20, "矿材": 1.08, "古器": 1.10},
-    "玉京台": {"宫货": 1.20, "礼器": 1.12, "纺织": 1.08, "文书": 1.08},
-    "黑水渡": {"渡货": 1.18, "水产": 1.08, "古器": 1.08, "兽材": 1.06},
-    "百兽原": {"兽材": 1.18, "文书": 1.05, "玉石": 1.06},
+    "天枢城": {"纯经济": 1.00},
+    "青岚坊": {"纯经济": 0.98},
+    "赤霞港": {"纯经济": 1.03},
+    "玄铁岭": {"纯经济": 0.96},
+    "万药谷": {"纯经济": 1.02},
+    "云梦泽": {"纯经济": 1.01},
+    "流沙海市": {"纯经济": 0.94},
+    "寒霜关": {"纯经济": 1.08},
+    "雷泽城": {"纯经济": 1.04},
+    "碧潮岛": {"纯经济": 1.06},
+    "星陨墟": {"纯经济": 1.12},
 }
 
 
+TRADE_FORBIDDEN_SPECIALTY_TYPES = {"药材", "丹材", "燃料", "纺织", "水产", "盐鲜", "香料"}
+TRADE_GROUP_BY_TYPE = {"纯经济": "纯经济"}
+
+
+def trade_group_for_type(trade_type: str) -> str:
+    """当前跑商特产只按纯经济货物处理。"""
+
+    return TRADE_GROUP_BY_TYPE.get(trade_type, "")
+
+
 SPECIAL_BUYERS = (
-    ("镇妖司", "yaodan,yaogu,yaoxue,yaopi,yaotong,yaohun_suipian", 3.0, 4, 4),
-    ("伏魔殿", "mohe,mojiao,moxue,mopi,mozhao,moyanhui", 3.0, -31, 21),
-    ("鬼市", "yinhunzhu,guihuo,canhunfan,baigupian,mingzhi,yuanqiping", 3.0, 34, -17),
-    ("龙渊阁", "jiaolin,longxu,longxueshi", 3.0, 41, -35),
-    ("万兽盟", "shoujin,shouya,shougu,shoupi,shoujiao,shouxin", 2.5, -39, -12),
-    ("破军营", "junhunyin,pojia_pian,canbingfu,zhanqi_suibu,xiuxuetie,duanrenpian", 3.2, 22, 36),
+    ("镇妖司", "loot_yao_1,loot_yao_2,loot_yao_3,loot_yao_4,loot_yao_5,loot_yao_6", 3.0, 4, 4),
+    ("伏魔殿", "loot_mo_1,loot_mo_2,loot_mo_3,loot_mo_4,loot_mo_5,loot_mo_6", 3.0, -31, 21),
+    ("鬼市", "loot_gui_1,loot_gui_2,loot_gui_3,loot_gui_4,loot_gui_5,loot_gui_6", 3.0, 34, -17),
+    ("龙渊阁", "loot_long_1,loot_long_2,loot_long_3", 3.0, 41, -35),
+    ("万兽盟", "loot_shou_1,loot_shou_2,loot_shou_3,loot_shou_4,loot_shou_5,loot_shou_6", 2.5, -39, -12),
+    ("破军营", "loot_bing_1,loot_bing_2,loot_bing_3,loot_bing_4,loot_bing_5,loot_bing_6", 3.2, 22, 36),
 )
+
+
+WAR_PREP_SEED = {
+    "镇妖司": ("镇妖战备", "妖类"),
+    "伏魔殿": ("伏魔战备", "魔类"),
+    "鬼市": ("阴契战备", "鬼类"),
+    "龙渊阁": ("龙渊战备", "龙类"),
+    "万兽盟": ("驭兽战备", "兽类"),
+    "破军营": ("破军战备", "兵戈类"),
+}
 
 
 RECYCLE_LOCATIONS = (
@@ -434,24 +448,24 @@ WORLD_TERRAINS = {
 
 
 MONSTER_DEFS = (
-    ("qinglang", "青狼妖", 5, "妖", 90, 15, 8, "yaogu", 0.45),
-    ("huyao", "狐妖", 8, "妖", 120, 18, 10, "yaoxue", 0.42),
-    ("shanzhu", "山猪兽", 12, "兽", 160, 24, 12, "shouya", 0.4),
-    ("baigui", "白骨鬼", 16, "鬼", 190, 29, 16, "baigupian", 0.38),
-    ("shayan", "沙魇", 18, "妖", 210, 32, 18, "yinhunzhu", 0.35),
-    ("mopi_jiang", "魔皮将", 24, "魔", 290, 40, 24, "mopi", 0.36),
-    ("xuanling", "玄铁傀", 28, "傀", 360, 46, 32, "pojia_pian", 0.35),
-    ("guijiang", "鬼火将", 32, "鬼", 400, 54, 34, "guihuo", 0.38),
-    ("hanpo", "寒魄鬼", 38, "鬼", 480, 62, 42, "yinhunzhu", 0.4),
-    ("tiejia_bing", "铁甲残兵", 44, "兵", 560, 74, 48, "pojia_pian", 0.36),
-    ("leishou", "雷兽", 52, "兽", 720, 88, 55, "shoujin", 0.35),
-    ("yaotong_niao", "妖瞳鸦", 58, "妖", 790, 98, 60, "yaotong", 0.34),
-    ("jiaolong", "蛟龙残影", 68, "龙", 980, 120, 70, "jiaolin", 0.32),
-    ("longxu_ying", "龙须影", 74, "龙", 1120, 138, 78, "longxu", 0.3),
-    ("mohun", "魔魂将", 82, "魔", 1300, 160, 88, "mohe", 0.36),
-    ("moyan_shi", "魔焰使", 88, "魔", 1480, 185, 96, "moyanhui", 0.32),
-    ("pojun", "破军残将", 95, "兵", 1700, 210, 110, "junhunyin", 0.3),
-    ("duanren_jiang", "断刃军魂", 100, "兵", 1900, 235, 122, "duanrenpian", 0.28),
+    ("qinglang", "青狼妖", 5, "妖", 90, 15, 8, "loot_yao_2", 0.45),
+    ("huyao", "狐妖", 8, "妖", 120, 18, 10, "loot_yao_3", 0.42),
+    ("shanzhu", "山猪兽", 12, "兽", 160, 24, 12, "loot_shou_2", 0.4),
+    ("baigui", "白骨鬼", 16, "鬼", 190, 29, 16, "loot_gui_4", 0.38),
+    ("shayan", "沙魇", 18, "妖", 210, 32, 18, "loot_yao_5", 0.35),
+    ("mopi_jiang", "魔皮将", 24, "魔", 290, 40, 24, "loot_mo_4", 0.36),
+    ("xuanling", "玄铁傀", 28, "傀", 360, 46, 32, "loot_bing_2", 0.35),
+    ("guijiang", "鬼火将", 32, "鬼", 400, 54, 34, "loot_gui_2", 0.38),
+    ("hanpo", "寒魄鬼", 38, "鬼", 480, 62, 42, "loot_gui_1", 0.4),
+    ("tiejia_bing", "铁甲残兵", 44, "兵", 560, 74, 48, "loot_bing_2", 0.36),
+    ("leishou", "雷兽", 52, "兽", 720, 88, 55, "loot_shou_1", 0.35),
+    ("yaotong_niao", "妖瞳鸦", 58, "妖", 790, 98, 60, "loot_yao_5", 0.34),
+    ("jiaolong", "蛟龙残影", 68, "龙", 980, 120, 70, "loot_long_1", 0.32),
+    ("longxu_ying", "龙须影", 74, "龙", 1120, 138, 78, "loot_long_2", 0.3),
+    ("mohun", "魔魂将", 82, "魔", 1300, 160, 88, "loot_mo_1", 0.36),
+    ("moyan_shi", "魔焰使", 88, "魔", 1480, 185, 96, "loot_mo_6", 0.32),
+    ("pojun", "破军残将", 95, "兵", 1700, 210, 110, "loot_bing_1", 0.3),
+    ("duanren_jiang", "断刃军魂", 100, "兵", 1900, 235, 122, "loot_bing_6", 0.28),
 )
 
 
@@ -974,6 +988,29 @@ class XiuxianDB:
                 UNIQUE(sect_id, client_id)
             );
 
+            CREATE TABLE IF NOT EXISTS sect_stats (
+                sect_id INTEGER PRIMARY KEY,
+                level INTEGER NOT NULL DEFAULT 1,
+                exp INTEGER NOT NULL DEFAULT 0,
+                influence_merit INTEGER NOT NULL DEFAULT 0,
+                support_merit INTEGER NOT NULL DEFAULT 0,
+                build_merit INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sect_merit_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sect_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                exp_gain INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS sect_war_cycles (
                 cycle_start TEXT PRIMARY KEY,
                 cycle_end TEXT NOT NULL,
@@ -1053,6 +1090,89 @@ class XiuxianDB:
                 buy_count INTEGER NOT NULL DEFAULT 0,
                 sell_count INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (location_name, item_id, business_day)
+            );
+
+            CREATE TABLE IF NOT EXISTS trade_industry_states (
+                location_name TEXT PRIMARY KEY,
+                medicine_supply_stock INTEGER NOT NULL DEFAULT 0,
+                medicine_supply_limit INTEGER NOT NULL DEFAULT 0,
+                medicine_supply_efficiency REAL NOT NULL DEFAULT 1.0,
+                medicine_supply_heat INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS city_world_states (
+                location_name TEXT PRIMARY KEY,
+                city_level INTEGER NOT NULL DEFAULT 1,
+                build_exp INTEGER NOT NULL DEFAULT 0,
+                medicine_material INTEGER NOT NULL DEFAULT 0,
+                medicine_catalyst INTEGER NOT NULL DEFAULT 0,
+                medicine_fuel INTEGER NOT NULL DEFAULT 0,
+                medicine_guard INTEGER NOT NULL DEFAULT 0,
+                life_food INTEGER NOT NULL DEFAULT 0,
+                life_salt INTEGER NOT NULL DEFAULT 0,
+                life_water INTEGER NOT NULL DEFAULT 0,
+                life_cloth INTEGER NOT NULL DEFAULT 0,
+                life_fuel INTEGER NOT NULL DEFAULT 0,
+                relic_energy INTEGER NOT NULL DEFAULT 0,
+                last_settled_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS world_material_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                location_name TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                subtype TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                stones INTEGER NOT NULL,
+                state_delta TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS treasure_maps (
+                map_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                city_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                x INTEGER,
+                y INTEGER,
+                current_price INTEGER NOT NULL DEFAULT 0,
+                highest_bidder TEXT NOT NULL DEFAULT '',
+                bid_count INTEGER NOT NULL DEFAULT 0,
+                weapon_def_id TEXT NOT NULL DEFAULT '',
+                weapon_name TEXT NOT NULL DEFAULT '',
+                weapon_max_level INTEGER NOT NULL DEFAULT 0,
+                owner_client_id TEXT NOT NULL DEFAULT '',
+                owner_sect_id INTEGER NOT NULL DEFAULT 0,
+                generated_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                settled_at TEXT,
+                result TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS treasure_map_bids (
+                bid_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                map_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS war_prep_states (
+                buyer_name TEXT PRIMARY KEY,
+                prep_name TEXT NOT NULL,
+                loot_subtype TEXT NOT NULL,
+                prep_value INTEGER NOT NULL DEFAULT 0,
+                threshold INTEGER NOT NULL DEFAULT 900,
+                pending INTEGER NOT NULL DEFAULT 0,
+                pending_at TEXT,
+                last_opened_at TEXT,
+                last_settled_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS trade_records (
@@ -1315,6 +1435,18 @@ class XiuxianDB:
                 PRIMARY KEY (event_id, client_id)
             );
 
+            CREATE TABLE IF NOT EXISTS boss_challenge_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                hp_before INTEGER NOT NULL DEFAULT 0,
+                hp_after INTEGER NOT NULL DEFAULT 0,
+                killed INTEGER NOT NULL DEFAULT 0,
+                result TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS duel_requests (
                 duel_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mode TEXT NOT NULL,
@@ -1337,6 +1469,7 @@ class XiuxianDB:
                 stake INTEGER NOT NULL DEFAULT 0,
                 fee INTEGER NOT NULL DEFAULT 0,
                 summary TEXT NOT NULL DEFAULT '',
+                result TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
 
@@ -1407,6 +1540,18 @@ class XiuxianDB:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (wormhole_id, client_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS wormhole_challenge_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wormhole_id INTEGER NOT NULL,
+                client_id TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                hp_before INTEGER NOT NULL DEFAULT 0,
+                hp_after INTEGER NOT NULL DEFAULT 0,
+                killed INTEGER NOT NULL DEFAULT 0,
+                result TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS wormhole_notices (
@@ -1492,11 +1637,22 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_trade_records_client ON trade_records(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_industry_heat ON trade_industry_states(medicine_supply_heat);
+            CREATE INDEX IF NOT EXISTS idx_world_material_records_client ON world_material_records(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_world_material_records_location ON world_material_records(location_name, category, created_at);
+            CREATE INDEX IF NOT EXISTS idx_treasure_maps_status ON treasure_maps(status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_treasure_maps_city ON treasure_maps(city_name, status);
+            CREATE INDEX IF NOT EXISTS idx_treasure_maps_coord ON treasure_maps(x, y, status);
+            CREATE INDEX IF NOT EXISTS idx_treasure_bids_map ON treasure_map_bids(map_id, active, created_at);
+            CREATE INDEX IF NOT EXISTS idx_war_prep_pending ON war_prep_states(pending, pending_at);
             CREATE INDEX IF NOT EXISTS idx_world_locations_category ON world_locations(category, terrain);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_master_client_id ON sects(master_client_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_founder_id ON sects(founder_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_location_xy ON sects(location_x, location_y);
             CREATE INDEX IF NOT EXISTS idx_sect_members_sect_id ON sect_members(sect_id);
+            CREATE INDEX IF NOT EXISTS idx_sect_merit_records_sect ON sect_merit_records(sect_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_sect_merit_records_client ON sect_merit_records(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_sect_merit_records_category ON sect_merit_records(category, created_at);
             CREATE INDEX IF NOT EXISTS idx_sect_influence_cycle ON sect_influence_records(cycle_start, sect_id);
             CREATE INDEX IF NOT EXISTS idx_sect_influence_client ON sect_influence_records(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_sect_rewards_client ON sect_war_rewards(client_id, claimed, cycle_start);
@@ -1509,12 +1665,14 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_inscription_feathers_client ON inscription_feathers(client_id, feather_id);
             CREATE INDEX IF NOT EXISTS idx_seasonal_boss_status ON seasonal_boss_events(status, closes_at);
             CREATE INDEX IF NOT EXISTS idx_seasonal_boss_participants_client ON seasonal_boss_participants(client_id, reward_claimed);
+            CREATE INDEX IF NOT EXISTS idx_boss_challenge_records_event ON boss_challenge_records(event_id, client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_duel_to_client ON duel_requests(to_client_id, status);
             CREATE INDEX IF NOT EXISTS idx_robbery_record_target ON robbery_records(exploration_record_id, target_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_robbery_record_once ON robbery_records(exploration_record_id, robber_id);
             CREATE INDEX IF NOT EXISTS idx_player_hatreds_target ON player_hatreds(to_client_id, hate_value);
             CREATE INDEX IF NOT EXISTS idx_wormholes_status ON wormholes(status, closes_at);
             CREATE INDEX IF NOT EXISTS idx_wormhole_participants_client ON wormhole_participants(client_id, reward_claimed);
+            CREATE INDEX IF NOT EXISTS idx_wormhole_challenge_records_event ON wormhole_challenge_records(wormhole_id, client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_game_logs_client ON game_logs(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_player_journals_client ON player_journals(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_player_titles_client ON player_titles(client_id, active);
@@ -1612,6 +1770,11 @@ class XiuxianDB:
             """,
             [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in PHYSIQUE_DEFS],
         )
+        world_placeholders = ",".join("?" for _ in WORLD_ITEM_IDS)
+        self.conn.execute(
+            f"DELETE FROM item_defs WHERE item_id NOT IN ({world_placeholders})",
+            WORLD_ITEM_IDS,
+        )
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO item_defs
@@ -1630,6 +1793,14 @@ class XiuxianDB:
         )
         self.conn.executemany(
             """
+            INSERT OR REPLACE INTO ring_item_defs
+            (ring_item_id, name, category, quality, usable, target_type, effect, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in EXTREME_BOOK_DEFS],
+        )
+        self.conn.executemany(
+            """
             INSERT OR REPLACE INTO seasonal_boss_reward_rates
             (
                 weight_type, feather_chance, feather_rank_chance,
@@ -1641,47 +1812,64 @@ class XiuxianDB:
             SEASONAL_BOSS_REWARD_RATES,
         )
         self._seed_world_locations()
+        self.conn.execute("DELETE FROM trade_locations")
         self.conn.executemany(
             "INSERT OR REPLACE INTO trade_locations (name, x, y, specialties) VALUES (?, ?, ?, ?)",
             TRADE_LOCATIONS,
         )
-        for _location, _x, _y, specialties in TRADE_LOCATIONS:
-            for name in specialties.split(","):
-                trade_def = TRADE_ITEM_DEFS.get(name)
-                if not trade_def:
-                    raise RuntimeError(f"跑商特产缺少定价：{_location}/{name}")
-                trade_type, quality, weight, stack_limit, base_price, desc = trade_def
-                item = self.conn.execute("SELECT item_id FROM item_defs WHERE name = ?", (name,)).fetchone()
-                item_id = item["item_id"] if item else "trade_" + hashlib.md5(name.encode("utf-8")).hexdigest()[:12]
-                effect = json.dumps(
-                    {"trade_type": trade_type, "home_location": _location},
-                    ensure_ascii=False,
-                )
-                self.conn.execute(
-                    """
-                    INSERT INTO item_defs
-                    (item_id, name, category, quality, weight, stack_limit, tradeable, usable, base_price, effect, desc)
-                    VALUES (?, ?, '地点特产', ?, ?, ?, 1, 0, ?, ?, ?)
-                    ON CONFLICT(item_id) DO UPDATE SET
-                        name = excluded.name,
-                        category = excluded.category,
-                        quality = excluded.quality,
-                        weight = excluded.weight,
-                        stack_limit = excluded.stack_limit,
-                        tradeable = excluded.tradeable,
-                        usable = excluded.usable,
-                        base_price = excluded.base_price,
-                        effect = excluded.effect,
-                        desc = excluded.desc
-                    """,
-                    (item_id, name, quality, weight, stack_limit, base_price, effect, desc),
-                )
+        self._seed_trade_industry_states()
+        self._seed_city_world_states()
+        trade_names = {
+            name
+            for _location, _x, _y, specialties in TRADE_LOCATIONS
+            for name in specialties.split(",")
+        }
+        item_home_locations = {
+            name: _location
+            for _location, _x, _y, specialties in TRADE_LOCATIONS
+            for name in specialties.split(",")
+        }
+        for name, trade_def in TRADE_ITEM_DEFS.items():
+            home_location = item_home_locations.get(name, "")
+            tradeable = 1 if home_location else 0
+            trade_type, quality, weight, stack_limit, base_price, desc = trade_def
+            item_id = trade_item_id(name)
+            effect = json.dumps(
+                {
+                    "world_category": "纯经济",
+                    "world_subtype": home_location,
+                    "trade_type": trade_type,
+                    "trade_group": trade_group_for_type(trade_type),
+                    "home_location": home_location,
+                },
+                ensure_ascii=False,
+            )
+            self.conn.execute(
+                """
+                INSERT INTO item_defs
+                (item_id, name, category, quality, weight, stack_limit, tradeable, usable, base_price, effect, desc)
+                VALUES (?, ?, '纯经济', ?, ?, ?, ?, 0, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET
+                    name = excluded.name,
+                    category = excluded.category,
+                    quality = excluded.quality,
+                    weight = excluded.weight,
+                    stack_limit = excluded.stack_limit,
+                    tradeable = excluded.tradeable,
+                    usable = excluded.usable,
+                    base_price = excluded.base_price,
+                    effect = excluded.effect,
+                    desc = excluded.desc
+                """,
+                (item_id, name, quality, weight, stack_limit, tradeable, base_price, effect, desc),
+            )
         trade_goods = []
         for location, _x, _y, specialties in TRADE_LOCATIONS:
             for name in specialties.split(","):
                 item = self.conn.execute("SELECT item_id FROM item_defs WHERE name = ?", (name,)).fetchone()
                 if item:
                     trade_goods.append((item["item_id"], location))
+        self.conn.execute("DELETE FROM trade_goods")
         self.conn.executemany(
             "INSERT OR REPLACE INTO trade_goods (item_id, home_location) VALUES (?, ?)",
             trade_goods,
@@ -1694,6 +1882,7 @@ class XiuxianDB:
             """,
             SPECIAL_BUYERS,
         )
+        self._seed_war_prep_states()
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO recycle_locations
@@ -1734,6 +1923,22 @@ class XiuxianDB:
             """,
             [(row[0], row[1], json.dumps(row[2], ensure_ascii=False), row[3]) for row in WEAPON_ENCHANTS],
         )
+        self.conn.executemany(
+            """
+            INSERT OR REPLACE INTO weapon_enchants
+            (enchant_id, name, effect, mp_delta)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    f"extreme_{row[0]}",
+                    f"极·{row[1]}",
+                    json.dumps(_extreme_book_effect(row[2]), ensure_ascii=False),
+                    _extreme_book_mp_delta(row[3]),
+                )
+                for row in WEAPON_ENCHANTS
+            ],
+        )
         self.conn.execute("DELETE FROM exploration_locations")
         self.conn.executemany(
             """
@@ -1750,6 +1955,93 @@ class XiuxianDB:
             EXPLORATION_LOCATIONS,
         )
         self.conn.commit()
+
+    def _seed_trade_industry_states(self) -> None:
+        """写入跑商地点的行业状态初始值。"""
+
+        assert self.conn is not None
+        current_locations = tuple(location for location, _x, _y, _specialties in TRADE_LOCATIONS)
+        if current_locations:
+            placeholders = ",".join("?" for _ in current_locations)
+            self.conn.execute(
+                f"DELETE FROM trade_industry_states WHERE location_name NOT IN ({placeholders})",
+                current_locations,
+            )
+        rows = [
+            (
+                location,
+                stock,
+                limit,
+                efficiency,
+                heat,
+                ts(),
+            )
+            for location, _x, _y, specialties in TRADE_LOCATIONS
+            for stock, limit, efficiency, heat in (self._trade_industry_seed_state(specialties),)
+        ]
+        self.conn.executemany(
+            """
+            INSERT OR IGNORE INTO trade_industry_states
+            (location_name, medicine_supply_stock, medicine_supply_limit, medicine_supply_efficiency, medicine_supply_heat, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+    @staticmethod
+    def _trade_industry_seed_state(specialties: str) -> tuple[int, int, float, int]:
+        """地点行业状态不再由跑商特产驱动，只保留温和初始值。"""
+
+        _ = specialties
+        return 2, 5, 1.0, 12
+
+    def _seed_city_world_states(self) -> None:
+        """写入 11 个承接城池的世界物资状态。"""
+
+        assert self.conn is not None
+        current = tuple(location for location, _x, _y, _specialties in TRADE_LOCATIONS)
+        if current:
+            placeholders = ",".join("?" for _ in current)
+            self.conn.execute(
+                f"DELETE FROM city_world_states WHERE location_name NOT IN ({placeholders})",
+                current,
+            )
+        self.conn.executemany(
+            """
+            INSERT OR IGNORE INTO city_world_states
+            (location_name, last_settled_at, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            [(location, ts(), ts()) for location in current],
+        )
+
+    def _seed_war_prep_states(self) -> None:
+        """写入特殊收购势力的战备状态。"""
+
+        assert self.conn is not None
+        buyer_names = tuple(buyer_name for buyer_name, _items, _factor, _x, _y in SPECIAL_BUYERS)
+        if buyer_names:
+            placeholders = ",".join("?" for _ in buyer_names)
+            self.conn.execute(
+                f"DELETE FROM war_prep_states WHERE buyer_name NOT IN ({placeholders})",
+                buyer_names,
+            )
+        rows = []
+        for buyer_name, _items, _factor, _x, _y in SPECIAL_BUYERS:
+            prep_name, loot_subtype = WAR_PREP_SEED.get(buyer_name, (f"{buyer_name}战备", "战利品"))
+            rows.append((buyer_name, prep_name, loot_subtype, ts(), ts()))
+        self.conn.executemany(
+            """
+            INSERT INTO war_prep_states
+            (buyer_name, prep_name, loot_subtype, last_settled_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(buyer_name) DO UPDATE SET
+                prep_name = excluded.prep_name,
+                loot_subtype = excluded.loot_subtype,
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
 
     def _validate_seed_data(self) -> None:
         """检查配置引用是否都能落到真实表。
@@ -1809,6 +2101,18 @@ class XiuxianDB:
             check_point(name, x, y, "商场")
         for name, x, y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS:
             check_point(name, x, y, "探险")
+        trade_location_names = {name for name, _x, _y, _specialties in TRADE_LOCATIONS}
+        normal_explore_names = {
+            name
+            for name, _x, _y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS
+            if name != "太虚秘境"
+        }
+        if trade_location_names != normal_explore_names:
+            missing.append(
+                "跑商地点必须与普通探险地点重合："
+                f"跑商独有={','.join(sorted(trade_location_names - normal_explore_names)) or '无'}；"
+                f"探险独有={','.join(sorted(normal_explore_names - trade_location_names)) or '无'}"
+            )
         for buyer_name, _item_ids_text, _factor, x, y in SPECIAL_BUYERS:
             check_point(buyer_name, x, y, "特殊收购")
         for _recycle_type, name, _factor, x, y, _desc in RECYCLE_LOCATIONS:
@@ -1827,19 +2131,32 @@ class XiuxianDB:
                 missing.append(f"宝石缺少有效属性：{row['name']}")
 
         for location, _x, _y, specialties in TRADE_LOCATIONS:
-            for name in specialties.split(","):
-                if name not in TRADE_ITEM_DEFS:
+            specialty_names = [name.strip() for name in specialties.split(",") if name.strip()]
+            if len(specialty_names) != 3:
+                missing.append(f"跑商地点必须正好 3 个特产：{location}/{specialties}")
+            for name in specialty_names:
+                trade_def = TRADE_ITEM_DEFS.get(name)
+                if not trade_def:
                     missing.append(f"跑商特产缺少定价：{location}/{name}")
+                    continue
                 if name not in names:
                     missing.append(f"跑商特产未落背包物品定义：{location}/{name}")
+                trade_type = str(trade_def[0])
+                if trade_type in TRADE_FORBIDDEN_SPECIALTY_TYPES:
+                    missing.append(f"跑商特产不能使用旧民生类或药路类：{location}/{name}/{trade_type}")
+                if trade_group_for_type(trade_type) != "纯经济":
+                    missing.append(f"跑商特产必须是纯经济商品：{location}/{name}/{trade_type}")
         trade_names = {
             name
             for _location, _x, _y, specialties in TRADE_LOCATIONS
             for name in specialties.split(",")
         }
-        extra_trade_defs = set(TRADE_ITEM_DEFS) - trade_names
-        if extra_trade_defs:
-            missing.append(f"跑商定价未被地点使用：{','.join(sorted(extra_trade_defs))}")
+        for name, trade_def in TRADE_ITEM_DEFS.items():
+            if name not in names:
+                missing.append(f"纯经济特产定义未落背包物品定义：{name}")
+            trade_type = str(trade_def[0])
+            if name not in trade_names and trade_type in TRADE_FORBIDDEN_SPECIALTY_TYPES:
+                missing.append(f"非入口纯经济特产不能复用药路或民生小类：{name}/{trade_type}")
 
         item_ids = {
             row["item_id"]

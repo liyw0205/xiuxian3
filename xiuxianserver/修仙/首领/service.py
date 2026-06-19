@@ -25,6 +25,7 @@ from ..constants import (
 )
 from ..format_text import T
 from ..rules import damage_after_defense, monster_exp
+from ..sect_war import record_sect_merit_conn
 from ..sql import db
 from ..weapon_core import service as weapon_service
 
@@ -578,6 +579,7 @@ class SeasonalBossService(CoreService):
         result = self._fight_boss(player, event)
         damage = min(int(result["damage"]), int(event["hp"]))
         killed = False
+        challenge_record_id = 0
         with self.db.transaction() as conn:
             fresh = conn.execute(
                 "SELECT * FROM seasonal_boss_events WHERE event_id = ? AND status = '开启'",
@@ -605,6 +607,15 @@ class SeasonalBossService(CoreService):
             damage = min(damage, int(fresh["hp"]))
             left_hp = max(0, int(fresh["hp"]) - damage)
             killed = left_hp <= 0
+            result["event_id"] = int(event["event_id"])
+            result["boss_name"] = str(event["boss_name"])
+            result["boss_label"] = "首领"
+            result["damage"] = damage
+            result["hp_before"] = int(fresh["hp"])
+            result["hp_after"] = left_hp
+            result["killed"] = killed
+            result["player_max_hp"] = int(player["max_hp"])
+            result["player_max_mp"] = int(player["max_mp"])
             conn.execute(
                 "UPDATE players SET hp = ?, mp = ? WHERE client_id = ?",
                 (result["hp_left"], result["mp_left"], client_id),
@@ -624,6 +635,24 @@ class SeasonalBossService(CoreService):
                 """,
                 (event["event_id"], client_id, damage, ts(), ts(), ts()),
             )
+            cursor = conn.execute(
+                """
+                INSERT INTO boss_challenge_records
+                (event_id, client_id, damage, hp_before, hp_after, killed, result, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event["event_id"],
+                    client_id,
+                    damage,
+                    int(fresh["hp"]),
+                    left_hp,
+                    1 if killed else 0,
+                    dump_json(result),
+                    ts(),
+                ),
+            )
+            challenge_record_id = int(cursor.lastrowid)
             if killed:
                 conn.execute(
                     """
@@ -674,6 +703,8 @@ class SeasonalBossService(CoreService):
             hurt_text="你被旧念重伤，建议先休息。",
             reward_command="首领奖励",
             challenge_command="挑战首领",
+            log_kind="boss",
+            record_id=challenge_record_id,
         )
 
     def reward(self, client_id: str) -> str:
@@ -779,6 +810,14 @@ class SeasonalBossService(CoreService):
                     ),
                     ts(),
                 ),
+            )
+            record_sect_merit_conn(
+                conn,
+                client_id,
+                "influence",
+                max(25, int(reward["contribution"] * 1200) + (100 if int(reward["rank"]) <= 3 else 0)),
+                source="领取首领奖励",
+                detail=f"event_id={event['event_id']}, boss={event['boss_name']}, rank={reward['rank']}",
             )
         return text
 
@@ -962,65 +1001,30 @@ class SeasonalBossService(CoreService):
         hurt_text: str,
         reward_command: str,
         challenge_command: str,
+        log_kind: str = "",
+        record_id: int = 0,
     ) -> str | dict:
-        """按玩家设置返回首领挑战简要摘要或逐次出手代码块。"""
+        """按玩家设置返回首领挑战短摘要，并附带战斗日志链接。"""
 
-        if not combat_log_text.wants_detail(player):
-            return combat_log_text.boss_brief(
-                title=title,
-                subtitle=subtitle,
-                boss_name=boss_name,
-                boss_label="首领",
-                player=player,
-                result=result,
-                damage=damage,
-                left_hp=left_hp,
-                max_hp=max_hp,
-                killed=killed,
-                killed_text=killed_text,
-                alive_text=alive_text,
-                hurt_text=hurt_text,
-            )
-
-        lines = [
-            title,
-            subtitle,
-            "",
-            "一、战斗明细",
-        ]
-        actions = result.get("actions")
-        if isinstance(actions, list) and actions:
-            for action in actions:
-                lines.extend(self._boss_action_lines(action, boss_name, player))
-        else:
-            lines.append("无逐次出手记录。")
-
-        lines.extend(
-            [
-                "",
-                "二、最终结算",
-                f"本次造成伤害：{damage}",
-                f"战斗后血气：{result['hp_left']}/{player['max_hp']}",
-                f"战斗后精神：{result['mp_left']}/{player['max_mp']}",
-                f"武器经验：+{int(result.get('weapon_exp', 0)) if int(result.get('weapon_id', 0)) > 0 else 0}",
-                f"武器技能触发：{result['skill_times']} 次",
-                f"首领技能触发：{result.get('boss_skill_times', 0)} 次",
-            ]
+        return combat_log_text.boss_brief(
+            title=title,
+            subtitle=subtitle,
+            boss_name=boss_name,
+            boss_label="首领",
+            player=player,
+            result=result,
+            damage=damage,
+            left_hp=left_hp,
+            max_hp=max_hp,
+            killed=killed,
+            killed_text=killed_text,
+            alive_text=alive_text,
+            hurt_text=hurt_text,
+            log_kind=log_kind,
+            record_id=record_id,
+            client_id=str(player["client_id"]),
+            detail=combat_log_text.wants_detail(player),
         )
-        suggestions: list[str] = []
-        if int(result["hp_left"]) <= 0:
-            lines.append(hurt_text)
-            suggestions.append("发送：休息，时间到后发送：结束休息")
-        if killed:
-            lines.append(killed_text)
-            suggestions.append(f"发送：{reward_command}")
-        else:
-            lines.append(f"剩余旧念：{left_hp}/{max_hp}")
-            lines.append(alive_text)
-            suggestions.append(f"稍后再发送：{challenge_command}")
-
-        block = "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
-        return T.attach(block, "；".join(suggestions))
 
     @staticmethod
     def _boss_action_lines(action: dict[str, Any], boss_name: str, player: dict[str, Any]) -> list[str]:
@@ -1094,13 +1098,14 @@ class SeasonalBossService(CoreService):
         item_texts: list[str] = []
         feathers = 0
         weapons: list[dict[str, Any]] = []
+        location_name = self._event_location_name(event, player)
 
         recover = self._random_equipment_item("恢复类")
         if recover:
             ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
         for _ in range(loot_rolls):
-            reward = self._roll_good_loot(weight, contribution_score, rank, rates)
+            reward = self._roll_good_loot(weight, contribution_score, rank, rates, location_name)
             if not reward:
                 continue
             kind = reward["kind"]
@@ -1178,7 +1183,14 @@ class SeasonalBossService(CoreService):
             rolls += 1
         return min(4, rolls)
 
-    def _roll_good_loot(self, weight_type: str, contribution_score: float, rank: int, rates: dict[str, float]) -> dict[str, Any] | None:
+    def _roll_good_loot(
+        self,
+        weight_type: str,
+        contribution_score: float,
+        rank: int,
+        rates: dict[str, float],
+        location_name: str = "",
+    ) -> dict[str, Any] | None:
         """从首领珍贵战利品池里随机一次。"""
 
         score = max(0.0, min(1.0, float(contribution_score)))
@@ -1221,6 +1233,7 @@ class SeasonalBossService(CoreService):
             return {"kind": "gem", "item_id": item["ring_item_id"], "name": item["name"], "level": level}
         if kind == "book":
             item = self._random_equipment_item("技能书")
+            item = self.maybe_upgrade_extreme_book_item(item, location_name, 0.006)
             return {"kind": "book", "item_id": item["ring_item_id"], "name": item["name"]} if item else None
         return {"kind": "weapon", "drop": weapon_service.roll_weapon_drop()}
 
@@ -1233,10 +1246,25 @@ class SeasonalBossService(CoreService):
             WHERE category = ?
               AND ring_item_id != 'kaikongqi'
               AND ring_item_id != 'cuifengdan'
+              AND ring_item_id NOT LIKE 'extreme_%'
             """,
             (category,),
         )
         return random.choice(rows) if rows else None
+
+    @staticmethod
+    def _event_location_name(event: dict[str, Any], player: dict[str, Any] | None = None) -> str:
+        """读取岁时情劫所在地点，兼容旧事件行没有地点列的情况。"""
+
+        event_location = str(event.get("location_name") or "").strip()
+        if event_location:
+            return event_location
+        boss_def = ALL_BOSS_DEFS.get(str(event.get("boss_key") or ""))
+        if boss_def:
+            return boss_def.location
+        if player:
+            return str(player.get("location_name") or "")
+        return ""
 
     def _participants(self, event_id: int) -> list[dict[str, Any]]:
         """读取首领贡献排行。"""

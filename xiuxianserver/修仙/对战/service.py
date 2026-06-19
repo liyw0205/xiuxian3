@@ -114,11 +114,14 @@ class DuelService(CoreService):
         if isinstance(settled, str):
             return settled
 
+        battle["robbery_record_id"] = int(settled.get("record_id", 0))
         return self._duel_log_block(
             title="抢劫结束",
             result=battle,
             settlement=self._robbery_settlement_text(settled),
             viewer_id=client_id,
+            log_kind="robbery",
+            record_id=int(settled.get("record_id", 0)),
         )
 
     def _settle_robbery(
@@ -215,6 +218,7 @@ class DuelService(CoreService):
                     ts(),
                 ),
             )
+            robbery_record_id = int(conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
             self._write_robbery_game_log_conn(conn, robber_id, target_id, success, loot_text)
             self._write_robbery_game_log_conn(conn, target_id, robber_id, success, loot_text, target_view=True)
             self._write_duel_weapon_exp_conn(conn, battle)
@@ -229,6 +233,7 @@ class DuelService(CoreService):
             "hate_used": hate_used,
             "hp_left": hp_left,
             "mp_left": mp_left,
+            "record_id": robbery_record_id,
         }
 
     def _robber_sect_id(self, client_id: str) -> int:
@@ -395,7 +400,7 @@ class DuelService(CoreService):
         for item_id, quantity in backpack_counts.items():
             ok, reason = self.can_add_backpack_conn(conn, robber_id, item_id, quantity)
             if not ok:
-                return False, T.hint("抢劫成功但背包装不下战利品，本次抢劫未结算。", f"{reason}<背包><特殊自动出售>")
+                return False, T.hint("抢劫成功但背包装不下战利品，本次抢劫未结算。", f"{reason}<背包><自动出售>")
         return True, ""
 
     def _grant_robbery_loots_conn(self, conn, robber_id: str, loots: list[dict]) -> None:
@@ -645,6 +650,8 @@ class DuelService(CoreService):
             result=result,
             settlement=settlement,
             viewer_id=client_id,
+            log_kind="duel",
+            record_id=int(result.get("duel_record_id", 0)),
         )
 
     def _waiting_request(self, client_id: str, from_id: str, mode: str) -> dict | None:
@@ -697,7 +704,8 @@ class DuelService(CoreService):
                 return T.hint("没有找到待接受的请求。", "可能已超时或被处理，请让对方重新发起。")
 
             fee = self._pay_duel_winner_conn(conn, mode, request, result)
-            self._write_duel_records_conn(conn, client_id, from_id, mode, request, result, fee)
+            record_id = self._write_duel_records_conn(conn, client_id, from_id, mode, request, result, fee)
+            result["duel_record_id"] = record_id
             self._write_duel_weapon_record_conn(conn, result)
         return request, fee
 
@@ -738,15 +746,15 @@ class DuelService(CoreService):
         request: dict,
         result: dict,
         fee: int,
-    ) -> None:
+    ) -> int:
         """保存对战记录、战斗摘要和双方日志。"""
 
         action = "切磋结束" if mode == "spar" else "决斗结束"
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO duel_records
-            (duel_id, mode, from_client_id, to_client_id, winner_id, loser_id, stake, fee, summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (duel_id, mode, from_client_id, to_client_id, winner_id, loser_id, stake, fee, summary, result, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 request["duel_id"],
@@ -758,6 +766,7 @@ class DuelService(CoreService):
                 request["stake"],
                 fee,
                 result["summary"],
+                dump_json(result),
                 ts(),
             ),
         )
@@ -767,6 +776,7 @@ class DuelService(CoreService):
         )
         self._write_duel_game_log_conn(conn, from_id, action, request, client_id, result, fee)
         self._write_duel_game_log_conn(conn, client_id, action, request, from_id, result, fee)
+        return int(cursor.lastrowid)
 
     @staticmethod
     def _write_duel_game_log_conn(
@@ -835,53 +845,28 @@ class DuelService(CoreService):
             return ""
         return f"决斗结算：胜者获得 {money(stake * 2 - fee)}，手续费 {money(fee)}。"
 
-    def _duel_log_block(self, *, title: str, result: dict, settlement: str = "", viewer_id: str = "") -> str | dict:
-        """按玩家设置返回对战简要摘要或逐次出手代码块。"""
+    def _duel_log_block(
+        self,
+        *,
+        title: str,
+        result: dict,
+        settlement: str = "",
+        viewer_id: str = "",
+        log_kind: str = "",
+        record_id: int = 0,
+    ) -> str | dict:
+        """按玩家设置返回对战短摘要，并附带战斗日志链接。"""
 
         viewer = self.player(viewer_id or str(result.get("left_id", "")))
-        if not combat_log_text.wants_detail(viewer):
-            return combat_log_text.duel_brief(
-                title=title,
-                result=result,
-                settlement=settlement,
-                format_player_name=self.format_player_name,
-            )
-
-        lines = [
-            title,
-            result["summary"],
-            "",
-            "一、战斗明细",
-        ]
-        actions = result.get("actions")
-        if isinstance(actions, list) and actions:
-            for action in actions:
-                lines.extend(self._duel_round_lines(action))
-        else:
-            lines.append("无逐次出手记录。")
-
-        left_id = result.get("left_id", "")
-        right_id = result.get("right_id", "")
-        lines.extend(
-            [
-                "",
-                "二、最终结算",
-                f"胜者：{self.format_player_name(result.get('winner_id', ''))}",
-                f"败者：{self.format_player_name(result.get('loser_id', ''))}",
-                (
-                    f"{self.format_player_name(left_id)}：血气 {result.get('left_hp_left', 0)}/{result.get('left_max_hp', 0)}，"
-                    f"精神 {result.get('left_mp_left', 0)}/{result.get('left_max_mp', 0)}"
-                ),
-                (
-                    f"{self.format_player_name(right_id)}：血气 {result.get('right_hp_left', 0)}/{result.get('right_max_hp', 0)}，"
-                    f"精神 {result.get('right_mp_left', 0)}/{result.get('right_max_mp', 0)}"
-                ),
-                f"武器经验：{self._duel_weapon_exp_text(result)}",
-            ]
+        return combat_log_text.duel_brief(
+            title=title,
+            result=result,
+            settlement=settlement,
+            format_player_name=self.format_player_name,
+            log_kind=log_kind,
+            record_id=record_id,
+            detail=combat_log_text.wants_detail(viewer),
         )
-        if settlement:
-            lines.append(settlement)
-        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
 
     def _duel_weapon_exp_text(self, result: dict) -> str:
         """展示对战双方本次武器经验。"""

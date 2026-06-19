@@ -7,10 +7,13 @@ from datetime import timedelta
 from .. import combat_log_text
 from ..combat_core import service as combat_service
 from ..common import CoreService, dump_json, load_json, now, random, ts, weapon_id_label
-from ..constants import ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL
+from ..constants import ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL, WORLD_COORD_MAX, WORLD_COORD_MIN
 from ..format_text import T
+from ..sect_war import sect_direction_bonus_conn
 from ..sql import db
 from ..weapon_core import service as weapon_service
+from ..world_materials import WorldMaterialService
+from ..battle_log_links import battle_log_markdown
 
 
 SECRET_REALM_LOCATIONS = {"太虚秘境"}
@@ -21,6 +24,60 @@ SECRET_REALM_EXP_RATE = 0.25
 SECRET_REALM_GEM_CHANCE = 0.25
 SECRET_REALM_GEM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]
 SECRET_REALM_GEM_LEVEL_WEIGHTS = [50, 25, 12, 7, 3, 2, 0.8, 0.2]
+MONSTER_KIND_LOOT_POOLS = {
+    "妖": (
+        ("loot_yao_2", 28),
+        ("loot_yao_3", 24),
+        ("loot_yao_4", 24),
+        ("loot_yao_1", 15),
+        ("loot_yao_5", 11),
+        ("loot_yao_6", 8),
+    ),
+    "魔": (
+        ("loot_mo_4", 26),
+        ("loot_mo_3", 22),
+        ("loot_mo_2", 18),
+        ("loot_mo_1", 14),
+        ("loot_mo_6", 11),
+        ("loot_mo_5", 8),
+    ),
+    "鬼": (
+        ("loot_gui_2", 28),
+        ("loot_gui_4", 24),
+        ("loot_gui_5", 20),
+        ("loot_gui_1", 14),
+        ("loot_gui_3", 9),
+        ("loot_gui_6", 7),
+    ),
+    "龙": (
+        ("loot_long_1", 28),
+        ("loot_long_2", 16),
+        ("loot_long_3", 5),
+    ),
+    "兽": (
+        ("loot_shou_2", 26),
+        ("loot_shou_3", 24),
+        ("loot_shou_4", 22),
+        ("loot_shou_1", 16),
+        ("loot_shou_5", 10),
+        ("loot_shou_6", 7),
+    ),
+    "兵": (
+        ("loot_bing_2", 24),
+        ("loot_bing_3", 20),
+        ("loot_bing_4", 18),
+        ("loot_bing_6", 12),
+        ("loot_bing_5", 10),
+        ("loot_bing_1", 5),
+    ),
+    "傀": (
+        ("loot_bing_2", 28),
+        ("loot_bing_3", 18),
+        ("loot_bing_4", 16),
+        ("loot_bing_5", 12),
+        ("loot_bing_6", 10),
+    ),
+}
 SECRET_REALM_ENVIRONMENTS = (
     ("幽冥风", "阴风压魂，怪物精神压迫更重。", {"hp": 1.00, "attack": 1.05, "defense": 0.96}),
     ("镜天影", "镜影错乱，遭遇强度起伏更大。", {"hp": 0.96, "attack": 1.02, "defense": 1.02}),
@@ -28,10 +85,27 @@ SECRET_REALM_ENVIRONMENTS = (
     ("星火雨", "星火落如雨，怪物攻势更烈。", {"hp": 0.98, "attack": 1.10, "defense": 0.98}),
     ("归墟潮", "归墟潮汐反复，战斗更拖长。", {"hp": 1.06, "attack": 1.00, "defense": 1.04}),
 )
+FEATURE_LABELS = {
+    "trade": "商路",
+    "explore": "探险",
+    "special_buyer": "特殊收购",
+    "recycle:weapon": "武器回收",
+    "recycle:gem": "宝石回收",
+    "recycle:book": "技能书回收",
+}
+RECYCLE_TYPE_LABELS = {
+    "weapon": "武器",
+    "gem": "宝石",
+    "book": "技能书",
+}
 
 
 class ExplorationService(CoreService):
     """30 分钟探险预计算和领取。"""
+
+    def __init__(self, database) -> None:
+        super().__init__(database)
+        self.world_material = WorldMaterialService(database)
 
     def locations(self, client_id: str) -> str:
         """查看探险地点。"""
@@ -39,18 +113,36 @@ class ExplorationService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
-        rows = self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level")
+        rows = self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level, name")
         panel = T.panel()
-        panel.section("探险地点")
+        panel.section("探险地图")
+        panel.line(f"范围：左下角 ({WORLD_COORD_MIN},{WORLD_COORD_MIN})｜右上角 ({WORLD_COORD_MAX},{WORLD_COORD_MAX})")
+        panel.line("普通地点同时承担探险、商路和城池状态；太虚秘境是特殊战斗点。")
+        panel.hr()
+        panel.section("普通城池")
         for row in rows:
             if self._is_secret_realm(row["name"]):
-                panel.line(f"{row['name']}｜动态秘境｜映身随玩家等级浮动｜{row['desc']}")
                 continue
+            specialties = self._trade_specialties_text(str(row["name"]))
             panel.line(
-                f"{row['name']}｜推荐 **{row['recommended_level']}** 级｜"
-                f"怪物 {row['min_level']}-{row['max_level']} 级｜{row['desc']}"
+                f"{row['name']} ({row['x']},{row['y']})｜推荐 **Lv.{row['recommended_level']}**｜"
+                f"怪物 Lv.{row['min_level']}-{row['max_level']}｜特产：{specialties}"
             )
-        return panel.render()
+            state_lines = self.world_material.city_state_lines(str(row["name"]), compact=True)
+            if state_lines:
+                panel.line("城池：" + " ".join(state_lines))
+        secret_rows = [row for row in rows if self._is_secret_realm(row["name"])]
+        if secret_rows:
+            panel.hr()
+            panel.section("特殊秘境")
+            for row in secret_rows:
+                panel.line(
+                    f"{row['name']} ({row['x']},{row['y']})｜动态映身｜"
+                    f"推荐 **Lv.{row['recommended_level']}**｜{row['desc']}"
+                )
+        buttons = [f"探险 {row['name']}" for row in rows]
+        buttons.extend(["地图", "商场推荐"])
+        return panel.render() + T.buttons(*buttons)
 
     def current_location(self, client_id: str) -> str:
         """查看当前位置。"""
@@ -59,14 +151,82 @@ class ExplorationService(CoreService):
         if error:
             return error
         assert player is not None
+        x = int(player["x"])
+        y = int(player["y"])
+        location_name = str(player["location_name"])
+        world_point = self._world_point_at(x, y)
+        exploration = self._exploration_location_at(x, y)
+        trade = self._trade_location_at(x, y)
+        special_buyer = self._special_buyer_at(x, y)
+        recycle = self._recycle_location_at(x, y)
+        sect = self._sect_at(x, y)
+
         panel = T.panel()
-        panel.section("当前位置")
-        panel.line(f"{player['location_name']} ({player['x']},{player['y']})")
-        return (
-            panel.render()
-            + "<去 天枢城><去 青岚坊><去 赤霞港><去 玄铁岭><去 万药谷><去 云梦泽><去 流沙海市>"
-            "<去 寒霜关><去 雷泽城><去 碧潮岛><去 星陨墟><去 太虚秘境>"
-        )
+        panel.section("地图·当前位置")
+        panel.line(f"{location_name} ({x},{y})")
+        if world_point:
+            features = self._feature_text(load_json(world_point["features"], []))
+            panel.line(f"地貌：{world_point['terrain']}｜类型：{world_point['category']}｜功能：{features}")
+            if str(world_point.get("desc") or "").strip():
+                panel.line(f"说明：{world_point['desc']}")
+        else:
+            panel.line("地貌：荒野｜类型：自由坐标｜功能：暂无固定建筑")
+            panel.line("荒野可以作为宗门山门坐标；若要探险或跑商，先导航到普通城池。")
+
+        buttons: list[str] = []
+        if exploration:
+            if self._is_secret_realm(str(exploration["name"])):
+                panel.hr()
+                panel.section("秘境")
+                panel.line("太虚秘境按玩家等级动态映身，主要产出高阶宝石和全池武器。")
+            else:
+                panel.hr()
+                panel.section("探险")
+                panel.line(
+                    f"推荐 **Lv.{exploration['recommended_level']}**｜"
+                    f"怪物 Lv.{exploration['min_level']}-{exploration['max_level']}｜{exploration['desc']}"
+                )
+            buttons.append("探险")
+
+        if trade:
+            panel.hr()
+            panel.section("商路城池")
+            panel.line(f"本地特产：{self._trade_specialties_text(str(trade['name']))}")
+            state_lines = self.world_material.city_state_lines(str(trade["name"]), compact=True)
+            if state_lines:
+                panel.lines(state_lines)
+            buttons.extend(["商场推荐", "自动出售"])
+
+        if special_buyer:
+            panel.hr()
+            panel.section("特殊收购")
+            panel.line(f"{special_buyer['buyer_name']}：收购对应战利品，出售会自动按今日价格曲线结算。")
+            buttons.append("自动出售")
+
+        if recycle:
+            panel.hr()
+            panel.section("回收建筑")
+            recycle_type = str(recycle["recycle_type"])
+            label = RECYCLE_TYPE_LABELS.get(recycle_type, recycle_type)
+            panel.line(f"{recycle['name']}：回收{label}，当前系数 {float(recycle['price_factor']):.2f}。")
+            if recycle_type == "weapon":
+                buttons.append("出售全部 武器")
+            elif recycle_type == "gem":
+                buttons.append("出售全部 宝石")
+            elif recycle_type == "book":
+                buttons.append("出售全部 技能书")
+
+        if sect:
+            panel.hr()
+            panel.section("宗门山门")
+            panel.line(f"{sect['name']}｜宗主：{self._player_name(str(sect['master_client_id']))}｜成员：{self._sect_member_count(int(sect['sect_id']))}")
+            buttons.extend([f"加入宗门 {sect['name']}", "宗门"])
+
+        if not world_point and not sect:
+            buttons.extend(["导航 天枢城", "探险列表"])
+        else:
+            buttons.append("探险列表")
+        return panel.render() + T.buttons(*buttons)
 
     def start(self, client_id: str, location_name: str = "") -> str:
         """开始探险。
@@ -267,7 +427,7 @@ class ExplorationService(CoreService):
             for item_id, quantity in drops.items():
                 ok, reason = self.can_add_backpack_conn(conn, client_id, item_id, quantity)
                 if not ok:
-                    return T.hint("背包空间不足，无法领取探险结果。", f"{reason}<特殊自动出售>")
+                    return T.hint("背包空间不足，无法领取探险结果。", f"{reason}<自动出售>")
             old_level, new_level = self.add_exp_conn(conn, client_id, exp_total)
             for item_id, quantity in drops.items():
                 self.add_backpack_conn(conn, client_id, item_id, quantity)
@@ -411,7 +571,8 @@ class ExplorationService(CoreService):
                 medicine_stock,
                 medicine_used,
             )
-            monster = random.choice(monsters)
+            monster = dict(random.choice(monsters))
+            monster["drop_item_id"] = self._roll_monster_loot_item(monster)
             event = combat_service.fight_monster(
                 client_id,
                 monster,
@@ -487,7 +648,10 @@ class ExplorationService(CoreService):
                         )
                     event["location_drop_item_id"] = location_drop
             if random.random() < 0.16 + explore_bonus * 0.3:
-                event["ring_drop_id"] = self._roll_ring_drop()
+                event["ring_drop_id"] = self._roll_ring_drop(
+                    player["location_name"],
+                    0.004 if self._is_secret_realm(player["location_name"]) else 0.0,
+                )
             events.append(event)
         return self._precompute_result(
             player,
@@ -891,6 +1055,66 @@ class ExplorationService(CoreService):
         location["y"] = int(location["y"])
         return location
 
+    def _world_point_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的命名世界点。"""
+
+        return self.db.fetch_one("SELECT * FROM world_locations WHERE x = ? AND y = ?", (int(x), int(y)))
+
+    def _exploration_location_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的探险地点。"""
+
+        return self.db.fetch_one("SELECT * FROM exploration_locations WHERE x = ? AND y = ?", (int(x), int(y)))
+
+    def _trade_location_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的商路城池。"""
+
+        return self.db.fetch_one("SELECT * FROM trade_locations WHERE x = ? AND y = ?", (int(x), int(y)))
+
+    def _special_buyer_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的特殊收购点。"""
+
+        return self.db.fetch_one("SELECT * FROM special_buyers WHERE x = ? AND y = ?", (int(x), int(y)))
+
+    def _recycle_location_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的回收建筑。"""
+
+        return self.db.fetch_one("SELECT * FROM recycle_locations WHERE x = ? AND y = ?", (int(x), int(y)))
+
+    def _sect_at(self, x: int, y: int) -> dict | None:
+        """读取当前位置上的玩家宗门山门。"""
+
+        return self.db.fetch_one("SELECT * FROM sects WHERE location_x = ? AND location_y = ?", (int(x), int(y)))
+
+    def _sect_member_count(self, sect_id: int) -> int:
+        """读取宗门成员数量。"""
+
+        row = self.db.fetch_one("SELECT COUNT(*) AS count FROM sect_members WHERE sect_id = ?", (int(sect_id),))
+        return int(row["count"]) if row else 0
+
+    def _player_name(self, client_id: str) -> str:
+        """读取玩家展示名。"""
+
+        row = self.db.fetch_one("SELECT display_name FROM players WHERE client_id = ?", (client_id,))
+        return str(row["display_name"]) if row else client_id
+
+    def _trade_specialties_text(self, location_name: str) -> str:
+        """读取城池三个纯经济特产。"""
+
+        row = self.db.fetch_one("SELECT specialties FROM trade_locations WHERE name = ?", (location_name,))
+        if not row:
+            return "无"
+        names = [name.strip() for name in str(row["specialties"]).split(",") if name.strip()]
+        return "、".join(names) if names else "无"
+
+    @staticmethod
+    def _feature_text(features: object) -> str:
+        """把世界点功能标记转成短中文。"""
+
+        if not isinstance(features, list):
+            return "无"
+        labels = [FEATURE_LABELS.get(str(feature), str(feature)) for feature in features if str(feature).strip()]
+        return "、".join(labels) if labels else "无"
+
     def _active_record(self, client_id: str) -> dict | None:
         """读取未领取探险。"""
 
@@ -939,19 +1163,40 @@ class ExplorationService(CoreService):
         return True, next_weight
 
     def _roll_location_drop(self, location_name: str) -> str:
-        """按当前地点随机一个特产掉落。"""
+        """按当前地点随机一个古界物资掉落；纯经济不从探险产出。"""
 
+        _ = location_name
         rows = self.db.fetch_all(
             """
             SELECT item_id
-            FROM trade_goods
-            WHERE home_location = ?
-            """,
-            (location_name,),
+            FROM item_defs
+            WHERE category IN ('药路', '民生', '建设', '古物')
+            """
         )
         if not rows:
             return ""
-        return random.choice(rows)["item_id"]
+        weights = []
+        for row in rows:
+            item = self.item_def(row["item_id"])
+            category = str(item["category"]) if item else ""
+            weights.append({"药路": 34, "民生": 26, "建设": 28, "古物": 12}.get(category, 10))
+        return random.choices(rows, weights=weights, k=1)[0]["item_id"]
+
+    @staticmethod
+    def _roll_monster_loot_item(monster: dict) -> str:
+        """按怪物族群滚战利品，保留怪物原掉落作为偏向。"""
+
+        base_item = str(monster.get("drop_item_id") or "").strip()
+        pool = MONSTER_KIND_LOOT_POOLS.get(str(monster.get("kind") or "").strip())
+        if not pool:
+            return base_item
+
+        weights: dict[str, int] = {}
+        for item_id, weight in pool:
+            weights[item_id] = weights.get(item_id, 0) + max(1, int(weight))
+        if base_item:
+            weights[base_item] = weights.get(base_item, 0) + 35
+        return random.choices(list(weights), weights=list(weights.values()), k=1)[0]
 
     def _roll_secret_realm_gem_drop(self) -> dict | None:
         """太虚秘境掉落 1-8 级宝石，高等级极低概率。"""
@@ -999,7 +1244,7 @@ class ExplorationService(CoreService):
         except ValueError:
             return str(key), 0
 
-    def _roll_ring_drop(self) -> str:
+    def _roll_ring_drop(self, location_name: str = "", play_bonus: float = 0.0) -> str:
         """随机掉落纳戒物品。
 
         恢复类、宝石和技能书都进纳戒，所以探险获得时直接写入纳戒。
@@ -1010,6 +1255,7 @@ class ExplorationService(CoreService):
             FROM ring_item_defs
             WHERE category IN ('恢复类', '宝石', '技能书')
               AND ring_item_id != 'cuifengdan'
+              AND ring_item_id NOT LIKE 'extreme_%'
             """)
         if not rows:
             return ""
@@ -1025,7 +1271,9 @@ class ExplorationService(CoreService):
         if roll < 0.86 and groups["宝石"]:
             return random.choice(groups["宝石"])["ring_item_id"]
         if groups["技能书"]:
-            return random.choice(groups["技能书"])["ring_item_id"]
+            books = [row for row in groups["技能书"] if not str(row["ring_item_id"]).startswith("extreme_")]
+            book_id = random.choice(books or groups["技能书"])["ring_item_id"]
+            return self.maybe_upgrade_extreme_book(book_id, location_name, play_bonus)
         return random.choice(rows)["ring_item_id"]
 
     def _medicine_stock(self, client_id: str) -> dict[str, dict]:
@@ -1080,10 +1328,14 @@ class ExplorationService(CoreService):
 
         max_hp = int(player["max_hp"])
         max_mp = int(player["max_mp"])
-        if hp > 0 and hp <= int(max_hp * 0.45):
-            hp = self._recover_value(hp, max_hp, "hp", stock, used, int(max_hp * 0.75))
-        if mp <= int(max_mp * 0.30):
-            mp = self._recover_value(mp, max_mp, "mp", stock, used, int(max_mp * 0.65))
+        with self.db.transaction() as conn:
+            support_bonus = sect_direction_bonus_conn(conn, str(player["client_id"]), "support")
+            build_bonus = sect_direction_bonus_conn(conn, str(player["client_id"]), "build")
+        stable_bonus = min(0.05, support_bonus * 0.04 + build_bonus * 0.025)
+        if hp > 0 and hp <= int(max_hp * (0.45 + stable_bonus)):
+            hp = self._recover_value(hp, max_hp, "hp", stock, used, int(max_hp * (0.75 + stable_bonus)))
+        if mp <= int(max_mp * (0.30 + stable_bonus)):
+            mp = self._recover_value(mp, max_mp, "mp", stock, used, int(max_mp * (0.65 + stable_bonus)))
         return hp, mp
 
     def _recover_value(
@@ -1150,7 +1402,7 @@ class ExplorationService(CoreService):
         dead: bool,
         bag_full: bool,
     ) -> str | dict:
-        """把结束探险的战斗过程和最终结算整理成代码块文本。"""
+        """把结束探险的战斗过程和最终结算整理成短消息和战斗日志链接。"""
 
         if result.get("secret_realm"):
             return self._secret_realm_claim_log(
@@ -1170,64 +1422,22 @@ class ExplorationService(CoreService):
                 bag_full=bag_full,
             )
 
-        if not combat_log_text.wants_detail(player):
-            return combat_log_text.exploration_brief(
-                record=record,
-                player=player,
-                events=events,
-                exp_total=exp_total,
-                weapon_exp_total=weapon_exp_total,
-                old_level=old_level,
-                new_level=new_level,
-                drops_text=self._format_backpack_awards(drops),
-                ring_drops_text=self._format_ring_awards(ring_drops),
-                weapon_drops_text=self._format_weapon_awards(weapon_drops),
-                medicine_text=self._format_medicine_used(medicine_used) if medicine_used else "无",
-                stop_reason=self._stop_reason(dead, bag_full),
-                event_drop_text=self._event_drop_text,
-            )
-
-        wins = sum(1 for event in events if event.get("win"))
-        losses = max(0, len(events) - wins)
-        hp_left = int(player.get("hp", 1))
-        mp_left = int(player.get("mp", 0))
-        lines = [
-            "探险结束",
-            f"记录：〔{record['record_id']}〕",
-            f"地点：{record['location_name']}",
-            f"开始时间：{record['started_at']}",
-            f"可领取时间：{record['ready_at']}",
-            f"领取时间：{ts()}",
-            "",
-            f"战斗总览：{len(events)} 场，胜 {wins} 场，败 {losses} 场。",
-            "",
-            "一、战斗明细",
-        ]
-
-        if events:
-            for index, event in enumerate(events, start=1):
-                lines.extend(self._event_log_lines(index, event, player))
-        else:
-            lines.append("本次没有战斗事件。")
-
-        lines.extend(
-            [
-                "",
-                "二、最终结算",
-                f"经验：+{exp_total}",
-                f"武器经验：+{weapon_exp_total}",
-                f"等级：{old_level} → {new_level}" if new_level > old_level else f"等级：{new_level}，未升级",
-                f"最终血气：{hp_left}/{player['max_hp']}",
-                f"最终精神：{mp_left}/{player['max_mp']}",
-                f"背包获得：{self._format_backpack_awards(drops)}",
-                f"纳戒获得：{self._format_ring_awards(ring_drops)}",
-                f"武器获得：{self._format_weapon_awards(weapon_drops)}",
-                f"自动用药：{self._format_medicine_used(medicine_used) if medicine_used else '无'}",
-                f"停止原因：{self._stop_reason(dead, bag_full)}",
-                "当前状态：空闲",
-            ]
+        return combat_log_text.exploration_brief(
+            record=record,
+            player=player,
+            events=events,
+            exp_total=exp_total,
+            weapon_exp_total=weapon_exp_total,
+            old_level=old_level,
+            new_level=new_level,
+            drops_text=self._format_backpack_awards(drops),
+            ring_drops_text=self._format_ring_awards(ring_drops),
+            weapon_drops_text=self._format_weapon_awards(weapon_drops),
+            medicine_text=self._format_medicine_used(medicine_used) if medicine_used else "无",
+            stop_reason=self._stop_reason(dead, bag_full),
+            event_drop_text=self._event_drop_text,
+            detail=combat_log_text.wants_detail(player),
         )
-        return "```javascript\r\n" + "\r\n".join(lines) + "\r\n```"
 
     def _secret_realm_claim_log(
         self,
@@ -1259,6 +1469,13 @@ class ExplorationService(CoreService):
         stop_reason = self._stop_reason(dead, bag_full)
         if not dead and not bag_full:
             stop_reason = "秘境轮数已尽，45 分钟到点"
+        record_id = int(record["record_id"])
+        log_link = battle_log_markdown(
+            f"太虚秘境战斗日志〔{record_id}〕",
+            "explore",
+            record_id,
+            detail=combat_log_text.wants_detail(player),
+        )
         lines = [
             "> **太虚秘境结束**",
             f"> 记录 **〔{record['record_id']}〕**｜环境：{realm.get('name', '未知')}",
@@ -1268,7 +1485,7 @@ class ExplorationService(CoreService):
             f"> 最终血气 **{hp_left}/{player['max_hp']}**｜精神 **{mp_left}/{player['max_mp']}**",
             f"> 停止原因：{stop_reason}",
             ">",
-            "> **秘境战报**",
+            "> **秘境战斗摘要**",
         ]
         if not events:
             lines.append("> 本次没有战斗事件。")
@@ -1289,6 +1506,7 @@ class ExplorationService(CoreService):
                 f"> 纳戒：{self._format_ring_awards(ring_drops)}",
                 f"> 武器：{self._format_weapon_awards(weapon_drops)}",
                 f"> 自动用药：{self._format_medicine_used(medicine_used) if medicine_used else '无'}",
+                f"> 战斗日志：{log_link}",
                 "> 当前状态：空闲",
             ]
         )
@@ -1375,7 +1593,7 @@ class ExplorationService(CoreService):
         if event.get("drop_item_id"):
             texts.append("怪物掉落 " + self._item_name(event["drop_item_id"]))
         if event.get("location_drop_item_id"):
-            texts.append("地点特产 " + self._item_name(event["location_drop_item_id"]))
+            texts.append("古界物资 " + self._item_name(event["location_drop_item_id"]))
         if event.get("ring_drop_id"):
             level = int(event.get("ring_drop_level") or 0)
             if level > 0:

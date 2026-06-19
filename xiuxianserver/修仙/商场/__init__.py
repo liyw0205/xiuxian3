@@ -1,4 +1,4 @@
-"""商场跑商组件 WS 命令。"""
+"""商场交易、出售和导航 WS 命令。"""
 
 from __future__ import annotations
 
@@ -6,27 +6,6 @@ from launch.adapter.ws import WsMessageHandler, manager as ws_manager
 
 from ..reply import send_reply
 from .service import service
-
-
-@WsMessageHandler.handler(cmd=("商场"), priority=100, block=True)
-async def ws_trade_current(client_id: str, message: str) -> None:
-    """查看当前位置商场。"""
-
-    await send_reply(client_id, service.current(client_id), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="商场列表", priority=100, block=True)
-async def ws_trade_locations(client_id: str, message: str) -> None:
-    """查看跑商地点。"""
-
-    await send_reply(client_id, service.locations(client_id), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="商场详情", priority=100, block=True)
-async def ws_trade_detail(client_id: str, message: str) -> None:
-    """查看地点详情。"""
-
-    await send_reply(client_id, service.detail(client_id, message), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="商场行情", priority=100, block=True)
@@ -50,11 +29,46 @@ async def ws_trade_sell(client_id: str, message: str) -> None:
     await send_reply(client_id, service.sell(client_id, message), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="商场自动出售", priority=100, block=True)
-async def ws_trade_auto_sell(client_id: str, message: str) -> None:
-    """自动出售可跑商商品。"""
+@WsMessageHandler.handler(cmd="出售", priority=100, block=True)
+async def ws_sell_any(client_id: str, message: str) -> None:
+    """统一出售指定物品。"""
+
+    await send_reply(client_id, service.sell_any(client_id, message), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="自动出售", priority=100, block=True)
+async def ws_auto_sell(client_id: str, message: str) -> None:
+    """自动清空背包可流通物品。"""
 
     await send_reply(client_id, service.auto_sell(client_id), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="出售全部", priority=100, block=True)
+async def ws_sell_all(client_id: str, message: str) -> None:
+    """批量出售纳戒资产。"""
+
+    await send_reply(client_id, service.sell_all(client_id, message), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="藏宝图", priority=100, block=True)
+async def ws_treasure_map(client_id: str, message: str) -> None:
+    """查看当前位置或指定城池藏宝图。"""
+
+    await send_reply(client_id, service.treasure_map(client_id, message), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="藏宝图出价", priority=100, block=True)
+async def ws_treasure_bid(client_id: str, message: str) -> None:
+    """给当前位置城池藏宝图出价。"""
+
+    await send_reply(client_id, service.treasure_bid(client_id, message), ws_manager, service)
+
+
+@WsMessageHandler.handler(cmd="领取藏宝图", priority=100, block=True)
+async def ws_treasure_claim(client_id: str, message: str) -> None:
+    """领取已归属或脚下的藏宝图。"""
+
+    await send_reply(client_id, service.treasure_claim(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="商场推荐", priority=100, block=True)
@@ -83,27 +97,6 @@ async def ws_trade_daily_reward(client_id: str, message: str) -> None:
     """领取每日跑商奖励。"""
 
     await send_reply(client_id, service.daily_reward(client_id), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="特殊收购", priority=100, block=True)
-async def ws_special_buyers(client_id: str, message: str) -> None:
-    """查看特殊收购。"""
-
-    await send_reply(client_id, service.special_buyers(client_id), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd="特殊出售", priority=100, block=True)
-async def ws_special_sell(client_id: str, message: str) -> None:
-    """出售特殊收购物。"""
-
-    await send_reply(client_id, service.special_sell(client_id, message), ws_manager, service)
-
-
-@WsMessageHandler.handler(cmd=("特殊自动出售", "自动出售战利品"), priority=100, block=True)
-async def ws_special_auto_sell(client_id: str, message: str) -> None:
-    """自动出售所有特殊收购物。"""
-
-    await send_reply(client_id, service.special_auto_sell(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd=("导航", "去", "来"), priority=100, block=True)

@@ -202,6 +202,7 @@ class XiuxianHistoryService(CoreService):
         panel.hr()
         panel.section("商会风向")
         panel.line(self._business_wind_text(start, end))
+        panel.lines(self._city_wind_lines())
         panel.hr()
         panel.section("首领动向")
         panel.lines(self._boss_trend_lines(day, start, end))
@@ -219,6 +220,44 @@ class XiuxianHistoryService(CoreService):
             f"今日灵潮：{tide['name']}。{tide['flavor']}（{format_effect(tide['effect'])}）",
             f"全服生效：{total}",
         ]
+
+    def _city_wind_lines(self) -> list[str]:
+        """生成城池世界物资风向。"""
+
+        lines: list[str] = []
+        top_city = self.db.fetch_one(
+            """
+            SELECT location_name, city_level, build_exp
+            FROM city_world_states
+            ORDER BY city_level DESC, build_exp DESC
+            LIMIT 1
+            """
+        )
+        if top_city:
+            lines.append(f"城池建设：{top_city['location_name']} Lv.{top_city['city_level']}，建设余劲 {top_city['build_exp']}。")
+        relic = self.db.fetch_one(
+            """
+            SELECT location_name, relic_energy, city_level
+            FROM city_world_states
+            ORDER BY relic_energy DESC
+            LIMIT 1
+            """
+        )
+        if relic and int(relic["relic_energy"]) > 0:
+            limit = 3000 + int(relic["city_level"]) * 120
+            lines.append(f"古物蓄能：{relic['location_name']} {relic['relic_energy']}/{limit}。")
+        war = self.db.fetch_one(
+            """
+            SELECT buyer_name, prep_name, prep_value, threshold, pending
+            FROM war_prep_states
+            ORDER BY pending DESC, prep_value * 1.0 / CASE WHEN threshold <= 0 THEN 1 ELSE threshold END DESC
+            LIMIT 1
+            """
+        )
+        if war and int(war["prep_value"]) > 0:
+            suffix = "，已待牵引" if int(war["pending"]) else ""
+            lines.append(f"战备风向：{war['prep_name']} {war['prep_value']}/{war['threshold']}{suffix}。")
+        return lines
 
     def _save_or_get_chronicle(self, day: str, refresh: bool = False) -> list[str]:
         """读取或保存某一天的大事记；当天会刷新，旧日保持沉淀结果。"""

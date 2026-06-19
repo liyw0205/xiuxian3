@@ -10,22 +10,24 @@ from .notifications import notification_line
 from .sql import db
 
 MAX_REPLY_BUTTONS = 15
+TARGET_REPLY_BUTTONS = 6
+MAX_PREDICTIVE_BUTTONS = 3
 DEFAULT_BUTTONS = ("指南", "状态", "修仙信息")
 CONTEXT_BUTTONS_BY_GROUP = {
     "玩家": ("签到", "探险", "探险状态", "结束探险", "休息", "结束休息", "背包", "纳戒", "武器", "装备", "源库", "宗门", "商场推荐"),
-    "背包": ("背包", "纳戒", "保险箱", "修仙物品", "特殊自动出售", "商场推荐", "探险"),
+    "背包": ("背包", "纳戒", "保险箱", "修仙物品", "自动出售", "商场推荐", "探险"),
     "纳戒": ("纳戒", "背包", "保险箱", "宝石", "洗髓", "武器", "装备", "探险"),
-    "保险箱": ("保险箱", "背包", "纳戒", "宝石", "武器", "特殊自动出售"),
+    "保险箱": ("保险箱", "背包", "纳戒", "宝石", "武器", "自动出售"),
     "修仙物品": ("背包", "纳戒", "保险箱", "宝石", "武器", "装备", "铭刻"),
     "修仙百科": ("修仙百科 武器", "修仙百科 宝石", "修仙百科 跑商", "修仙百科 首领", "修仙百科 断念杖"),
-    "源库": ("源库", "源库结息", "升级源库", "签到", "商场推荐", "特殊自动出售", "探险"),
-    "商场": ("商场推荐", "商场列表", "商场自动出售", "特殊自动出售", "跑商奖励", "跑商限制", "背包", "源库", "地图"),
+    "源库": ("源库", "源库结息", "升级源库", "签到", "商场推荐", "自动出售", "探险"),
+    "商场": ("商场推荐", "自动出售", "跑商奖励", "跑商限制", "背包", "源库", "地图"),
     "二手市场": ("二手市场", "背包", "纳戒", "武器", "源库", "商场推荐"),
-    "探险": ("探险状态", "结束探险", "探险记录", "探险列表", "背包", "纳戒", "休息", "特殊自动出售"),
+    "探险": ("探险状态", "结束探险", "探险记录", "探险列表", "背包", "纳戒", "休息", "自动出售"),
     "武器": ("武器", "武器淬锋", "纳戒", "保险箱", "装备", "铭刻", "探险", "修仙百科 武器"),
     "装备": ("装备", "孔位", "宝石", "纳戒", "武器", "源库", "探险"),
     "铭刻": ("铭刻", "铭刻之羽", "首领", "武器", "装备", "纳戒", "修仙百科 铭刻"),
-    "对战": ("状态", "修仙信息", "休息", "决斗记录", "背包", "纳戒", "特殊自动出售"),
+    "对战": ("状态", "修仙信息", "休息", "决斗记录", "背包", "纳戒", "自动出售"),
     "修仙界历史": ("风云榜", "修仙早报", "修仙界历史", "商场推荐", "首领", "虫洞"),
     "宗门": ("宗门", "宗门战", "领取宗门战奖励", "建立宗门", "加入宗门", "退出宗门", "地图", "状态", "修仙信息"),
     "首领": ("首领", "首领状态", "挑战首领", "首领奖励", "状态", "休息", "纳戒"),
@@ -34,24 +36,24 @@ CONTEXT_BUTTONS_BY_GROUP = {
 }
 PREDICTIVE_BUTTON_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("没有创建用户", "还没有创建用户", "未建档"), ("指南", "修仙帮助")),
-    (("血气不足", "精神不足", "重伤", "血气恢复", "精神恢复"), ("休息", "结束休息", "状态", "纳戒")),
-    (("探险中", "可领取探险", "结束探险", "探险还没有", "秘境冷却", "预计算"), ("探险状态", "结束探险", "状态")),
+    (("血气不足", "精神不足", "重伤", "血气恢复", "精神恢复"), ("休息", "结束休息", "状态")),
+    (("探险中", "可领取探险", "结束探险", "探险还没有", "秘境冷却", "预计算"), ("探险状态", "结束探险")),
     (("没有探险", "没有可领取探险", "探险地点", "当前位置不是探险地点"), ("探险列表", "地图", "探险")),
-    (("背包空间不足", "背包已满", "负重", "格子不足"), ("背包", "特殊自动出售", "保险箱", "商场推荐")),
-    (("纳戒", "恢复药", "自动用药", "洗髓液"), ("纳戒", "洗髓", "探险")),
-    (("源石不足", "源库", "结息", "存入源石", "取出源石"), ("源库", "源库结息", "商场推荐", "特殊自动出售")),
-    (("商场", "跑商", "行情", "特殊收购", "导航", "当前位置不是商场地点"), ("商场推荐", "商场列表", "跑商奖励", "地图")),
-    (("跑商奖励待领", "跑商奖励领取", "今日跑商奖励"), ("跑商奖励", "商场推荐", "商场列表")),
-    (("宝石", "孔位", "镶嵌", "开孔"), ("宝石", "孔位", "装备", "纳戒")),
-    (("武器", "附魔", "技能书", "传奇", "淬锋丹"), ("武器", "武器淬锋", "纳戒", "铭刻", "修仙百科 武器")),
-    (("铭刻", "铭刻之羽"), ("铭刻", "铭刻之羽", "首领")),
-    (("首领", "岁时情劫"), ("首领", "首领状态", "挑战首领", "首领奖励")),
-    (("虫洞", "异界"), ("虫洞", "虫洞状态", "挑战虫洞", "虫洞奖励")),
-    (("宗门", "宗主", "建立宗门", "影响力", "淬锋丹"), ("宗门", "宗门战", "领取宗门战奖励", "地图")),
-    (("宗门战奖励待领", "宗门战奖励"), ("领取宗门战奖励", "宗门战", "宗门")),
+    (("背包空间不足", "背包已满", "负重", "格子不足"), ("自动出售", "背包")),
+    (("纳戒", "恢复药", "自动用药", "洗髓液"), ("纳戒", "洗髓")),
+    (("源石不足", "源库", "结息", "存入源石", "取出源石"), ("源库", "源库结息")),
+    (("商场", "跑商", "行情", "导航", "当前位置不是商场"), ("商场推荐", "自动出售")),
+    (("跑商奖励待领", "跑商奖励领取", "今日跑商奖励"), ("跑商奖励", "商场推荐")),
+    (("宝石", "孔位", "镶嵌", "开孔"), ("宝石", "孔位")),
+    (("武器", "附魔", "技能书", "传奇", "淬锋丹"), ("武器", "纳戒")),
+    (("铭刻", "铭刻之羽"), ("铭刻之羽", "首领")),
+    (("首领", "岁时情劫"), ("挑战首领", "首领奖励")),
+    (("虫洞", "异界"), ("挑战虫洞", "虫洞奖励")),
+    (("宗门", "宗主", "建立宗门", "影响力", "淬锋丹"), ("宗门战", "领取宗门战奖励")),
+    (("宗门战奖励待领", "宗门战奖励"), ("领取宗门战奖励", "宗门战")),
     (("切磋", "决斗", "抢劫", "仇恨", "死敌", "报复"), ("决斗记录", "状态", "休息")),
-    (("风云榜", "早报", "人物志", "历史"), ("风云榜", "修仙早报", "修仙界历史")),
-    (("保险箱",), ("保险箱", "背包", "纳戒", "武器")),
+    (("风云榜", "早报", "人物志", "历史"), ("修仙早报", "风云榜")),
+    (("保险箱",), ("保险箱", "纳戒")),
 )
 
 
@@ -106,7 +108,7 @@ def _text_to_markdown(
         "message": markdown_message(
             content,
             _button_commands(commands, service, auto_buttons, default_buttons, body_text),
-            limit=MAX_REPLY_BUTTONS,
+            limit=_reply_button_limit(commands),
         ),
     }
 
@@ -127,7 +129,7 @@ def _prefix_markdown(
         return markdown_message(
             content,
             _button_commands(commands, service, auto_buttons, default_buttons, body_text),
-            limit=MAX_REPLY_BUTTONS,
+            limit=_reply_button_limit(commands),
         )
 
     raw_text = str(message.get("content", ""))
@@ -137,7 +139,7 @@ def _prefix_markdown(
     return markdown_message(
         content,
         _button_commands(commands, service, auto_buttons, default_buttons, body_text),
-        limit=MAX_REPLY_BUTTONS,
+        limit=_reply_button_limit(commands),
     )
 
 
@@ -199,9 +201,16 @@ def _button_commands(
 
     result: list[Any] = [*commands]
     if auto_buttons:
-        result.extend(_predict_button_commands(content))
-        result.extend(_context_button_commands(service))
-    if default_buttons:
+        predictive = _predict_button_commands(content)
+        if not result:
+            result.extend(predictive)
+            if result:
+                result.extend(_context_button_commands(service))
+        elif len(result) < 2:
+            result.extend(predictive[: 2 - len(result)])
+        if not result:
+            result.extend(_context_button_commands(service))
+    if default_buttons and not result:
         result.extend(DEFAULT_BUTTONS)
     return result
 
@@ -216,7 +225,7 @@ def _predict_button_commands(content: str) -> list[str]:
     for keywords, buttons in PREDICTIVE_BUTTON_RULES:
         if any(keyword in text for keyword in keywords):
             commands.extend(buttons)
-    return commands
+    return commands[:MAX_PREDICTIVE_BUTTONS]
 
 
 def _context_button_commands(service: Any) -> list[str]:
@@ -228,6 +237,14 @@ def _context_button_commands(service: Any) -> list[str]:
         if value:
             commands.append(value)
     return commands
+
+
+def _reply_button_limit(handwritten_commands: list[Any]) -> int:
+    """业务手写按钮保留完整入口，自动补按钮才压到目标数量。"""
+
+    if handwritten_commands:
+        return MAX_REPLY_BUTTONS
+    return min(MAX_REPLY_BUTTONS, TARGET_REPLY_BUTTONS)
 
 
 def _service_group(service: Any) -> str:

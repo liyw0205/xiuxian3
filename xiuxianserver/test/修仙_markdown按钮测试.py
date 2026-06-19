@@ -190,8 +190,19 @@ def test_reply_text_with_button_tags_to_markdown() -> None:
     assert "<探险状态>" not in payload["message"]["content"]
     rows = payload["message"]["keyboard"]["content"]["rows"]
     commands = [item["action"]["data"] for row in rows for item in row["buttons"]]
-    assert commands[:2] == ["探险状态", "结束探险"]
-    assert commands[2:5] == ["指南", "状态", "修仙信息"]
+    assert commands == ["探险状态", "结束探险"]
+
+
+def test_reply_keeps_long_handwritten_business_buttons() -> None:
+    """业务手写按钮是明确入口页，不能被自动按钮目标数误截到 6 个。"""
+
+    payload = _with_player_name(
+        "player_ws",
+        {"code": 202, "type": "text", "message": "请选择<cmd1><cmd2><cmd3><cmd4><cmd5><cmd6><cmd7><cmd8>"},
+        FakeDB(),
+    )
+    commands = _payload_commands(payload)
+    assert commands == [f"cmd{index}" for index in range(1, 9)]
 
 
 def test_reply_header_notice_line_is_second_line() -> None:
@@ -222,7 +233,7 @@ def test_reply_header_notice_keeps_handwritten_buttons() -> None:
     assert "🔴 通知：" in content
     assert "<探险状态>" not in content
     commands = _payload_commands(payload)
-    assert commands[:2] == ["探险状态", "结束探险"]
+    assert commands == ["探险状态", "结束探险"]
 
 
 def test_reply_header_notice_not_used_for_predictive_buttons() -> None:
@@ -317,8 +328,8 @@ def test_predictive_buttons_from_content() -> None:
         FakeDB(),
     )
     commands = _payload_commands(payload)
-    assert commands[:4] == ["休息", "结束休息", "状态", "纳戒"]
-    assert commands[-2:] == ["指南", "修仙信息"]
+    assert commands == ["休息", "结束休息", "状态"]
+    assert len(commands) <= 6
 
 
 def test_predictive_buttons_before_context_buttons() -> None:
@@ -331,24 +342,42 @@ def test_predictive_buttons_before_context_buttons() -> None:
         FakeExploreService(),
     )
     commands = _payload_commands(payload)
-    assert commands[:3] == ["探险状态", "结束探险", "状态"]
+    assert commands == ["探险状态", "结束探险", "探险记录", "探险列表", "背包", "纳戒"]
     assert commands.count("探险状态") == 1
-    assert "探险记录" in commands
+    assert len(commands) <= 6
 
 
 def test_command_guide_buttons() -> None:
-    """指南里的手写按钮都能转成 markdown。"""
+    """指南主入口只展示方向，具体业务入口下沉到方向页。"""
 
     message = markdown_message_from_text(help_service.command_guide())
     assert message is not None
     rows = message["keyboard"]["content"]["rows"]
     commands = [item["action"]["data"] for row in rows for item in row["buttons"]]
-    assert commands[:3] == ["地图", "背包", "纳戒"]
-    assert "探险状态" in commands
-    assert "结束探险" in commands
-    assert "宝石" in commands
-    assert "武器" in commands
-    assert commands[-1] == "修仙百科 武器"
+    assert commands == ["指南 成长", "指南 行囊", "指南 战斗", "指南 交易", "指南 世界"]
+
+    battle_message = markdown_message_from_text(help_service.command_guide("战斗"))
+    assert battle_message is not None
+    battle_commands = [
+        item["action"]["data"]
+        for row in battle_message["keyboard"]["content"]["rows"]
+        for item in row["buttons"]
+    ]
+    assert battle_commands[:4] == ["地图", "探险列表", "探险状态", "结束探险"]
+    assert "首领" in battle_commands
+    assert "虫洞奖励" in battle_commands
+    assert battle_commands[-1] == "指南"
+
+    trade_message = markdown_message_from_text(help_service.command_guide("交易"))
+    assert trade_message is not None
+    trade_commands = [
+        item["action"]["data"]
+        for row in trade_message["keyboard"]["content"]["rows"]
+        for item in row["buttons"]
+    ]
+    assert "商场推荐" in trade_commands
+    assert "自动出售" in trade_commands
+    assert "出售全部 武器" in trade_commands
 
 
 def _payload_commands(payload: dict) -> list[str]:
@@ -365,6 +394,7 @@ def main() -> None:
     test_button_tags_to_markdown()
     test_button_tags_keep_command_text()
     test_reply_text_with_button_tags_to_markdown()
+    test_reply_keeps_long_handwritten_business_buttons()
     test_reply_header_notice_line_is_second_line()
     test_reply_header_notice_keeps_handwritten_buttons()
     test_reply_header_notice_not_used_for_predictive_buttons()
