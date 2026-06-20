@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import sys
+from math import sqrt
 from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -35,6 +36,7 @@ def main() -> None:
             _check_wormhole_metadata_and_war_prep_rewards(db)
             _check_treasure_map_city_radius(db)
             _check_sect_public_battle_bonus(db)
+            _check_seasonal_boss_feather_rate(db)
         finally:
             db.close()
 
@@ -232,6 +234,16 @@ def _check_sect_public_battle_bonus(db: XiuxianDB) -> None:
         boss_module.random.random = old_random
     assert without_bonus == 1
     assert with_bonus > without_bonus
+
+
+def _check_seasonal_boss_feather_rate(db: XiuxianDB) -> None:
+    """铭刻之羽按独立概率判定，不再混进珍贵池权重。"""
+
+    boss = SeasonalBossService(db)
+    rates = boss._reward_rates("每日旧愿")
+    chance = boss._feather_chance("每日旧愿", sqrt(0.22), 2, rates, 0.0)
+    assert 0.04 < chance < 0.05
+    assert boss._roll_good_loot("每日旧愿", sqrt(0.22), 2, rates, allow_feather=False)["kind"] != "feather"
 
 
 if __name__ == "__main__":

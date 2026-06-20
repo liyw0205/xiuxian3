@@ -2063,6 +2063,7 @@ def _check_seasonal_boss(services: dict[str, object]) -> None:
     _must_contain(reward_text, "珍贵抽取")
     _must_contain(reward_text, "宗门增益：珍贵掉落")
     assert any(text in reward_text for text in ("开孔器", "洗髓液", "铭刻之羽", "宝石获得", "纳戒获得", "获得武器"))
+    assert reward_text.count("获得铭刻之羽") <= 1
 
     feather = seasonal_boss.db.fetch_one(
         "SELECT feather_id FROM inscription_feathers WHERE client_id = ? ORDER BY feather_id LIMIT 1",

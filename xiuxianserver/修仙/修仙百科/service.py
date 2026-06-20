@@ -675,11 +675,12 @@ class EncyclopediaService:
         entries: list[KnowledgeEntry] = []
         for row in self.db.fetch_all("SELECT * FROM seasonal_boss_reward_rates ORDER BY weight_type"):
             body = _join_parts(
-                f"铭刻之羽：{_percent(row.get('feather_chance'))}",
+                f"铭刻之羽基础独立概率：{_percent(row.get('feather_chance'))}",
                 f"开孔器/洗髓液：{_percent(row.get('material_chance'))}",
                 f"宝石：{_percent(row.get('gem_chance'))}",
                 f"技能书：{_percent(row.get('book_chance'))}",
                 f"武器：{_percent(row.get('weapon_chance'))}",
+                "铭刻之羽每次珍贵抽取先独立判定，同一次首领奖励最多 1 枚。",
                 str(row.get("desc", "")),
             )
             entries.append(
@@ -1048,8 +1049,8 @@ def _smart_answer_lines(query: str, entries: list[KnowledgeEntry], context: Play
     if "铭刻之羽" in query and intent == "source":
         return [
             "结论：铭刻之羽只从岁时情劫首领奖励产出，不是普通探险、虫洞、商场或回收产物。",
-            "概率从高到低大致是：高权重传统节日 10%，普通传统节日 7%，节气 5%，普通日 2.5%。",
-            "想稳定拿它，优先盯春节、元宵、端午、七夕、中秋、重阳这类高权重节日首领；平日也能出，但就是低概率惊喜。",
+            "基础独立概率从高到低大致是：高权重传统节日 10%，普通传统节日 7%，节气 5%，普通日 2.5%。",
+            "贡献、排名和宗门影响力只做小幅修正；同一次首领奖励最多获得 1 枚。",
         ]
 
     if intent == "source":
@@ -1545,7 +1546,7 @@ def _answer_conclusion(query: str, entries: list[KnowledgeEntry]) -> str:
     body = primary.body
 
     if "铭刻之羽" in query and intent == "source":
-        return "结论：铭刻之羽只从岁时情劫首领奖励产出；普通日概率最低，节气和传统节日更高，高权重传统节日最高。"
+        return "结论：铭刻之羽只从岁时情劫首领奖励产出；按首领权重独立判定，同一次首领奖励最多 1 枚。"
 
     if intent == "source":
         source = _extract_field(body, "掉落范围") or _extract_field(body, "掉落") or _extract_field(body, "坐标")

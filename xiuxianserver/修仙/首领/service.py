@@ -37,6 +37,8 @@ SEASONAL_LOW_CONTRIBUTION_FLOORS = {
     "book": 0.030,
     "weapon": 0.015,
 }
+SEASONAL_FEATHER_SCORE_BONUS = 0.018
+SEASONAL_FEATHER_CHANCE_CAP = 0.22
 
 
 @dataclass(frozen=True)
@@ -1065,7 +1067,15 @@ class SeasonalBossService(CoreService):
             ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
         for _ in range(loot_rolls):
-            reward = self._roll_good_loot(weight, contribution_score, rank, rates, location_name, influence_bonus)
+            reward = self._roll_good_loot(
+                weight,
+                contribution_score,
+                rank,
+                rates,
+                location_name,
+                influence_bonus,
+                allow_feather=feathers <= 0,
+            )
             if not reward:
                 continue
             kind = reward["kind"]
@@ -1159,23 +1169,24 @@ class SeasonalBossService(CoreService):
         rates: dict[str, float],
         location_name: str = "",
         influence_bonus: float = 0.0,
+        allow_feather: bool = True,
     ) -> dict[str, Any] | None:
         """从首领珍贵战利品池里随机一次。"""
 
         score = max(0.0, min(1.0, float(contribution_score)))
         rare_bonus_factor = 1.0 + max(0.0, min(0.08, float(influence_bonus)))
+        feather_chance = self._feather_chance(weight_type, score, rank, rates, influence_bonus)
+        if allow_feather and random.random() < feather_chance:
+            return {"kind": "feather"}
+
         weights = [
-            ("feather", (max(rates["feather_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["feather"]) + score * 0.08) * rare_bonus_factor),
             ("material", (max(rates["material_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["material"]) + score * 0.10) * rare_bonus_factor),
             ("gem", max(rates["gem_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["gem"]) + score * 0.10),
             ("book", (max(rates["book_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["book"]) + score * 0.08) * rare_bonus_factor),
             ("weapon", (max(rates["weapon_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["weapon"]) + score * 0.06) * rare_bonus_factor),
         ]
         if rank <= 3:
-            weights[0] = ("feather", weights[0][1] + rates["feather_rank_chance"])
-            weights[1] = ("material", weights[1][1] + rates["material_rank_chance"])
-        if rank == 1 and weight_type == "高权重传统节日":
-            weights[0] = ("feather", weights[0][1] + rates["feather_rank_chance"])
+            weights[0] = ("material", weights[0][1] + rates["material_rank_chance"])
 
         total = sum(max(0.0, weight) for _kind, weight in weights)
         if total <= 0:
@@ -1206,6 +1217,26 @@ class SeasonalBossService(CoreService):
             item = self.maybe_upgrade_extreme_book_item(item, location_name, 0.006)
             return {"kind": "book", "item_id": item["ring_item_id"], "name": item["name"]} if item else None
         return {"kind": "weapon", "drop": weapon_service.roll_weapon_drop()}
+
+    @staticmethod
+    def _feather_chance(
+        weight_type: str,
+        contribution_score: float,
+        rank: int,
+        rates: dict[str, float],
+        influence_bonus: float = 0.0,
+    ) -> float:
+        """铭刻之羽独立判定概率；贡献和排名只做小幅修正。"""
+
+        score = max(0.0, min(1.0, float(contribution_score)))
+        bonus_factor = 1.0 + max(0.0, min(0.08, float(influence_bonus)))
+        chance = max(rates["feather_chance"], SEASONAL_LOW_CONTRIBUTION_FLOORS["feather"])
+        chance += score * SEASONAL_FEATHER_SCORE_BONUS
+        if rank <= 3:
+            chance += rates["feather_rank_chance"]
+        if rank == 1 and weight_type == "高权重传统节日":
+            chance += rates["feather_rank_chance"]
+        return min(SEASONAL_FEATHER_CHANCE_CAP, chance * bonus_factor)
 
     def _random_equipment_item(self, category: str) -> dict[str, Any] | None:
         """随机纳戒物品，不包含开孔器。"""
