@@ -310,6 +310,17 @@ def _check_seed_data() -> None:
             _assert_no_rows(
                 conn,
                 """
+                SELECT w.weapon_def_id, w.name, w.drop_location
+                FROM weapon_defs w
+                LEFT JOIN exploration_locations e
+                  ON e.name = w.drop_location AND e.name != '太虚秘境'
+                WHERE e.name IS NULL
+                """,
+                "武器掉落地点必须是普通探险地点",
+            )
+            _assert_no_rows(
+                conn,
+                """
                 SELECT e.ring_item_id, e.name
                 FROM ring_item_defs e
                 LEFT JOIN weapon_enchants w ON w.enchant_id = json_extract(e.effect, '$.enchant_id')

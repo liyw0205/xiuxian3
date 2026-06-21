@@ -144,7 +144,7 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "宗门")
             _must_reply(manager, "player_ws", "你还没有宗门")
             await _dispatch(manager, "player_ws", "建立宗门 0 0 青云宗")
-            _must_reply(manager, "player_ws", "已有特殊地点")
+            _must_reply(manager, "player_ws", "已有 NPC 地点")
             await _dispatch(manager, "player_ws", "建立宗门 -49 -49 青云宗")
             _must_reply(manager, "player_ws", "宗门创建成功")
             _must_reply(manager, "player_ws", "山门坐标：(-49,-49)")

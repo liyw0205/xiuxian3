@@ -349,7 +349,7 @@ def _second_hand_notifications(client_id: str, database: Any, current: datetime)
 
 
 def _source_vault_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
-    """提醒源库已有可领取利息；低优先级，但避免超过 24 小时丢计息。"""
+    """源库计息达到单次 24 小时上限后再提醒结息。"""
 
     row = database.fetch_one(
         """
@@ -372,7 +372,10 @@ def _source_vault_notifications(client_id: str, database: Any, current: datetime
     if left_limit <= 0:
         return []
     last = dt(str(row_value(row, "last_settle_at", "") or "")) or current
-    hours = max(0.0, min(24.0, (current - last).total_seconds() / 3600))
+    elapsed_hours = max(0.0, (current - last).total_seconds() / 3600)
+    if elapsed_hours < 24.0:
+        return []
+    hours = min(24.0, elapsed_hours)
     reward = max(0, min(int(balance * float(conf["hour_rate"]) * hours), left_limit))
     if reward <= 0:
         return []

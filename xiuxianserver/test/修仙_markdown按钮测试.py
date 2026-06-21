@@ -68,7 +68,7 @@ class NoticeDB(FakeDB):
             return {
                 "star_level": 1,
                 "balance": 100_000,
-                "last_settle_at": ts(now() - timedelta(hours=2)),
+                "last_settle_at": ts(now() - timedelta(hours=24)),
                 "last_interest_day": None,
                 "daily_interest_claimed": 0,
             }
@@ -387,6 +387,12 @@ def test_low_priority_daily_notices_from_real_tables() -> None:
             VALUES (?, 1, 100000, ?, NULL, 0)
             """,
             ("notice_ws", ts(now() - timedelta(hours=2))),
+        )
+        assert "源库结息可领" not in notification_line("notice_ws", db, limit=10)
+
+        db.execute(
+            "UPDATE source_vaults SET last_settle_at = ? WHERE client_id = ?",
+            (ts(now() - timedelta(hours=24)), "notice_ws"),
         )
         assert "源库结息可领" in notification_line("notice_ws", db, limit=10)
 

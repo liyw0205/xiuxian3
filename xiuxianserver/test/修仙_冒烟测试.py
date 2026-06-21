@@ -594,7 +594,7 @@ def _check_sect(services: dict[str, object]) -> None:
     sect._is_member_locked = lambda value=None: False  # type: ignore[method-assign]
 
     _must_contain(sect.overview("u1"), "你还没有宗门")
-    _must_contain(sect.create("u1", "0 0 青云宗"), "已有特殊地点")
+    _must_contain(sect.create("u1", "0 0 青云宗"), "已有 NPC 地点")
     create_text = sect.create("u1", "-49 -49 青云宗")
     _must_contain(create_text, "宗门创建成功")
     _must_contain(create_text, "山门坐标：(-49,-49)")
@@ -1260,7 +1260,6 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     _must_contain(map_text, "商路城池")
     _must_contain(map_text, "本地特产")
     _must_contain(map_text, "城池 Lv.")
-    _must_not_contain(map_text, "丹霞镇")
     with explore.db.transaction() as conn:
         conn.execute(
             """
@@ -1281,8 +1280,11 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     _must_contain(location_text, "特殊秘境")
     _must_contain(location_text, "星陨墟")
     _must_contain(location_text, "太虚秘境")
+    _must_contain(location_text, "按你 **Lv.")
+    _must_not_contain(location_text, "太虚秘境 (-6,-49)｜动态映身｜推荐")
     _must_contain(location_text, "<导航 天枢城>")
-    _must_not_contain(location_text, "丹霞镇")
+    for row in explore.db.fetch_all("SELECT name FROM exploration_locations"):
+        _must_contain(location_text, str(row["name"]))
 
     _must_contain(weapon.list_weapons("u1"), "青岚短剑")
     first_weapon = weapon.db.fetch_one(

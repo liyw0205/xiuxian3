@@ -1245,7 +1245,7 @@ class TradeService(WeaponCore):
         return {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
 
     def _all_navigation_locations(self) -> list[dict]:
-        """读取全部命名世界点位，供坐标导航使用。"""
+        """读取全部 NPC 地点，供坐标导航使用。"""
 
         return [
             {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])}
@@ -1253,7 +1253,7 @@ class TradeService(WeaponCore):
         ]
 
     def _known_location_at(self, x: int, y: int) -> dict | None:
-        """读取精确坐标上的命名地点。"""
+        """读取精确坐标上的 NPC 地点。"""
 
         row = self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE x = ? AND y = ?", (x, y))
         return {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None

@@ -977,7 +977,7 @@ class WormholeService(CoreService):
         return max(0.0, min(1.0, int(damage) / max_hp))
 
     def _location_point(self, name: str) -> dict[str, Any]:
-        """把命名世界点位转成坐标。"""
+        """把 NPC 地点名称转成坐标。"""
 
         clean = name.strip()
         row = self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE name = ?", (clean,))

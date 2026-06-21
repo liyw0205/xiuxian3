@@ -375,7 +375,7 @@ class SectService(CoreService):
         occupied_location = self._world_location_by_xy(x, y)
         if occupied_location:
             return T.hint(
-                f"坐标 ({x},{y}) 已有特殊地点：{occupied_location['name']}。",
+                f"坐标 ({x},{y}) 已有 NPC 地点：{occupied_location['name']}。",
                 "换一个空坐标建立宗门。",
                 buttons=("地图", "建立宗门"),
             )
@@ -549,7 +549,7 @@ class SectService(CoreService):
         return f"{sect_name}山门"
 
     def _world_location_by_xy(self, x: int, y: int) -> dict[str, object] | None:
-        """按坐标读取已存在的特殊地点。"""
+        """按坐标读取系统占用的 NPC 地点。"""
 
         return self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE x = ? AND y = ?", (int(x), int(y)))
 

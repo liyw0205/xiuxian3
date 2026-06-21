@@ -110,9 +110,10 @@ class ExplorationService(CoreService):
     def locations(self, client_id: str) -> str:
         """查看探险地点。"""
 
-        _, error = self.require_player(client_id)
+        player, error = self.require_player(client_id)
         if error:
             return error
+        assert player is not None
         rows = self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level, name")
         panel = T.panel()
         panel.section("探险地图")
@@ -124,25 +125,55 @@ class ExplorationService(CoreService):
             if self._is_secret_realm(row["name"]):
                 continue
             specialties = self._trade_specialties_text(str(row["name"]))
-            panel.line(
+            line = (
                 f"{row['name']} ({row['x']},{row['y']})｜推荐 **Lv.{row['recommended_level']}**｜"
                 f"怪物 Lv.{row['min_level']}-{row['max_level']}｜特产：{specialties}"
             )
             state_lines = self.world_material.city_state_lines(str(row["name"]), compact=True)
             if state_lines:
-                panel.line("城池：" + " ".join(state_lines))
+                line += "｜" + self._city_state_inline_text(state_lines[:2])
+            panel.line(line)
+            for extra in state_lines[2:]:
+                panel.line(extra)
         secret_rows = [row for row in rows if self._is_secret_realm(row["name"])]
         if secret_rows:
             panel.hr()
             panel.section("特殊秘境")
             for row in secret_rows:
-                panel.line(
-                    f"{row['name']} ({row['x']},{row['y']})｜动态映身｜"
-                    f"推荐 **Lv.{row['recommended_level']}**｜{row['desc']}"
-                )
+                panel.line(self._secret_realm_map_line(row, int(player["level"])))
         buttons = [f"导航 {row['name']}" for row in rows]
         buttons.extend(["地图", "商场推荐"])
         return panel.render() + T.buttons(*buttons)
+
+    @staticmethod
+    def _city_state_inline_text(state_lines: list[str]) -> str:
+        text = "｜".join(str(line).strip().rstrip("。") for line in state_lines if str(line).strip())
+        return (
+            text.replace("，影响半径 ", "｜半径 ")
+            .replace("，建设 ", "｜建设 ")
+            .replace("民生恩赐", "民生")
+            .replace("，药路", "｜药路")
+            .replace("，神秘蓄能 ", "｜神秘 ")
+        )
+
+    @classmethod
+    def _secret_realm_map_line(cls, row: dict, player_level: int) -> str:
+        base_level = max(1, int(player_level))
+        normal_low = max(1, base_level - 5)
+        normal_high = base_level + 12
+        peak_high = base_level + 40
+        return (
+            f"{row['name']} ({row['x']},{row['y']})｜动态映身｜按你 **Lv.{base_level}** 映身｜"
+            f"常规 {cls._secret_realm_map_level_label(normal_low)}-{cls._secret_realm_map_level_label(normal_high)}｜"
+            f"上冲最高 {cls._secret_realm_map_level_label(peak_high)}｜{row['desc']}"
+        )
+
+    @staticmethod
+    def _secret_realm_map_level_label(raw_level: int) -> str:
+        level = max(1, int(raw_level))
+        if level <= MAX_LEVEL:
+            return f"Lv.{level}"
+        return f"Lv.{MAX_LEVEL}+{level - MAX_LEVEL}"
 
     def current_location(self, client_id: str) -> str:
         """查看当前位置。"""

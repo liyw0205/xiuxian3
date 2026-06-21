@@ -426,15 +426,8 @@ WORLD_TERRAINS = {
     "寒霜关": "雪原",
     "雷泽城": "雷泽",
     "碧潮岛": "海岛",
-    "丹霞镇": "丹霞",
-    "灵木寨": "森林",
-    "镜湖城": "湖泽",
-    "幽篁林": "竹林",
     "星陨墟": "遗迹",
     "太虚秘境": "秘境",
-    "玉京台": "高台",
-    "黑水渡": "渡口",
-    "百兽原": "草原",
     "镇妖司": "城镇",
     "伏魔殿": "遗迹",
     "鬼市": "阴市",
@@ -586,38 +579,38 @@ WEAPON_DEFS = (
     ("duanhai_jian", "断海剑", "碧潮岛", 33, "duanhai", "剑"),
     ("chaoxi_fuchen", "潮汐拂尘", "碧潮岛", 27, "chaoxi", "拂尘"),
     ("cangming_ji", "沧溟战戟", "碧潮岛", 36, "cangming", "戟"),
-    ("dansha_feiren", "丹砂飞刃", "丹霞镇", 21, "dansha", "飞刃"),
-    ("zhuyan_dao", "朱焰刀", "丹霞镇", 33, "zhuyan", "刀"),
-    ("luxin_fu", "炉心斧", "丹霞镇", 39, "luxin", "斧"),
-    ("chilian_wandao", "赤炼弯刀", "丹霞镇", 30, "chilian", "刀"),
-    ("qingteng_bi", "青藤匕", "灵木寨", 19, "qingteng", "匕"),
-    ("lingmu_zhang", "灵木杖", "灵木寨", 25, "lingmu", "杖"),
-    ("luming_qiang", "鹿鸣枪", "灵木寨", 34, "luming", "枪"),
-    ("guigen_dunren", "归根盾刃", "灵木寨", 27, "guigen", "盾刃"),
-    ("jinghu_xijian", "镜湖细剑", "镜湖城", 26, "jinghu", "剑"),
-    ("qingxin_ling", "清心铃", "镜湖城", 21, "qingxin", "铃"),
-    ("yingyue_pan", "映月盘", "镜湖城", 38, "yingyue", "盘"),
-    ("yuehen_bi", "月痕匕", "镜湖城", 23, "yuehen", "匕"),
-    ("youhuang_ling", "幽篁竹铃", "幽篁林", 20, "youhuang", "铃"),
-    ("mozhu_jian", "墨竹剑", "幽篁林", 28, "mozhu", "剑"),
-    ("yingye_feiren", "影叶飞刃", "幽篁林", 22, "yingye", "飞刃"),
-    ("zhupo_zhang", "竹魄杖", "幽篁林", 25, "zhupo", "杖"),
+    ("dansha_feiren", "丹砂飞刃", "赤霞港", 21, "dansha", "飞刃"),
+    ("zhuyan_dao", "朱焰刀", "赤霞港", 33, "zhuyan", "刀"),
+    ("luxin_fu", "炉心斧", "玄铁岭", 39, "luxin", "斧"),
+    ("chilian_wandao", "赤炼弯刀", "赤霞港", 30, "chilian", "刀"),
+    ("qingteng_bi", "青藤匕", "青岚坊", 19, "qingteng", "匕"),
+    ("lingmu_zhang", "灵木杖", "万药谷", 25, "lingmu", "杖"),
+    ("luming_qiang", "鹿鸣枪", "万药谷", 34, "luming", "枪"),
+    ("guigen_dunren", "归根盾刃", "雷泽城", 27, "guigen", "盾刃"),
+    ("jinghu_xijian", "镜湖细剑", "云梦泽", 26, "jinghu", "剑"),
+    ("qingxin_ling", "清心铃", "天枢城", 21, "qingxin", "铃"),
+    ("yingyue_pan", "映月盘", "碧潮岛", 38, "yingyue", "盘"),
+    ("yuehen_bi", "月痕匕", "寒霜关", 23, "yuehen", "匕"),
+    ("youhuang_ling", "幽篁竹铃", "青岚坊", 20, "youhuang", "铃"),
+    ("mozhu_jian", "墨竹剑", "青岚坊", 28, "mozhu", "剑"),
+    ("yingye_feiren", "影叶飞刃", "流沙海市", 22, "yingye", "飞刃"),
+    ("zhupo_zhang", "竹魄杖", "万药谷", 25, "zhupo", "杖"),
     ("zhuixing_nu", "追星弩", "星陨墟", 29, "zhuixing", "弩"),
     ("chuanyun_lingqiang", "穿云灵枪", "星陨墟", 37, "chuanyun", "枪"),
     ("xingluo_fachen", "星落拂尘", "星陨墟", 39, "xingluo", "拂尘"),
     ("yunxing_pan", "陨星盘", "星陨墟", 43, "yunxing", "盘"),
-    ("yujing_fujian", "玉京符剑", "玉京台", 30, "yujing", "剑"),
-    ("tianxiang_ling", "天香铃", "玉京台", 23, "tianxiang", "铃"),
-    ("jinlu_pan", "金缕天盘", "玉京台", 44, "jinlu", "盘"),
-    ("zhuxie_qiang", "诛邪枪", "玉京台", 36, "zhuxie", "枪"),
-    ("heishui_bi", "黑水匕", "黑水渡", 22, "heishui", "匕"),
-    ("duhun_deng", "渡魂灯", "黑水渡", 26, "duhun", "铃"),
-    ("wumu_dunren", "乌木盾刃", "黑水渡", 31, "wumu", "盾刃"),
-    ("chenyuan_dao", "沉渊刀", "黑水渡", 30, "chenyuan", "刀"),
-    ("langhao_feiren", "狼毫飞刃", "百兽原", 20, "langhao", "飞刃"),
-    ("shouhun_ling", "兽魂铃", "百兽原", 24, "shouhun", "铃"),
-    ("lingjiao_ji", "灵角战戟", "百兽原", 37, "lingjiao", "戟"),
-    ("guming_dunren", "骨鸣盾刃", "百兽原", 31, "guming", "盾刃"),
+    ("yujing_fujian", "玉京符剑", "天枢城", 30, "yujing", "剑"),
+    ("tianxiang_ling", "天香铃", "天枢城", 23, "tianxiang", "铃"),
+    ("jinlu_pan", "金缕天盘", "星陨墟", 44, "jinlu", "盘"),
+    ("zhuxie_qiang", "诛邪枪", "星陨墟", 36, "zhuxie", "枪"),
+    ("heishui_bi", "黑水匕", "云梦泽", 22, "heishui", "匕"),
+    ("duhun_deng", "渡魂灯", "云梦泽", 26, "duhun", "铃"),
+    ("wumu_dunren", "乌木盾刃", "碧潮岛", 31, "wumu", "盾刃"),
+    ("chenyuan_dao", "沉渊刀", "寒霜关", 30, "chenyuan", "刀"),
+    ("langhao_feiren", "狼毫飞刃", "流沙海市", 20, "langhao", "飞刃"),
+    ("shouhun_ling", "兽魂铃", "雷泽城", 24, "shouhun", "铃"),
+    ("lingjiao_ji", "灵角战戟", "玄铁岭", 37, "lingjiao", "戟"),
+    ("guming_dunren", "骨鸣盾刃", "玄铁岭", 31, "guming", "盾刃"),
 )
 
 
@@ -1675,7 +1668,7 @@ class XiuxianDB:
         self.conn.commit()
 
     def _seed_world_locations(self) -> None:
-        """写入命名世界点位；空地不入库，后续洞府/地皮按坐标稀疏占用。"""
+        """写入 NPC 地点；空地不入库，宗门、洞府和藏宝图按坐标稀疏占用。"""
 
         assert self.conn is not None
         points: dict[tuple[int, int], dict[str, Any]] = {}
@@ -2126,9 +2119,16 @@ class XiuxianDB:
             row["skill_id"]
             for row in self.conn.execute("SELECT skill_id FROM weapon_skill_defs").fetchall()
         }
+        normal_explore_names = {
+            name
+            for name, _x, _y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS
+            if name != "太虚秘境"
+        }
         for weapon_def_id, _name, _location, _attack, skill_id, _weapon_type in WEAPON_DEFS:
             if skill_id not in skill_ids:
                 missing.append(f"武器技能不存在：{weapon_def_id}/{skill_id}")
+            if _location not in normal_explore_names:
+                missing.append(f"武器掉落地点必须是普通探险地点：{weapon_def_id}/{_location}")
 
         enchant_ids = {
             row["enchant_id"]
