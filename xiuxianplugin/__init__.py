@@ -6,10 +6,12 @@ from pathlib import Path
 from nonebot import logger
 from nonebot import on_message
 from nonebot import get_driver
+from nonebot.plugin.on import on_notice
 
 try:
     from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
     from nonebot.adapters.onebot.v11 import MessageSegment as MessageSegmentOneBotV11
+    from nonebot.adapters.onebot.v11 import Bot as OneBotV11Bot
 
     ENABLE_ADAPTER_ONEBOT_V11 = True
 except ImportError:
@@ -17,16 +19,18 @@ except ImportError:
     GroupMessageEvent = None
     PrivateMessageEvent = None
     MessageSegmentOneBotV11 = None
-
     ENABLE_ADAPTER_ONEBOT_V11 = False
+    OneBotV11Bot = None
 
 try:
     from nonebot.adapters.qq.models import MessageKeyboard
     from nonebot.adapters.qq import (
         GroupAtMessageCreateEvent,
         GroupMessageCreateEvent,
-        C2CMessageCreateEvent, )
+        C2CMessageCreateEvent,
+        InteractionCreateEvent)
     from nonebot.adapters.qq import MessageSegment as MessageSegmentQQ
+    from nonebot.adapters.qq import Bot as QQBot
 
     ENABLE_ADAPTER_QQ = True
 except ImportError:
@@ -37,6 +41,8 @@ except ImportError:
     C2CMessageCreateEvent = None
     MessageSegmentQQ = None
     MessageKeyboard = None
+    InteractionCreateEvent = None
+    QQBot = None
 
 from .api import client
 
@@ -70,11 +76,28 @@ if not ENABLE_ADAPTER_ONEBOT_V11 and ENABLE_ADAPTER_QQ:
 
 # 捕获所有消息事件
 repeater = on_message(priority=1, block=False)
+# 捕获所有消息事件
+notice_repeater = on_notice(priority=1, block=False)
 
-
+@notice_repeater.handle()
 @repeater.handle()
 async def _(
-        event: GroupMessageEvent | PrivateMessageEvent | GroupAtMessageCreateEvent | C2CMessageCreateEvent | GroupMessageCreateEvent):
+        event: GroupMessageEvent
+               | PrivateMessageEvent
+               | GroupAtMessageCreateEvent
+               | C2CMessageCreateEvent
+               | GroupMessageCreateEvent
+               | InteractionCreateEvent, bot: QQBot | OneBotV11Bot):
+    # 处理按钮回调消息
+    if ENABLE_ADAPTER_QQ and isinstance(event, InteractionCreateEvent):
+        if event.chat_type != 1 or ((str(event.group_openid) in XiuXianGroup) ^ ReverseXiuXianGroup):
+            try:
+                bot.put_interaction(interaction_id=event.data.resolved.button_id, code=0)
+                reply = await client.send(event.get_user_id(), event.data.resolved.button_data)
+                await handle_ws_reply_qq(reply, repeater)
+            except Exception as e:
+                logger.opt(exception=e).debug(f"处理来自adapter qq的按钮回调消息(类型：{event.chat_type})时出现错误")
+                pass
     # 处理群消息
     if ENABLE_ADAPTER_ONEBOT_V11 and isinstance(event, GroupMessageEvent):
         if (str(event.group_id) in XiuXianGroup) ^ ReverseXiuXianGroup:
