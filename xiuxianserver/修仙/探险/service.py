@@ -1310,7 +1310,7 @@ class ExplorationService(CoreService):
     def _scale_secret_realm_exp(event: dict) -> None:
         """太虚秘境只给少量经验。"""
 
-        exp = max(1, int(int(event.get("exp", 0)) * SECRET_REALM_EXP_RATE))
+        exp = max(1, int(int(event.get("exp", 0)) * SECRET_REALM_EXP_RATE)) if event.get("win") else 0
         event["exp"] = exp
         summary = str(event.get("summary") or "")
         if "经验+" in summary:

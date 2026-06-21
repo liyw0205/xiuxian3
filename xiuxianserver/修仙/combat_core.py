@@ -52,7 +52,7 @@ class CombatCore(CoreService):
         actions = self._run_action_bar_combat(player_state, enemy_state, self.PLAYER_ACTION_LIMIT)
         win = player_state["hp"] > 0 and enemy_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
-        exp = monster_exp(monster["level"], 1.0 if win else 0.25, player["level"])
+        exp = monster_exp(monster["level"], 1.0, player["level"]) if win else 0
         weapon_exp = self._weapon_exp_from_player_enemy_actions(actions, player_state, enemy_state) if weapon else 0
         summary = (
             f"遭遇 {monster['name']}，行动 {len(actions)} 次，"
@@ -201,7 +201,7 @@ class CombatCore(CoreService):
 
         win = player_state["hp"] > 0 and opponent_state["hp"] <= 0
         mp_left = 0 if player_state["hp"] <= 0 else max(0, int(player_state["mp"]))
-        exp = monster_exp(int(opponent["level"]), 1.0 if win else 0.25, player["level"])
+        exp = monster_exp(int(opponent["level"]), 1.0, player["level"]) if win else 0
         weapon_exp = (
             self._weapon_exp_from_player_enemy_actions(actions, player_state, opponent_state, battle_factor=1.1)
             if weapon

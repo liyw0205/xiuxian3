@@ -775,6 +775,8 @@ def _check_battle_loss_mp(services: dict[str, object]) -> None:
     )
     assert result["hp_left"] == 0
     assert result["mp_left"] == 0
+    assert result["exp"] == 0
+    assert "经验+0" in result["summary"]
     combat.db.execute(
         "UPDATE players SET hp = max_hp, mp = max_mp WHERE client_id = ?",
         ("u1",),
