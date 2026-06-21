@@ -6,6 +6,7 @@ from pathlib import Path
 from nonebot import logger
 from nonebot import on_message
 from nonebot import get_driver
+from nonebot.exception import FinishedException
 from nonebot.plugin.on import on_notice
 
 try:
@@ -90,6 +91,8 @@ async def _(
             reply = await client.send(event.get_user_id(), event.data.resolved.button_data)
             await handle_ws_reply_qq(reply, repeater)
         except Exception as e:
+            if isinstance(e, FinishedException):
+                return
             logger.opt(exception=e).debug(f"处理来自adapter qq的按钮回调消息(类型：{event.chat_type})时出现错误")
 
 
@@ -107,6 +110,8 @@ async def _(
                 reply = await client.send(event.get_user_id(), event.get_message())
                 await handle_ws_reply_onebot_v11(reply, repeater)
             except Exception as e:
+                if isinstance(e, FinishedException):
+                    return
                 logger.opt(exception=e).debug("处理来自onebot v11的群消息时出现错误")
                 pass
     # 处理来自官方机器人的群消息
@@ -116,6 +121,8 @@ async def _(
                 reply = await client.send(event.get_user_id(), event.get_message())
                 await handle_ws_reply_qq(reply, repeater)
             except Exception as e:
+                if isinstance(e, FinishedException):
+                    return
                 logger.opt(exception=e).debug("处理来自官方机器人的群消息时出现错误")
                 pass
 
@@ -125,6 +132,8 @@ async def _(
             reply = await client.send(event.get_user_id(), event.get_message())
             await handle_ws_reply_onebot_v11(reply, repeater)
         except Exception as e:
+            if isinstance(e, FinishedException):
+                return
             logger.opt(exception=e).debug("处理来自官方机器人的私聊消息时出现错误")
             pass
     # 处理来自官方机器人的私聊消息
@@ -133,6 +142,8 @@ async def _(
             reply = await client.send(event.get_user_id(), event.get_message())
             await handle_ws_reply_qq(reply, repeater)
         except Exception as e:
+            if isinstance(e, FinishedException):
+                return
             logger.opt(exception=e).debug("处理来自onebot v11的私聊消息时出现错误")
             pass
 
