@@ -6,41 +6,57 @@ from pathlib import Path
 from nonebot import logger
 from nonebot import on_message
 from nonebot import get_driver
+from nonebot.exception import FinishedException
+from nonebot.plugin.on import on_notice
 
+driver = get_driver()
+AUTO_ADAPTER_USE = ['adapter-onebot-v11', 'adapter-qq']
+
+ENABLE_ADAPTER_ONEBOT_V11 = False
 try:
     from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
     from nonebot.adapters.onebot.v11 import MessageSegment as MessageSegmentOneBotV11
+    from nonebot.adapters.onebot.v11 import Bot as OneBotV11Bot
+    from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 
-    ENABLE_ADAPTER_ONEBOT_V11 = True
+    if 'adapter-onebot-v11' in AUTO_ADAPTER_USE:
+        driver.register_adapter(OneBotV11Adapter)
+        ENABLE_ADAPTER_ONEBOT_V11 = True
 except ImportError:
     logger.warning("没有成功加载OneBot V11机器人适配器，尝试前往安装nonebot-adapter-onebot")
     GroupMessageEvent = None
     PrivateMessageEvent = None
     MessageSegmentOneBotV11 = None
+    OneBotV11Bot = None
+    OneBotV11Adapter = None
 
-    ENABLE_ADAPTER_ONEBOT_V11 = False
-
+ENABLE_ADAPTER_QQ = False
 try:
     from nonebot.adapters.qq.models import MessageKeyboard
     from nonebot.adapters.qq import (
         GroupAtMessageCreateEvent,
         GroupMessageCreateEvent,
-        C2CMessageCreateEvent, )
+        C2CMessageCreateEvent,
+        InteractionCreateEvent)
     from nonebot.adapters.qq import MessageSegment as MessageSegmentQQ
+    from nonebot.adapters.qq import Bot as QQBot
+    from nonebot.adapters.qq import Adapter as QQAdapter
 
-    ENABLE_ADAPTER_QQ = True
+    if 'adapter-qq' in AUTO_ADAPTER_USE:
+        driver.register_adapter(QQAdapter)
+        ENABLE_ADAPTER_QQ = True
 except ImportError:
     logger.warning("没有成功加载QQ官方机器人适配器，尝试前往安装nonebot-adapter-qq")
-    ENABLE_ADAPTER_QQ = False
     GroupAtMessageCreateEvent = None
     GroupMessageCreateEvent = None
     C2CMessageCreateEvent = None
     MessageSegmentQQ = None
     MessageKeyboard = None
+    InteractionCreateEvent = None
+    QQBot = None
+    QQAdapter = None
 
 from .api import client
-
-driver = get_driver()
 
 
 @driver.on_shutdown
@@ -70,11 +86,32 @@ if not ENABLE_ADAPTER_ONEBOT_V11 and ENABLE_ADAPTER_QQ:
 
 # 捕获所有消息事件
 repeater = on_message(priority=1, block=False)
+# 捕获所有消息事件
+notice_repeater = on_notice(priority=1, block=False)
+
+
+@notice_repeater.handle()
+async def _(
+        event: InteractionCreateEvent, bot: QQBot | OneBotV11Bot):
+    # 处理按钮回调消息
+    if event.chat_type != 1 or ((str(event.group_openid) in XiuXianGroup) ^ ReverseXiuXianGroup):
+        try:
+            await bot.put_interaction(interaction_id=event.id, code=0)
+            reply = await client.send(event.get_user_id(), event.data.resolved.button_data)
+            await handle_ws_reply_qq(reply, repeater)
+        except Exception as e:
+            if isinstance(e, FinishedException):
+                return
+            logger.opt(exception=e).debug(f"处理来自adapter qq的按钮回调消息(类型：{event.chat_type})时出现错误")
 
 
 @repeater.handle()
 async def _(
-        event: GroupMessageEvent | PrivateMessageEvent | GroupAtMessageCreateEvent | C2CMessageCreateEvent | GroupMessageCreateEvent):
+        event: GroupMessageEvent
+               | PrivateMessageEvent
+               | GroupAtMessageCreateEvent
+               | C2CMessageCreateEvent
+               | GroupMessageCreateEvent):
     # 处理群消息
     if ENABLE_ADAPTER_ONEBOT_V11 and isinstance(event, GroupMessageEvent):
         if (str(event.group_id) in XiuXianGroup) ^ ReverseXiuXianGroup:
@@ -82,6 +119,8 @@ async def _(
                 reply = await client.send(event.get_user_id(), event.get_message())
                 await handle_ws_reply_onebot_v11(reply, repeater)
             except Exception as e:
+                if isinstance(e, FinishedException):
+                    return
                 logger.opt(exception=e).debug("处理来自onebot v11的群消息时出现错误")
                 pass
     # 处理来自官方机器人的群消息
@@ -91,6 +130,8 @@ async def _(
                 reply = await client.send(event.get_user_id(), event.get_message())
                 await handle_ws_reply_qq(reply, repeater)
             except Exception as e:
+                if isinstance(e, FinishedException):
+                    return
                 logger.opt(exception=e).debug("处理来自官方机器人的群消息时出现错误")
                 pass
 
@@ -100,6 +141,8 @@ async def _(
             reply = await client.send(event.get_user_id(), event.get_message())
             await handle_ws_reply_onebot_v11(reply, repeater)
         except Exception as e:
+            if isinstance(e, FinishedException):
+                return
             logger.opt(exception=e).debug("处理来自官方机器人的私聊消息时出现错误")
             pass
     # 处理来自官方机器人的私聊消息
@@ -108,6 +151,8 @@ async def _(
             reply = await client.send(event.get_user_id(), event.get_message())
             await handle_ws_reply_qq(reply, repeater)
         except Exception as e:
+            if isinstance(e, FinishedException):
+                return
             logger.opt(exception=e).debug("处理来自onebot v11的私聊消息时出现错误")
             pass
 
