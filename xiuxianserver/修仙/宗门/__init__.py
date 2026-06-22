@@ -16,6 +16,13 @@ async def ws_sect_overview(client_id: str, message: str) -> None:
     await send_reply(client_id, service.overview(client_id), ws_manager, service)
 
 
+@WsMessageHandler.handler(cmd="宗门成员", priority=100, block=True)
+async def ws_sect_members(client_id: str, message: str) -> None:
+    """查看宗门成员名册。"""
+
+    await send_reply(client_id, service.members(client_id, message), ws_manager, service)
+
+
 @WsMessageHandler.handler(cmd="建立宗门", priority=100, block=True)
 async def ws_create_sect(client_id: str, message: str) -> None:
     """建立宗门。"""

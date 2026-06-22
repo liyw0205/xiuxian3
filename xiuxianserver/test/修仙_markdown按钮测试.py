@@ -12,12 +12,28 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from 修仙.format_text import T
-from 修仙.markdown_utils import MarkdownKeyboard, button, markdown_message_from_text
+from 修仙.markdown_utils import MarkdownKeyboard, button, inline_command_link, markdown_message_from_text
 from 修仙.common import business_day, dump_json, now, ts
 from 修仙.notifications import notification_line, system_message_line
 from 修仙.sql import XiuxianDB
 from 修仙.修仙帮助.service import service as help_service
 from 修仙.reply import _with_player_name
+
+
+def _link(label: str, command: str) -> str:
+    return inline_command_link(label, command)
+
+
+def test_inline_command_link_is_auto_send() -> None:
+    """无框命令链接用于通知栏，点击后自动发送命令。"""
+
+    assert _link("状态", "状态") == (
+        "[状态](mqqapi://aio/inlinecmd?command=%E7%8A%B6%E6%80%81&enter=true&reply=false)"
+    )
+    assert _link("领取宗门战奖励", "领取宗门战奖励") == (
+        "[领取宗门战奖励]"
+        "(mqqapi://aio/inlinecmd?command=%E9%A2%86%E5%8F%96%E5%AE%97%E9%97%A8%E6%88%98%E5%A5%96%E5%8A%B1&enter=true&reply=false)"
+    )
 
 
 class FakeDB:
@@ -130,6 +146,19 @@ class SystemQueueDB(FakeDB):
                 "expires_at": ts(now() + timedelta(hours=5)),
             }
         return None
+
+
+class NormalWormholeDB(SystemQueueDB):
+    """普通虫洞系统消息展示地点，Boss 名留给详情页。"""
+
+    def fetch_one(self, sql: str, params=(), *_args, **_kwargs) -> dict | None:
+        if "FROM wormholes" in sql:
+            return {
+                "boss_name": "陨炉泰坦",
+                "location_name": "玄铁岭",
+                "result": "{}",
+            }
+        return super().fetch_one(sql, params)
 
 
 def _real_notice_db() -> XiuxianDB:
@@ -268,7 +297,13 @@ def test_reply_header_notice_line_is_second_line() -> None:
     )
     lines = _payload_lines(payload)
     assert lines[0] == "【青衫客·试剑人 Lv.19】"
-    assert lines[1] == "🔴 通知：休息可结束｜探险可结束｜首领奖励待领"
+    assert lines[1] == "🔴 通知：" + "｜".join(
+        [
+            _link("结束休息", "结束休息"),
+            _link("结束探险", "结束探险"),
+            _link("首领奖励", "首领奖励"),
+        ]
+    )
     assert lines[2] == "正文"
     assert "虫洞奖励待领" not in lines[1]
     assert "对战请求待处理" not in lines[1]
@@ -307,8 +342,8 @@ def test_reply_header_system_line_before_personal_notice() -> None:
         )
         lines = _payload_lines(payload)
         assert lines[0] == "【听雪客·无 Lv.12】"
-        assert lines[1] == "🔴 系统：战备虫洞：破军营@青岚坊"
-        assert lines[2] == "🔴 通知：重伤待休息"
+        assert lines[1] == "🔴 系统：" + _link("战备虫洞·青岚坊", "虫洞状态")
+        assert lines[2] == "🔴 通知：" + _link("重伤休息", "休息")
         assert lines[3] == "查看状态"
     finally:
         _close_real_notice_db(db)
@@ -318,11 +353,31 @@ def test_system_message_queue_limit_and_backfill() -> None:
     """系统消息按优先级排队，只展示队首三条；队首消失后后续补上。"""
 
     line = system_message_line(SystemQueueDB(), limit=3)
-    assert line == "🔴 系统：战备虫洞：破军营@破军营｜岁时情劫：旧约·折梅人｜天枢城藏宝图将结"
+    assert line == "🔴 系统：" + "｜".join(
+        [
+            _link("战备虫洞·破军营", "虫洞状态"),
+            _link("岁时情劫·折梅人", "挑战首领"),
+            _link("天枢城·藏宝图将结", "藏宝图"),
+        ]
+    )
     assert "青岚坊藏宝图散落" not in line
 
     backfilled = system_message_line(SystemQueueDB(include_wormhole=False), limit=3)
-    assert backfilled == "🔴 系统：岁时情劫：旧约·折梅人｜天枢城藏宝图将结｜青岚坊藏宝图散落(3,-2)"
+    assert backfilled == "🔴 系统：" + "｜".join(
+        [
+            _link("岁时情劫·折梅人", "挑战首领"),
+            _link("天枢城·藏宝图将结", "藏宝图"),
+            _link("青岚坊·藏宝图(3,-2)", "导航 3 -2"),
+        ]
+    )
+
+
+def test_normal_wormhole_system_label_uses_location() -> None:
+    """普通虫洞系统消息展示地点，不在消息头铺 Boss 名。"""
+
+    line = system_message_line(NormalWormholeDB(), limit=1)
+    assert line == "🔴 系统：" + _link("异界虫洞·玄铁岭", "虫洞状态")
+    assert "陨炉泰坦" not in line
 
 
 def test_boss_system_message_hidden_until_client_cooldown_ready() -> None:
@@ -370,7 +425,7 @@ def test_boss_system_message_hidden_until_client_cooldown_ready() -> None:
             {"code": 202, "type": "text", "message": "正文"},
             db,
         )
-        assert "🔴 系统：岁时情劫" not in _payload_content(cooldown_payload)
+        assert "岁时情劫：在退潮后等船的人·沙洲望潮客" not in _payload_content(cooldown_payload)
 
         db.execute(
             """
@@ -385,7 +440,7 @@ def test_boss_system_message_hidden_until_client_cooldown_ready() -> None:
             {"code": 202, "type": "text", "message": "正文"},
             db,
         )
-        assert "🔴 系统：岁时情劫：在退潮后等船的人·沙洲望潮客" in _payload_content(ready_payload)
+        assert _link("岁时情劫·沙洲望潮客", "挑战首领") in _payload_content(ready_payload)
     finally:
         _close_real_notice_db(db)
 
@@ -421,9 +476,9 @@ def test_daily_sign_notice_is_low_priority() -> None:
     """低优先级日常会进个人通知，但不能挤掉更急的三条队首。"""
 
     full_line = notification_line("player_ws", NoticeDB(), limit=10)
-    assert "源库结息可领" in full_line
-    assert "新手礼包待领" in full_line
-    assert "今日签到待领" in full_line
+    assert _link("源库结息", "源库结息") in full_line
+    assert _link("新手礼包", "新手礼包") in full_line
+    assert _link("今日签到", "签到") in full_line
 
     limited_payload = _with_player_name(
         "player_ws",
@@ -431,8 +486,14 @@ def test_daily_sign_notice_is_low_priority() -> None:
         NoticeDB(),
     )
     lines = _payload_lines(limited_payload)
-    assert lines[1] == "🔴 通知：休息可结束｜探险可结束｜首领奖励待领"
-    assert "今日签到待领" not in lines[1]
+    assert lines[1] == "🔴 通知：" + "｜".join(
+        [
+            _link("结束休息", "结束休息"),
+            _link("结束探险", "结束探险"),
+            _link("首领奖励", "首领奖励"),
+        ]
+    )
+    assert "今日签到" not in lines[1]
 
 
 def test_expired_boss_reward_notice_closes_lazily_from_header() -> None:
@@ -480,7 +541,7 @@ def test_expired_boss_reward_notice_closes_lazily_from_header() -> None:
         )
 
         line = notification_line("notice_ws", db, limit=10)
-        assert "首领奖励待领" in line
+        assert _link("首领奖励", "首领奖励") in line
         event = db.fetch_one("SELECT status, result FROM seasonal_boss_events WHERE event_id = ?", (event_id,))
         assert event is not None
         assert event["status"] == "已退去"
@@ -496,9 +557,9 @@ def test_low_priority_daily_notices_from_real_tables() -> None:
     try:
         _seed_notice_player(db)
         line = notification_line("notice_ws", db, limit=10)
-        assert "今日签到待领" not in line
-        assert "新手礼包待领" in line
-        assert "源库结息可领" not in line
+        assert "今日签到" not in line
+        assert _link("新手礼包", "新手礼包") in line
+        assert "源库结息" not in line
 
         db.execute(
             """
@@ -508,19 +569,19 @@ def test_low_priority_daily_notices_from_real_tables() -> None:
             """,
             ("notice_ws", ts(now() - timedelta(hours=2))),
         )
-        assert "源库结息可领" not in notification_line("notice_ws", db, limit=10)
+        assert "源库结息" not in notification_line("notice_ws", db, limit=10)
 
         db.execute(
             "UPDATE source_vaults SET last_settle_at = ? WHERE client_id = ?",
             (ts(now() - timedelta(hours=24)), "notice_ws"),
         )
-        assert "源库结息可领" in notification_line("notice_ws", db, limit=10)
+        assert _link("源库结息", "源库结息") in notification_line("notice_ws", db, limit=10)
 
         db.execute("UPDATE players SET newbie_claimed = 1 WHERE client_id = ?", ("notice_ws",))
-        assert "新手礼包待领" not in notification_line("notice_ws", db, limit=10)
+        assert "新手礼包" not in notification_line("notice_ws", db, limit=10)
 
         db.execute("UPDATE players SET last_sign_date = ? WHERE client_id = ?", ("2000-01-01", "notice_ws"))
-        assert "今日签到待领" in notification_line("notice_ws", db, limit=10)
+        assert _link("今日签到", "签到") in notification_line("notice_ws", db, limit=10)
     finally:
         _close_real_notice_db(db)
 
@@ -573,7 +634,13 @@ def test_reply_header_notice_from_real_tables() -> None:
         )
         lines = _payload_lines(payload)
         assert lines[0] == "【听雪客·无 Lv.12】"
-        assert lines[1] == "🔴 通知：重伤待休息｜探险可结束｜对战请求待处理"
+        assert lines[1] == "🔴 通知：" + "｜".join(
+            [
+                _link("重伤休息", "休息"),
+                _link("结束探险", "结束探险"),
+                _link("对战请求", "决斗记录"),
+            ]
+        )
         assert lines[2] == "查看状态"
     finally:
         _close_real_notice_db(db)

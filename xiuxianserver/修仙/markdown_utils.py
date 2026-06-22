@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 import re
 from typing import Any, Literal, TypedDict
+from urllib.parse import quote
 
 
 MAX_BUTTONS = 25
@@ -27,6 +28,7 @@ BUTTON_LABEL_EXACT_ALIASES = {
     "出售全部 宝石": "卖宝石",
     "出售全部 技能书": "卖技能书",
     "源库结息": "源库结息",
+    "宗门成员": "成员",
     "修仙早报": "早报",
     "修仙界历史": "历史",
     "人物史榜": "人物史",
@@ -35,7 +37,6 @@ BUTTON_LABEL_EXACT_ALIASES = {
     "战斗名局": "名局",
     "商路奇闻": "奇闻",
     "异界虫洞录": "虫洞录",
-    "铭刻之羽": "铭刻羽",
     "二手市场": "二手市场",
 }
 ButtonCommand = str | dict[str, Any]
@@ -100,6 +101,19 @@ def button(
         "action": action,
         "group_id": choice_group_id,
     }
+
+
+def inline_command_link(label: str, command: str, *, enter: bool = True, reply: bool = False) -> str:
+    """生成 QQ Markdown 无框命令链接，用于短通知里的点击即发送。"""
+
+    label_value = _markdown_link_label(str(label).strip())
+    command_value = str(command).strip()
+    if not label_value or not command_value:
+        return label_value
+    enter_text = "true" if enter else "false"
+    reply_text = "true" if reply else "false"
+    encoded_command = quote(command_value, safe="")
+    return f"[{label_value}](mqqapi://aio/inlinecmd?command={encoded_command}&enter={enter_text}&reply={reply_text})"
 
 
 def buttons_from_commands(commands: list[ButtonCommand], limit: int = MAX_BUTTONS) -> list[list[dict]]:
@@ -241,6 +255,12 @@ def _clean_button_tag_content(text: str) -> str:
     content = re.sub(r"[ \t]+\n", "\n", content)
     content = re.sub(r"\n[ \t]+", "\n", content)
     return content.strip()
+
+
+def _markdown_link_label(text: str) -> str:
+    """转义通知链接展示文本里的 Markdown 链接边界字符。"""
+
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
 def _set_buttons_id(button_row: list[dict] | None, storage_dict: dict[str, int]) -> list[dict] | None:

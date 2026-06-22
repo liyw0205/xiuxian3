@@ -791,7 +791,7 @@ class SeasonalBossService(CoreService):
 
             lines = [
                 f"岁时情劫奖励：{event['boss_name']}",
-                f"结果：{event['status']}｜贡献：{reward['contribution']:.1%}，排名：{reward['rank']}",
+                f"结果：{event['status']}｜你为本次旧愿留下 {reward['contribution']:.1%} 伤痕，位列第{reward['rank']}",
                 f"首领权重：{event['weight_type']}｜珍贵抽取：{reward.get('loot_rolls', 1)} 次",
                 f"宗门增益：珍贵掉落 +{float(reward.get('influence_bonus') or 0.0):.1%}",
                 f"源石+{money(reward['stones'])}，经验+{reward['exp']}",

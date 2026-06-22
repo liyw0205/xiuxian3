@@ -17,6 +17,7 @@ from .constants import (
     SEASONAL_BOSS_MAX_CHALLENGES,
     TRADE_ACTIVE_WINDOW_DAYS,
 )
+from .markdown_utils import inline_command_link
 from .rules import trade_daily_reward_thresholds, trade_global_soft_line, trade_player_soft_line
 from .sect_war import sect_war_in_battle_window, sect_war_in_reward_claim_window, sect_war_is_member_locked
 
@@ -33,6 +34,8 @@ class Notification:
     key: str
     text: str
     priority: int
+    command: str = ""
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,8 @@ class SystemMessage:
     key: str
     text: str
     priority: int
+    command: str = ""
+    label: str = ""
 
 
 def system_message_line(database: Any, limit: int = DEFAULT_SYSTEM_NOTICE_LIMIT, client_id: str | None = None) -> str:
@@ -54,7 +59,7 @@ def system_message_line(database: Any, limit: int = DEFAULT_SYSTEM_NOTICE_LIMIT,
     if not messages:
         return ""
     ordered = sorted(messages, key=lambda item: item.priority)
-    texts = [item.text for item in ordered[: max(1, int(limit))]]
+    texts = [_notice_text(item) for item in ordered[: max(1, int(limit))]]
     return f"{SYSTEM_NOTICE_PREFIX}{'｜'.join(texts)}"
 
 
@@ -85,7 +90,7 @@ def notification_line(client_id: str, database: Any, limit: int = DEFAULT_NOTICE
     if not notifications:
         return ""
     ordered = sorted(notifications, key=lambda item: item.priority)
-    texts = [item.text for item in ordered[: max(1, int(limit))]]
+    texts = [_notice_text(item) for item in ordered[: max(1, int(limit))]]
     return f"{NOTICE_PREFIX}{'｜'.join(texts)}"
 
 
@@ -128,11 +133,11 @@ def _player_state_notifications(client_id: str, database: Any, current: datetime
     hp = int(row_value(row, "hp", 0) or 0)
     mp = int(row_value(row, "mp", 0) or 0)
     if status != "休息中" and (hp <= 0 or mp <= 0):
-        result.append(Notification("critical_state", "重伤待休息", 10))
+        result.append(Notification("critical_state", "重伤待休息", 10, "休息", "重伤休息"))
 
     if status == "休息中":
         if _rest_ready(row, current):
-            result.append(Notification("rest_ready", "休息可结束", 20))
+            result.append(Notification("rest_ready", "休息可结束", 20, "结束休息", "结束休息"))
     return result
 
 
@@ -151,17 +156,19 @@ def _exploration_notifications(client_id: str, database: Any, current: datetime)
         return []
     ready_at = _effective_exploration_ready_at(row)
     if ready_at and current >= ready_at:
-        return [Notification("exploration_ready", "探险可结束", 30)]
+        return [Notification("exploration_ready", "探险可结束", 30, "结束探险", "结束探险")]
     return []
 
 
 def _reward_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
     _close_expired_seasonal_boss_events(database, current)
-    checks: tuple[tuple[str, str, int, str, tuple[Any, ...]], ...] = (
+    checks: tuple[tuple[str, str, int, str, str, str, tuple[Any, ...]], ...] = (
         (
             "boss_reward",
             "首领奖励待领",
             40,
+            "首领奖励",
+            "首领奖励",
             """
             SELECT 1
             FROM seasonal_boss_events AS e
@@ -177,6 +184,8 @@ def _reward_notifications(client_id: str, database: Any, current: datetime) -> l
             "wormhole_reward",
             "虫洞奖励待领",
             50,
+            "虫洞奖励",
+            "虫洞奖励",
             """
             SELECT 1
             FROM wormholes AS w
@@ -190,8 +199,8 @@ def _reward_notifications(client_id: str, database: Any, current: datetime) -> l
         ),
     )
     result = [
-        Notification(key, text, priority)
-        for key, text, priority, sql, params in checks
+        Notification(key, text, priority, command, label)
+        for key, text, priority, command, label, sql, params in checks
         if database.fetch_one(sql, params)
     ]
 
@@ -205,9 +214,9 @@ def _reward_notifications(client_id: str, database: Any, current: datetime) -> l
         (client_id,),
     )
     if pending_sect_reward:
-        result.append(Notification("sect_war_reward", "宗门战奖励待领", 60))
+        result.append(Notification("sect_war_reward", "宗门战奖励待领", 60, "领取宗门战奖励", "宗门战奖励"))
     if _trade_reward_ready(client_id, database, current):
-        result.append(Notification("trade_reward", "跑商奖励待领", 65))
+        result.append(Notification("trade_reward", "跑商奖励待领", 65, "跑商奖励", "跑商奖励"))
     return result
 
 
@@ -290,7 +299,7 @@ def _duel_request_notifications(client_id: str, database: Any, current: datetime
         (client_id, _ts(current)),
     )
     if row:
-        return [Notification("duel_request", "对战请求待处理", 70)]
+        return [Notification("duel_request", "对战请求待处理", 70, "决斗记录", "对战请求")]
     return []
 
 
@@ -308,7 +317,7 @@ def _world_material_notifications(client_id: str, database: Any, current: dateti
         (client_id,),
     )
     if sect_map:
-        result.append(Notification("treasure_map_claim", "藏宝图待领", 55))
+        result.append(Notification("treasure_map_claim", "藏宝图待领", 55, "领取藏宝图", "领取藏宝图"))
 
     auction = database.fetch_one(
         """
@@ -324,7 +333,7 @@ def _world_material_notifications(client_id: str, database: Any, current: dateti
     if auction:
         expires_at = dt(str(row_value(auction, "expires_at", "") or ""))
         if expires_at and expires_at - current <= timedelta(hours=2):
-            result.append(Notification("treasure_map_auction", "藏宝图竞拍将结", 75))
+            result.append(Notification("treasure_map_auction", "藏宝图竞拍将结", 75, "藏宝图", "藏宝图竞拍"))
 
     return result
 
@@ -349,7 +358,7 @@ def _second_hand_notifications(client_id: str, database: Any, current: datetime)
         return []
     gain = max(0, int(row_value(row, "total_price", 0) or 0) - int(row_value(row, "fee", 0) or 0))
     buyer = str(row_value(row, "buyer_name", "某位道友") or "某位道友")
-    return [Notification("second_hand_sale", f"二手成交到账：{buyer}付来{money(gain)}", 90)]
+    return [Notification("second_hand_sale", f"二手成交到账：{buyer}付来{money(gain)}", 90, "二手市场", f"二手到账+{money(gain)}")]
 
 
 def _source_vault_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
@@ -383,7 +392,7 @@ def _source_vault_notifications(client_id: str, database: Any, current: datetime
     reward = max(0, min(int(balance * float(conf["hour_rate"]) * hours), left_limit))
     if reward <= 0:
         return []
-    return [Notification("source_vault_interest", "源库结息可领", 85)]
+    return [Notification("source_vault_interest", "源库结息可领", 85, "源库结息", "源库结息")]
 
 
 def _newbie_gift_notifications(client_id: str, database: Any) -> list[Notification]:
@@ -399,7 +408,7 @@ def _newbie_gift_notifications(client_id: str, database: Any) -> list[Notificati
     )
     if not row or int(row_value(row, "newbie_claimed", 0) or 0):
         return []
-    return [Notification("newbie_gift", "新手礼包待领", 95)]
+    return [Notification("newbie_gift", "新手礼包待领", 95, "新手礼包", "新手礼包")]
 
 
 def _daily_sign_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
@@ -417,7 +426,7 @@ def _daily_sign_notifications(client_id: str, database: Any, current: datetime) 
         return []
     if str(row_value(row, "last_sign_date", "") or "") == business_day(current):
         return []
-    return [Notification("daily_sign", "今日签到待领", 100)]
+    return [Notification("daily_sign", "今日签到待领", 100, "签到", "今日签到")]
 
 
 def _sect_war_system_messages(database: Any, current: datetime) -> list[SystemMessage]:
@@ -425,11 +434,11 @@ def _sect_war_system_messages(database: Any, current: datetime) -> list[SystemMe
         return []
     result: list[SystemMessage] = []
     if sect_war_in_reward_claim_window(current):
-        result.append(SystemMessage("sect_war_reward_day", "宗门战领取日", 20))
+        result.append(SystemMessage("sect_war_reward_day", "宗门战领取日", 20, "领取宗门战奖励", "宗门战领取日"))
     elif current.weekday() == 5 and sect_war_in_battle_window(current):
-        result.append(SystemMessage("sect_war_final_day", "宗门战收官日", 30))
+        result.append(SystemMessage("sect_war_final_day", "宗门战收官日", 30, "宗门战", "宗门战收官日"))
     if sect_war_is_member_locked(current):
-        result.append(SystemMessage("sect_war_member_lock", "宗门变动锁定", 90))
+        result.append(SystemMessage("sect_war_member_lock", "宗门变动锁定", 90, "宗门", "宗门变动锁定"))
     return result
 
 
@@ -474,9 +483,9 @@ def _wormhole_system_messages(database: Any, current: datetime) -> list[SystemMe
     if event_type == "war_prep":
         force = str(metadata.get("force", "") or "") if isinstance(metadata, dict) else ""
         if force:
-            return [SystemMessage("war_prep_wormhole", f"战备虫洞：{force}@{location}", 10)]
-        return [SystemMessage("war_prep_wormhole", f"战备虫洞：{boss}@{location}", 10)]
-    return [SystemMessage("normal_wormhole", f"异界虫洞：{boss}@{location}", 40)]
+            return [SystemMessage("war_prep_wormhole", f"战备虫洞：{force}@{location}", 10, "虫洞状态", f"战备虫洞·{location}")]
+        return [SystemMessage("war_prep_wormhole", f"战备虫洞：{boss}@{location}", 10, "虫洞状态", f"战备虫洞·{location}")]
+    return [SystemMessage("normal_wormhole", f"异界虫洞：{boss}@{location}", 40, "虫洞状态", f"异界虫洞·{location}")]
 
 
 def _seasonal_boss_system_messages(database: Any, current: datetime, client_id: str | None) -> list[SystemMessage]:
@@ -499,7 +508,7 @@ def _seasonal_boss_system_messages(database: Any, current: datetime, client_id: 
     boss = str(row_value(row, "boss_name", "岁时情劫") or "岁时情劫")
     title = str(row_value(row, "title", "") or "")
     name = f"{title}·{boss}" if title else boss
-    return [SystemMessage("seasonal_boss", f"岁时情劫：{name}", 50)]
+    return [SystemMessage("seasonal_boss", f"岁时情劫：{name}", 50, "挑战首领", f"岁时情劫·{boss}")]
 
 
 def _seasonal_boss_hidden_for_client(database: Any, event_id: int, client_id: str, current: datetime) -> bool:
@@ -560,7 +569,7 @@ def _treasure_map_system_messages(database: Any, current: datetime) -> list[Syst
         expires_at = dt(str(row_value(auction, "expires_at", "") or ""))
         if expires_at and expires_at > current and expires_at - current <= timedelta(hours=2):
             city = str(row_value(auction, "city_name", "某城") or "某城")
-            result.append(SystemMessage("treasure_map_auction", f"{city}藏宝图将结", 60))
+            result.append(SystemMessage("treasure_map_auction", f"{city}藏宝图将结", 60, "藏宝图", f"{city}·藏宝图将结"))
 
     pickup = database.fetch_one(
         """
@@ -577,8 +586,17 @@ def _treasure_map_system_messages(database: Any, current: datetime) -> list[Syst
             city = str(row_value(pickup, "city_name", "某城") or "某城")
             x = int(row_value(pickup, "x", 0) or 0)
             y = int(row_value(pickup, "y", 0) or 0)
-            result.append(SystemMessage("treasure_map_pickup", f"{city}藏宝图散落({x},{y})", 70))
+            result.append(SystemMessage("treasure_map_pickup", f"{city}藏宝图散落({x},{y})", 70, f"导航 {x} {y}", f"{city}·藏宝图({x},{y})"))
     return result
+
+
+def _notice_text(item: Notification | SystemMessage) -> str:
+    """通知正文统一使用无框命令链接；没有动作命令时退回纯文本。"""
+
+    label = item.label or item.text
+    if item.command:
+        return inline_command_link(label, item.command)
+    return label
 
 
 def _effective_exploration_ready_at(row: Any) -> datetime | None:

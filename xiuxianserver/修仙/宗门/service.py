@@ -58,6 +58,40 @@ class SectService(CoreService):
             buttons=("建立宗门", "地图"),
         )
 
+    def members(self, client_id: str, message: str) -> str:
+        """查看宗门成员名册；无参数优先查看自己宗门，其次查看当前位置山门。"""
+
+        player, error = self.require_player(client_id)
+        if error:
+            return error
+        assert player is not None
+
+        target_name = message.strip()
+        own_sect = self._member_sect(client_id)
+        if target_name:
+            sect = self._sect_by_name(target_name)
+            if not sect:
+                return T.hint(
+                    f"没有找到宗门：{target_name}。",
+                    "请确认宗门名，或在山门处发送：宗门 查看此处宗门。",
+                    buttons=("宗门", "地图"),
+                )
+            joined = bool(own_sect and int(own_sect["sect_id"]) == int(sect["sect_id"]))
+            return self._sect_members_panel(sect, joined=joined)
+
+        if own_sect:
+            return self._sect_members_panel(own_sect, joined=True)
+
+        current_sect = self._sect_by_xy(int(player["x"]), int(player["y"]))
+        if current_sect:
+            return self._sect_members_panel(current_sect, joined=False)
+
+        return T.hint(
+            "你还没有宗门名册可查看。",
+            "可以加入宗门，或站在宗门山门发送：宗门成员；也可以发送：宗门成员 宗门名。",
+            buttons=("宗门", "地图"),
+        )
+
     def join(self, client_id: str, message: str) -> str:
         """加入当前位置的宗门。"""
 
@@ -482,8 +516,46 @@ class SectService(CoreService):
         panel.line(f"成员变动：{self._member_lock_text()}")
         panel.line(f"创建时间：{sect['created_at']}")
         if joined:
-            return panel.render() + T.buttons("宗门战", "领取宗门战奖励", "退出宗门", "宗门", "地图")
-        return panel.render() + T.buttons(f"加入宗门 {sect['name']}", "宗门战", "宗门", "地图")
+            return panel.render() + T.buttons("宗门成员", "宗门战", "领取宗门战奖励", "退出宗门", "宗门", "地图")
+        return panel.render() + T.buttons(
+            f"加入宗门 {sect['name']}",
+            f"宗门成员 {sect['name']}:成员名册",
+            "宗门战",
+            "宗门",
+            "地图",
+        )
+
+    def _sect_members_panel(self, sect: dict[str, object], joined: bool) -> str:
+        """渲染宗门成员名册。"""
+
+        sect_id = int(sect["sect_id"])
+        cycle_start, _cycle_end = self._cycle_bounds()
+        influence = self._sect_influence(sect_id, cycle_start)
+        member_count = self._member_count(sect_id)
+        rows = self._sect_member_rows(sect_id, cycle_start, limit=20)
+
+        panel = T.panel()
+        panel.section("宗门成员")
+        panel.line(f"宗门：{sect['name']}｜成员 {member_count} 人")
+        panel.line(f"宗主：{self._player_name_with_title(str(sect['master_client_id']))}")
+        panel.line(f"本期影响力：{influence}")
+        panel.hr()
+        if not rows:
+            panel.line("暂无成员。")
+        else:
+            for index, row in enumerate(rows, start=1):
+                contribution = int(row["contribution"] or 0)
+                percent = self._personal_percent_text(contribution, influence) if influence > 0 else "0.0%"
+                panel.line(
+                    f"{index}. {self._member_roster_name(row)}"
+                    f"｜{str(row['role'] or '成员')}｜本期贡献 {contribution}（{percent}）"
+                )
+        hidden_count = max(0, member_count - len(rows))
+        if hidden_count > 0:
+            panel.line(f"还有 {hidden_count} 人未展示。")
+
+        buttons = ("宗门", "宗门战", "退出宗门", "地图") if joined else ("宗门", "宗门战", "地图")
+        return panel.render() + T.buttons(*buttons)
 
     def _sect_by_name(self, name: str) -> dict[str, object] | None:
         """按宗门名读取。"""
@@ -514,6 +586,35 @@ class SectService(CoreService):
         row = self.db.fetch_one("SELECT COUNT(*) AS count FROM sect_members WHERE sect_id = ?", (int(sect_id),))
         return int(row["count"]) if row else 0
 
+    def _sect_member_rows(self, sect_id: int, cycle_start: str, limit: int) -> list[dict[str, object]]:
+        """读取宗门名册，宗主优先，其次按本期贡献和入门时间排序。"""
+
+        return self.db.fetch_all(
+            """
+            SELECT m.client_id,
+                   m.role,
+                   m.joined_at,
+                   COALESCE(p.display_name, m.client_id) AS display_name,
+                   COALESCE(p.level, 1) AS level,
+                   COALESCE(t.title, '无') AS title,
+                   COALESCE(c.influence, 0) AS contribution
+            FROM sect_members AS m
+            LEFT JOIN players AS p ON p.client_id = m.client_id
+            LEFT JOIN player_titles AS t ON t.client_id = m.client_id AND t.active = 1
+            LEFT JOIN sect_contribution_records AS c
+              ON c.sect_id = m.sect_id
+             AND c.client_id = m.client_id
+             AND c.cycle_start = ?
+            WHERE m.sect_id = ?
+            ORDER BY CASE WHEN m.role = '宗主' THEN 0 ELSE 1 END,
+                     COALESCE(c.influence, 0) DESC,
+                     m.joined_at ASC,
+                     m.client_id ASC
+            LIMIT ?
+            """,
+            (cycle_start, int(sect_id), int(limit)),
+        )
+
     def _member_role(self, client_id: str) -> str:
         """读取玩家在宗门内的身份。"""
 
@@ -535,6 +636,32 @@ class SectService(CoreService):
 
         row = self.db.fetch_one("SELECT display_name FROM players WHERE client_id = ?", (client_id,))
         return str(row["display_name"]) if row else client_id
+
+    def _player_name_with_title(self, client_id: str) -> str:
+        """读取角色展示名、称号和等级。"""
+
+        row = self.db.fetch_one(
+            """
+            SELECT p.display_name, p.level, t.title
+            FROM players AS p
+            LEFT JOIN player_titles AS t
+              ON t.client_id = p.client_id AND t.active = 1
+            WHERE p.client_id = ?
+            """,
+            (client_id,),
+        )
+        if not row:
+            return client_id
+        return self._member_roster_name(row)
+
+    @staticmethod
+    def _member_roster_name(row: dict[str, object]) -> str:
+        """格式化宗门名册中的成员名称。"""
+
+        name = str(row["display_name"] or "未知道友")
+        title = str(row["title"] or "无")
+        level = int(row["level"] or 1)
+        return f"{name}·{title} Lv.{level}"
 
     @staticmethod
     def _in_world_bounds(x: int, y: int) -> bool:

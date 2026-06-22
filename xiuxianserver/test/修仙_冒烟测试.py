@@ -622,6 +622,7 @@ def _check_sect(services: dict[str, object]) -> None:
     _must_contain(visitor_text, "这里是宗门：青云宗")
     _must_contain(visitor_text, "宗主：青衫客")
     _must_contain(visitor_text, "<加入宗门 青云宗>")
+    _must_contain(visitor_text, "<宗门成员 青云宗:成员名册>")
     _must_contain(visitor_text, "<宗门战>")
     _must_contain(visitor_text, "<宗门><地图>")
     _must_contain(sect.join("sect_u2", ""), "加入宗门 青云宗")
@@ -630,9 +631,17 @@ def _check_sect(services: dict[str, object]) -> None:
     _must_contain(joined_text, "宗门：青云宗")
     _must_contain(joined_text, "身份：成员")
     _must_contain(joined_text, "成员：2")
+    _must_contain(joined_text, "<宗门成员>")
+    members_text = sect.members("sect_u2", "")
+    _must_contain(members_text, "宗门成员")
+    _must_contain(members_text, "宗门：青云宗｜成员 2 人")
+    _must_contain(members_text, "宗主：青衫客·初入仙途 Lv.1")
+    _must_contain(members_text, "1. 青衫客·初入仙途 Lv.1｜宗主｜本期贡献 0（0.0%）")
+    _must_contain(members_text, "白鹿客·无 Lv.1｜成员｜本期贡献 0（0.0%）")
     _must_contain(sect.create("sect_u2", "-48 -49 紫霄宗"), "你已经有宗门")
 
     player.create("sect_u3", "白石客")
+    _must_contain(sect.members("sect_u3", "青云宗"), "宗门：青云宗｜成员 2 人")
     _must_contain(sect.create("sect_u2", "-49 -49 紫霄宗"), "已经有宗门")
     _must_contain(sect.create("sect_u3", "-48 -49 青云宗"), "宗门名 青云宗 已被使用")
     _must_contain(sect.create("sect_u3", "101 0 越界宗"), "超出当前地图范围")
@@ -2198,8 +2207,8 @@ def _check_seasonal_boss(services: dict[str, object]) -> None:
         )
     retreat_reward = seasonal_boss.reward("u1")
     _must_contain(retreat_reward, "结果：已退去")
-    _must_contain(retreat_reward, "贡献：25.0%")
-    _must_not_contain(retreat_reward, "贡献：100.0%")
+    _must_contain(retreat_reward, "你为本次旧愿留下 25.0% 伤痕，位列第1")
+    _must_not_contain(retreat_reward, "你为本次旧愿留下 100.0% 伤痕")
 
     feather = seasonal_boss.db.fetch_one(
         "SELECT feather_id FROM inscription_feathers WHERE client_id = ? ORDER BY feather_id LIMIT 1",

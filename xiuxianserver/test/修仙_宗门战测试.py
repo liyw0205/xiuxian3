@@ -82,6 +82,12 @@ def main() -> None:
             assert "原始城池增益" in overview_text
             assert "主影响：流沙海市" in overview_text
 
+            members_text = sect.members("owner", "")
+            assert "宗门成员" in members_text
+            assert "宗门：青云宗｜成员 2 人" in members_text
+            assert "宗主甲·" in members_text and "｜宗主｜本期贡献" in members_text
+            assert "宗门乙·" in members_text and "｜成员｜本期贡献" in members_text
+
             monday = datetime(2026, 6, 15, 12, 0, 0)
             saturday = datetime(2026, 6, 20, 12, 0, 0)
             sunday = datetime(2026, 6, 21, 12, 0, 0)
@@ -148,6 +154,11 @@ def main() -> None:
             _record_robbery_influence(db, "owner", monday)
             assert _cycle_record_count(db, "2026-06-15") == 1
             assert _cycle_influence(db, "2026-06-15") > 0
+            current_cycle_start, _current_cycle_end = sect._cycle_bounds()
+            current_cycle_monday = datetime.fromisoformat(f"{current_cycle_start}T12:00:00")
+            _record_robbery_influence(db, "owner", current_cycle_monday)
+            assert _cycle_record_count(db, current_cycle_start) == 1
+            assert _cycle_influence(db, current_cycle_start) > 0
 
             war_text = sect.war("owner")
             assert "宗门战" in war_text
