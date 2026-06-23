@@ -1,4 +1,4 @@
-"""宗门战公共规则。"""
+"""宗门大会公共规则。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from .constants import SECT_LEVEL_MAX
 
 
 SECT_WAR_REWARD_ITEM_ID = "cuifengdan"
-SECT_WAR_REWARD_ITEM_NAME = "淬锋丹"
 SECT_WAR_SECT_REWARD_RATE = 0.30
 SECT_WAR_PERSONAL_REWARD_RATE = 0.15
 SECT_WAR_REWARD_TYPE_SECT_RANDOM = "sect_random"
@@ -45,7 +44,7 @@ SECT_MERIT_ALIASES = {
 
 
 def sect_war_cycle_bounds(value: datetime | None = None) -> tuple[str, str]:
-    """返回当前宗门战周期，周一开始，下周一零点结束。"""
+    """返回当前宗门大会周期，周一开始，下周一零点结束。"""
 
     current = value or now()
     current_date = current.date()
@@ -103,14 +102,14 @@ def sect_war_is_member_locked(value: datetime | None = None) -> bool:
 
 
 def sect_war_in_battle_window(value: datetime | None = None) -> bool:
-    """宗门战斗计分窗口：周一到周六。"""
+    """宗门大会计分窗口：周一到周六。"""
 
     current = value or now()
     return current.weekday() in (0, 1, 2, 3, 4, 5)
 
 
 def sect_war_in_reward_claim_window(value: datetime | None = None) -> bool:
-    """宗门战奖励领取窗口：周日全天。"""
+    """宗门大会奖励领取窗口：周日全天。"""
 
     current = value or now()
     return current.weekday() == 6
@@ -358,7 +357,7 @@ def sect_city_bonus_for_position_conn(conn: sqlite3.Connection, x: int, y: int) 
         """
         SELECT c.location_name, c.city_level, t.x, t.y
         FROM city_world_states AS c
-        JOIN trade_locations AS t ON t.name = c.location_name
+        JOIN trade_locations AS t ON t.location_id = c.location_id
         ORDER BY c.location_name
         """
     ).fetchall()
@@ -442,7 +441,7 @@ def _apply_sect_city_bonus_conn(conn: sqlite3.Connection, sect_id: int, influenc
 
 
 def _sect_city_bonus_detail(bonus: dict[str, Any], base_influence: int, final_influence: int) -> str:
-    """生成宗门战影响力流水里的宗门增益摘要。"""
+    """生成宗门大会影响力流水里的宗门增益摘要。"""
 
     rate = max(0.0, float(bonus.get("total_bonus", 0.0) or 0.0))
     if rate <= 0 or final_influence <= base_influence:
@@ -497,7 +496,7 @@ def record_sect_robbery_influence_conn(
         client_id,
         "influence",
         influence,
-        source="宗门战抢劫",
+        source="宗门大会抢劫",
         detail=detail,
         sect_id=sect_id,
         occurred_at=occurred_time,

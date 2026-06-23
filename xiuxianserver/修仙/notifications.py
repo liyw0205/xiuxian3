@@ -110,7 +110,7 @@ def collect_notifications(
     result.extend(_duel_request_notifications(client_id, database, current))
     result.extend(_world_material_notifications(client_id, database, current))
     result.extend(_second_hand_notifications(client_id, database, current))
-    result.extend(_source_vault_notifications(client_id, database, current))
+    result.extend(_bank_notifications(client_id, database, current))
     result.extend(_newbie_gift_notifications(client_id, database))
     result.extend(_daily_sign_notifications(client_id, database, current))
     return _dedupe_notifications(result)
@@ -214,7 +214,7 @@ def _reward_notifications(client_id: str, database: Any, current: datetime) -> l
         (client_id,),
     )
     if pending_sect_reward:
-        result.append(Notification("sect_war_reward", "宗门战奖励待领", 60, "领取宗门战奖励", "宗门战奖励"))
+        result.append(Notification("sect_war_reward", "宗门大会奖励待领", 60, "领取宗门大会奖励", "宗门大会奖励"))
     if _trade_reward_ready(client_id, database, current):
         result.append(Notification("trade_reward", "跑商奖励待领", 65, "跑商奖励", "跑商奖励"))
     return result
@@ -361,13 +361,13 @@ def _second_hand_notifications(client_id: str, database: Any, current: datetime)
     return [Notification("second_hand_sale", f"二手成交到账：{buyer}付来{money(gain)}", 90, "二手市场", f"二手到账+{money(gain)}")]
 
 
-def _source_vault_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
-    """源库计息达到单次 24 小时上限后再提醒结息。"""
+def _bank_notifications(client_id: str, database: Any, current: datetime) -> list[Notification]:
+    """银行计息达到单次 24 小时上限后再提醒结息。"""
 
     row = database.fetch_one(
         """
         SELECT star_level, balance, last_settle_at, last_interest_day, daily_interest_claimed
-        FROM source_vaults
+        FROM bank_accounts
         WHERE client_id = ?
         """,
         (client_id,),
@@ -392,7 +392,7 @@ def _source_vault_notifications(client_id: str, database: Any, current: datetime
     reward = max(0, min(int(balance * float(conf["hour_rate"]) * hours), left_limit))
     if reward <= 0:
         return []
-    return [Notification("source_vault_interest", "源库结息可领", 85, "源库结息", "源库结息")]
+    return [Notification("bank_interest", "银行结息", 85, "银行结息", "银行结息")]
 
 
 def _newbie_gift_notifications(client_id: str, database: Any) -> list[Notification]:
@@ -434,9 +434,9 @@ def _sect_war_system_messages(database: Any, current: datetime) -> list[SystemMe
         return []
     result: list[SystemMessage] = []
     if sect_war_in_reward_claim_window(current):
-        result.append(SystemMessage("sect_war_reward_day", "宗门战领取日", 20, "领取宗门战奖励", "宗门战领取日"))
+        result.append(SystemMessage("sect_war_reward_day", "宗门大会领取日", 20, "领取宗门大会奖励", "宗门大会领取日"))
     elif current.weekday() == 5 and sect_war_in_battle_window(current):
-        result.append(SystemMessage("sect_war_final_day", "宗门战收官日", 30, "宗门战", "宗门战收官日"))
+        result.append(SystemMessage("sect_war_final_day", "宗门大会收官日", 30, "宗门大会", "宗门大会收官日"))
     if sect_war_is_member_locked(current):
         result.append(SystemMessage("sect_war_member_lock", "宗门变动锁定", 90, "宗门", "宗门变动锁定"))
     return result

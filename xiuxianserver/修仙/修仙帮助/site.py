@@ -13,6 +13,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
+from ..world_skin import WorldSkinEntry, current_help_map_path, current_world_entries
+
 
 XIUXIAN_DIR = Path(__file__).resolve().parent.parent
 ROOT_DOC_GROUP = "根目录"
@@ -68,6 +70,8 @@ class HelpSite:
     docs: tuple[HelpDoc, ...]
     groups: tuple[tuple[str, tuple[HelpDoc, ...]], ...]
     command_sections: tuple[CommandSection, ...]
+    world_entries: tuple[WorldSkinEntry, ...]
+    help_map_path: str
 
     @property
     def by_slug(self) -> dict[str, HelpDoc]:
@@ -103,6 +107,8 @@ def build_help_site() -> HelpSite:
         docs=tuple(docs),
         groups=tuple((group, tuple(items)) for group, items in grouped.items()),
         command_sections=_command_sections_from_docs(docs),
+        world_entries=current_world_entries(),
+        help_map_path=current_help_map_path(),
     )
 
 
@@ -138,7 +144,7 @@ async def help_doc(slug: str) -> HTMLResponse:
     doc = site.by_slug.get(slug)
     if doc is None:
         raise HTTPException(status_code=404, detail="help doc not found")
-    return HTMLResponse(render_doc(site, doc))
+    return HTMLResponse(render_doc(doc))
 
 
 def render_index(site: HelpSite) -> str:
@@ -160,11 +166,12 @@ def render_index(site: HelpSite) -> str:
 <main class="app-body home-layout">
   <div class="home-main">
     <section class="top-tools">
-      <p>{len(site.command_sections)} 个命令分组 · {len(component_groups)} 个组件文档分组 · {len(setting_docs)} 份设定文档</p>
+      <p>{len(site.command_sections)} 个命令分组 · {len(component_groups)} 个组件文档分组 · {len(setting_docs)} 份设定文档 · {len(site.world_entries)} 条当前世界资料</p>
     </section>
     {_search_results_shell()}
     {_starter_panel()}
     {_command_overview(site.command_sections)}
+    {_world_overview(site.world_entries, site.help_map_path)}
     <section class="home-panel" id="component-docs">
       <div class="section-heading">
         <h2>组件文档</h2>
@@ -181,7 +188,7 @@ def render_index(site: HelpSite) -> str:
 {setting_cards}
     </section>
   </div>
-  {_home_catalog(len(site.command_sections), len(component_groups), len(setting_docs))}
+  {_home_catalog(len(site.command_sections), len(site.world_entries), len(component_groups), len(setting_docs))}
 </main>
 {_search_index(site)}
 {SEARCH_SCRIPT}
@@ -189,7 +196,7 @@ def render_index(site: HelpSite) -> str:
     return _layout("修仙帮助", body, active="main-commands", include_search=True)
 
 
-def render_doc(site: HelpSite, doc: HelpDoc) -> str:
+def render_doc(doc: HelpDoc) -> str:
     """渲染单篇文档详情。"""
 
     catalog = _catalog(doc)
@@ -463,6 +470,10 @@ def _search_index(site: HelpSite) -> str:
         kind = "设定" if doc.group == ROOT_DOC_GROUP else "组件"
         summary = f"{doc.group} · {doc.summary}"
         sources.append(_search_source(kind, doc.group, doc.title, summary, f"{HELP_BASE_PATH}/docs/{doc.slug}"))
+    for entry in site.world_entries:
+        summary = _clip(f"{entry.group} · {entry.summary}", 180)
+        title = entry.title or entry.stable_id
+        sources.append(_search_source("当前世界", entry.kind, title, summary, f"{HELP_BASE_PATH}#world-snapshot"))
     return f"""
 <div id="searchIndex" hidden>
 {''.join(sources)}
@@ -528,6 +539,65 @@ def _command_item(line: str) -> str:
           </li>"""
 
 
+def _world_overview(entries: tuple[WorldSkinEntry, ...], help_map_path: str) -> str:
+    """渲染当前皮肤下的世界资料栏目。"""
+
+    groups = _world_groups(entries)
+    cards = "\n".join(_world_card(title, items) for title, items in groups)
+    map_note = f"当前地图资源：{help_map_path or '默认地图'}"
+    return f"""
+  <section class="world-overview home-panel" id="world-snapshot">
+    <div class="section-heading">
+      <h2>当前世界</h2>
+      <p>这里来自当前世界皮肤和数据库定义；命令仍以主要命令为准。</p>
+    </div>
+    <p class="world-map-note">{escape(map_note)}</p>
+    <div class="world-grid">
+{cards}
+    </div>
+  </section>"""
+
+
+def _world_groups(entries: tuple[WorldSkinEntry, ...]) -> tuple[tuple[str, tuple[WorldSkinEntry, ...]], ...]:
+    """帮助页只展示大类摘要，完整命中交给搜索。"""
+
+    preferred = (
+        "商路城池",
+        "探险地点",
+        "NPC地点",
+        "世界物品",
+        "纳戒物品",
+        "武器",
+        "技能书附魔",
+        "怪物",
+        "体质",
+        "品质",
+    )
+    by_kind: OrderedDict[str, list[WorldSkinEntry]] = OrderedDict()
+    for entry in entries:
+        by_kind.setdefault(entry.kind, []).append(entry)
+    ordered: list[tuple[str, tuple[WorldSkinEntry, ...]]] = []
+    for kind in preferred:
+        if kind in by_kind:
+            ordered.append((kind, tuple(by_kind.pop(kind))))
+    ordered.extend((kind, tuple(items)) for kind, items in by_kind.items())
+    return tuple(ordered[:10])
+
+
+def _world_card(title: str, entries: tuple[WorldSkinEntry, ...]) -> str:
+    limit = 12
+    names = "、".join(escape(entry.title or entry.stable_id) for entry in entries[:limit])
+    more = f" 等 {len(entries)} 项" if len(entries) > limit else ""
+    return f"""
+      <article class="world-card help-search-item">
+        <div class="world-card-title">
+          <h3>{escape(title)}</h3>
+          <span>{len(entries)} 项</span>
+        </div>
+        <p>{names}{escape(more)}</p>
+      </article>"""
+
+
 def _command_parts(line: str) -> tuple[str, str, str]:
     """解析 `命令｜说明｜参数` 或单行命令说明。"""
 
@@ -553,7 +623,7 @@ def _command_param_label(command: str) -> str:
         "数量",
         "等级",
         "地点",
-        "源石",
+        "货币",
         "问题",
         "物品",
         "技能书",
@@ -574,7 +644,7 @@ def _command_param_label(command: str) -> str:
     return "无需参数"
 
 
-def _home_catalog(command_count: int, component_count: int, setting_count: int) -> str:
+def _home_catalog(command_count: int, world_count: int, component_count: int, setting_count: int) -> str:
     """渲染首页右侧目录。"""
 
     return f"""
@@ -585,6 +655,9 @@ def _home_catalog(command_count: int, component_count: int, setting_count: int) 
     </a>
     <a class="catalog-link active" href="{HELP_BASE_PATH}#main-commands" data-section-link="main-commands">
       <span>主要命令</span><em>{command_count}</em>
+    </a>
+    <a class="catalog-link" href="{HELP_BASE_PATH}#world-snapshot" data-section-link="world-snapshot">
+      <span>当前世界</span><em>{world_count}</em>
     </a>
     <a class="catalog-link" href="{HELP_BASE_PATH}#component-docs" data-section-link="component-docs">
       <span>组件文档</span><em>{component_count}</em>
@@ -711,6 +784,13 @@ def _inline(text: str) -> str:
     escaped = re.sub(r"`([^`]+)`", r'<code>\1</code>', escaped)
     escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
     return escaped
+
+
+def _clip(text: str, limit: int) -> str:
+    value = re.sub(r"\s+", " ", str(text)).strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)].rstrip() + "…"
 
 
 def _layout(title: str, body: str, *, active: str, include_search: bool = False) -> str:
@@ -1287,6 +1367,47 @@ h2.article-head { font-size: 1.6em; margin: 0 0 6px; }
   color: var(--gray);
   font-size: .9em;
 }
+.world-map-note {
+  margin: -4px 0 14px;
+  color: var(--gray);
+  font-size: .92em;
+}
+.world-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.world-card {
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 8px 18px rgba(52,73,94,.05);
+}
+.world-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.world-card-title h3 {
+  margin: 0;
+  color: var(--dark);
+  font-size: 1.03em;
+}
+.world-card-title span {
+  flex: 0 0 auto;
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 700;
+}
+.world-card p {
+  color: var(--gray);
+  font-size: .93em;
+  overflow-wrap: anywhere;
+}
 .tags { margin: 10px 0; }
 .tag-code {
   font-family: Monaco, Consolas, monospace;
@@ -1395,6 +1516,7 @@ h2.article-head { font-size: 1.6em; margin: 0 0 6px; }
   }
   .right-list { gap: 12px; }
   .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .world-grid { grid-template-columns: 1fr; }
   .starter-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #article-banner { padding-top: 86px; }
   .post-article { padding: 20px; }
@@ -1459,7 +1581,8 @@ h2.article-head { font-size: 1.6em; margin: 0 0 6px; }
   .intro-card { margin-top: 12px; }
   h2.article-head { font-size: 1.35em; }
   .starter-steps,
-  .search-result-list {
+  .search-result-list,
+  .world-grid {
     grid-template-columns: 1fr;
   }
   .command-grid { grid-template-columns: 1fr; gap: 12px; }

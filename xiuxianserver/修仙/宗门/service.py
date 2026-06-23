@@ -6,12 +6,11 @@ from datetime import datetime, timedelta
 import random as random_module
 import sqlite3
 
-from ..common import CoreService, split_words, to_int, ts, validate_name
+from ..common import CoreService, player_level_label, split_words, to_int, ts, validate_name
 from ..constants import WORLD_COORD_MAX, WORLD_COORD_MIN
 from ..format_text import T
 from ..sect_war import (
     SECT_WAR_REWARD_ITEM_ID,
-    SECT_WAR_REWARD_ITEM_NAME,
     ensure_sect_stats_conn,
     sect_bonus_conn,
     sect_city_bonus_conn,
@@ -103,8 +102,8 @@ class SectService(CoreService):
         if self._is_member_locked():
             return T.hint(
                 "周六和周日不能加入宗门。",
-                "宗门战结算和奖励领取期间会锁定成员名单；周一到周五可以加入。",
-                buttons=("宗门", "宗门战", "地图"),
+                "宗门大会结算和奖励领取期间会锁定成员名单；周一到周五可以加入。",
+                buttons=("宗门", "宗门大会", "地图"),
             )
 
         current_membership = self._member_sect(client_id)
@@ -181,8 +180,8 @@ class SectService(CoreService):
         if self._is_member_locked():
             return T.hint(
                 "周六和周日不能退出宗门。",
-                "宗门战结算和奖励领取期间会锁定成员名单；周一到周五可以退出。",
-                buttons=("宗门", "宗门战"),
+                "宗门大会结算和奖励领取期间会锁定成员名单；周一到周五可以退出。",
+                buttons=("宗门", "宗门大会"),
             )
 
         with self.db.transaction() as conn:
@@ -245,7 +244,7 @@ class SectService(CoreService):
         return T.success(f"已退出并解散宗门：{sect_name}。") + T.buttons("宗门", "地图")
 
     def war(self, client_id: str) -> str:
-        """查看本期宗门战影响力和奖励。"""
+        """查看本期宗门大会影响力和奖励。"""
 
         _, error = self.require_player(client_id)
         if error:
@@ -258,12 +257,13 @@ class SectService(CoreService):
         pending_rewards = self._pending_rewards(client_id, cycle_start)
         all_pending_rewards = self._pending_rewards_all(client_id)
         own_sect = self._member_sect(client_id)
+        reward_item_name = self._sect_war_reward_item_name()
 
         panel = T.panel()
-        panel.section("宗门战")
+        panel.section("宗门大会")
         panel.line(f"本期周期：{cycle_start} 到 {self._display_cycle_end(cycle_end)}")
         if self._in_reward_claim_window():
-            panel.line("今日为奖励领取日，本期战斗已结束，抢劫不再增加宗门战影响力。")
+            panel.line("今日为奖励领取日，本期战斗已结束，抢劫不再增加宗门大会影响力。")
         else:
             panel.line("战斗日：周一到周六；宗门成员抢劫会按结果和战利品价值增加影响力。")
         panel.line(f"成员变动：{self._member_lock_text()}")
@@ -287,7 +287,7 @@ class SectService(CoreService):
         if personal_rank:
             personal_qualified = self._personal_reward_count(len(personal_rank))
             if self._in_reward_claim_window():
-                panel.line(f"个人奖励：前 {personal_qualified}/{len(personal_rank)} 名，每人 {SECT_WAR_REWARD_ITEM_NAME} x1。")
+                panel.line(f"个人奖励：前 {personal_qualified}/{len(personal_rank)} 名，每人 {reward_item_name} x1。")
             for index, row in enumerate(personal_rank[:10], start=1):
                 contribution = int(row["influence"])
                 percent = self._personal_percent_text(contribution, int(row["sect_influence"]))
@@ -305,23 +305,23 @@ class SectService(CoreService):
             panel.section("待领奖励")
             pending_total = sum(int(row["quantity"]) for row in all_pending_rewards)
             pending_cycles = sorted({str(row["cycle_start"]) for row in all_pending_rewards})
-            panel.line(f"{SECT_WAR_REWARD_ITEM_NAME} x{pending_total}｜周期：{', '.join(pending_cycles)}")
+            panel.line(f"{reward_item_name} x{pending_total}｜周期：{', '.join(pending_cycles)}")
             panel.hr()
         if self._in_reward_claim_window() and pending_rewards:
             panel.section("本期奖励")
-            panel.line(f"待领取：{SECT_WAR_REWARD_ITEM_NAME} x{sum(int(row['quantity']) for row in pending_rewards)}")
+            panel.line(f"待领取：{reward_item_name} x{sum(int(row['quantity']) for row in pending_rewards)}")
             for row in pending_rewards:
                 panel.line(f"{self._reward_type_text(str(row['reward_type']))}：{row['ring_item_id']} x{int(row['quantity'])}")
         elif self._in_reward_claim_window():
             panel.section("本期奖励")
-            panel.line("你本轮没有待领取宗门战奖励。")
+            panel.line("你本轮没有待领取宗门大会奖励。")
         else:
             panel.section("奖励")
             panel.line("奖励生成后即可领取，通知栏会提示待领奖励。")
-        return panel.render() + T.buttons("领取宗门战奖励", "宗门", "地图")
+        return panel.render() + T.buttons("领取宗门大会奖励", "宗门", "地图")
 
     def claim_war_reward(self, client_id: str) -> str:
-        """领取本期宗门战奖励。"""
+        """领取本期宗门大会奖励。"""
 
         _, error = self.require_player(client_id)
         if error:
@@ -335,15 +335,15 @@ class SectService(CoreService):
             rows = self._pending_rewards_conn(conn, client_id)
             if not rows:
                 return T.hint(
-                    "你没有可领取的宗门战奖励。",
-                    "宗门前 20% 会给 30% 成员随机生成淬锋丹待领奖励，个人贡献前 15% 也会额外生成；有待领奖励时通知栏会提醒。",
-                    buttons=("宗门战", "宗门"),
+                    "你没有可领取的宗门大会奖励。",
+                    f"宗门前 20% 会给 30% 成员随机生成{self._sect_war_reward_item_name()}待领奖励，个人贡献前 15% 也会额外生成；有待领奖励时通知栏会提醒。",
+                    buttons=("宗门大会", "宗门"),
                 )
             total = sum(max(0, int(row["quantity"])) for row in rows)
             if total <= 0:
-                return T.hint("宗门战奖励数量异常。", "请稍后再试。<宗门战>")
+                return T.hint("宗门大会奖励数量异常。", "请稍后再试。<宗门大会>")
             self._claim_reward_rows_conn(conn, client_id, rows)
-        return T.success(f"已领取宗门战奖励：{SECT_WAR_REWARD_ITEM_NAME} x{total}。") + T.buttons("纳戒", "宗门战")
+        return T.success(f"已领取宗门大会奖励：{self._sect_war_reward_item_name()} x{total}。") + T.buttons("纳戒", "宗门大会")
 
     def create(self, client_id: str, message: str) -> str:
         """建立宗门。"""
@@ -356,8 +356,8 @@ class SectService(CoreService):
         if self._is_member_locked():
             return T.hint(
                 "周六和周日不能建立宗门。",
-                "宗门战结算和奖励领取期间会锁定成员名单；周一到周五可以建立宗门。",
-                buttons=("宗门", "宗门战", "地图"),
+                "宗门大会结算和奖励领取期间会锁定成员名单；周一到周五可以建立宗门。",
+                buttons=("宗门", "宗门大会", "地图"),
             )
 
         sect = self._member_sect(client_id)
@@ -516,11 +516,11 @@ class SectService(CoreService):
         panel.line(f"成员变动：{self._member_lock_text()}")
         panel.line(f"创建时间：{sect['created_at']}")
         if joined:
-            return panel.render() + T.buttons("宗门成员", "宗门战", "领取宗门战奖励", "退出宗门", "宗门", "地图")
+            return panel.render() + T.buttons("宗门成员", "宗门大会", "领取宗门大会奖励", "退出宗门", "宗门", "地图")
         return panel.render() + T.buttons(
             f"加入宗门 {sect['name']}",
             f"宗门成员 {sect['name']}:成员名册",
-            "宗门战",
+            "宗门大会",
             "宗门",
             "地图",
         )
@@ -554,7 +554,7 @@ class SectService(CoreService):
         if hidden_count > 0:
             panel.line(f"还有 {hidden_count} 人未展示。")
 
-        buttons = ("宗门", "宗门战", "退出宗门", "地图") if joined else ("宗门", "宗门战", "地图")
+        buttons = ("宗门", "宗门大会", "退出宗门", "地图") if joined else ("宗门", "宗门大会", "地图")
         return panel.render() + T.buttons(*buttons)
 
     def _sect_by_name(self, name: str) -> dict[str, object] | None:
@@ -660,8 +660,7 @@ class SectService(CoreService):
 
         name = str(row["display_name"] or "未知道友")
         title = str(row["title"] or "无")
-        level = int(row["level"] or 1)
-        return f"{name}·{title} Lv.{level}"
+        return f"{name}·{title} {player_level_label(row['level'])}"
 
     @staticmethod
     def _in_world_bounds(x: int, y: int) -> bool:
@@ -795,14 +794,14 @@ class SectService(CoreService):
         )
 
     def _pending_rewards(self, client_id: str, cycle_start: str) -> list[dict[str, object]]:
-        """读取玩家未领取宗门战奖励。"""
+        """读取玩家未领取宗门大会奖励。"""
 
         with self.db.transaction() as conn:
             rows = self._pending_rewards_conn(conn, client_id, cycle_start)
         return [dict(row) for row in rows]
 
     def _pending_rewards_all(self, client_id: str) -> list[dict[str, object]]:
-        """读取玩家全部未领取宗门战奖励。"""
+        """读取玩家全部未领取宗门大会奖励。"""
 
         rows = self.db.fetch_all(
             """
@@ -821,7 +820,7 @@ class SectService(CoreService):
         client_id: str,
         cycle_start: str | None = None,
     ) -> list[sqlite3.Row]:
-        """读取玩家未领取宗门战奖励；可限制到某周期。"""
+        """读取玩家未领取宗门大会奖励；可限制到某周期。"""
 
         if cycle_start is None:
             return conn.execute(
@@ -842,7 +841,7 @@ class SectService(CoreService):
         ).fetchall()
 
     def _ensure_rewards_generated_conn(self, conn: sqlite3.Connection, cycle_start: str, cycle_end: str) -> None:
-        """按周期生成一次宗门战奖励。"""
+        """按周期生成一次宗门大会奖励。"""
 
         if not sect_war_cycle_finished(cycle_end):
             return
@@ -949,7 +948,7 @@ class SectService(CoreService):
         )
 
     def ensure_claimable_rewards(self) -> int:
-        """生成当前或上一周期可领取的宗门战奖励；返回新增周期数。"""
+        """生成当前或上一周期可领取的宗门大会奖励；返回新增周期数。"""
 
         current_start, _current_end = self._cycle_bounds()
         generated = 0
@@ -981,7 +980,7 @@ class SectService(CoreService):
         client_id: str,
         rows: list[sqlite3.Row],
     ) -> int:
-        """领取一组宗门战奖励，返回奖励行数。"""
+        """领取一组宗门大会奖励，返回奖励行数。"""
 
         if not rows:
             return 0
@@ -1005,7 +1004,7 @@ class SectService(CoreService):
             "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
             (
                 client_id,
-                "宗门战奖励",
+                "宗门大会奖励",
                 f"cycle_start={cycle_start}, item={SECT_WAR_REWARD_ITEM_ID}, quantity={total}, types={reward_types}",
                 ts(),
             ),
@@ -1022,7 +1021,7 @@ class SectService(CoreService):
 
     @staticmethod
     def _cycle_bounds(value=None) -> tuple[str, str]:
-        """返回当前宗门战周期。"""
+        """返回当前宗门大会周期。"""
 
         return sect_war_cycle_bounds(value)
 
@@ -1058,13 +1057,13 @@ class SectService(CoreService):
 
     @staticmethod
     def _in_battle_window(value=None) -> bool:
-        """周一到周六为宗门战斗计分日。"""
+        """周一到周六为宗门大会计分日。"""
 
         return sect_war_in_battle_window(value)
 
     @staticmethod
     def _in_reward_claim_window(value=None) -> bool:
-        """宗门战奖励领取窗口：周日全天。"""
+        """宗门大会奖励领取窗口：周日全天。"""
 
         return sect_war_in_reward_claim_window(value)
 
@@ -1086,6 +1085,12 @@ class SectService(CoreService):
         if reward_type == SECT_WAR_REWARD_TYPE_PERSONAL_TOP:
             return "个人贡献奖"
         return "宗门随机奖"
+
+    def _sect_war_reward_item_name(self) -> str:
+        """按稳定奖励物品 ID 读取当前展示名。"""
+
+        item = self.ring_item_def(SECT_WAR_REWARD_ITEM_ID)
+        return str(item.get("name") or SECT_WAR_REWARD_ITEM_ID) if item else SECT_WAR_REWARD_ITEM_ID
 
 
 service = SectService(db)

@@ -1,8 +1,8 @@
-"""修仙宗门战测试。
+"""修仙宗门大会测试。
 
 运行方式：
 
-    python test/修仙_宗门战测试.py
+    python test/修仙_宗门大会测试.py
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from 修仙.sect_war import (
     sect_war_reward_member_count,
     sect_war_robbery_influence,
 )
-from 修仙.sql import XiuxianDB
+from 修仙.sql import XiuxianDB, location_id_for_name
 from 修仙.背包.service import BackpackService
 from 修仙.纳戒.service import RingService
 from 修仙.玩家.service import PlayerService
@@ -42,7 +42,7 @@ from 修仙.武器.service import WeaponService
 
 
 def main() -> None:
-    """验证宗门战关键流程。"""
+    """验证宗门大会关键流程。"""
 
     with TemporaryDirectory() as temp_dir:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_sect_war_test.db")
@@ -67,7 +67,10 @@ def main() -> None:
             stats = _sect_stats(db, owner_sect_id)
             assert stats is not None
             assert int(stats["level"]) == 1
-            db.execute("UPDATE city_world_states SET city_level = 40 WHERE location_name = '流沙海市'")
+            db.execute(
+                "UPDATE city_world_states SET city_level = 40 WHERE location_id = ?",
+                (location_id_for_name("流沙海市"),),
+            )
             with db.transaction() as conn:
                 city_bonus = sect_city_bonus_for_position_conn(conn, -49, -49)
                 sect_bonus = sect_bonus_conn(conn, owner_sect_id)
@@ -161,7 +164,7 @@ def main() -> None:
             assert _cycle_influence(db, current_cycle_start) > 0
 
             war_text = sect.war("owner")
-            assert "宗门战" in war_text
+            assert "宗门大会" in war_text
             assert "本期影响力" in war_text
             assert "个人贡献" in war_text
             assert "宗主甲" in war_text
@@ -170,7 +173,7 @@ def main() -> None:
             assert "%" in war_text
 
             reward = sect.claim_war_reward("owner")
-            assert "宗门战奖励" in reward or "没有可领取" in reward
+            assert "宗门大会奖励" in reward or "没有可领取" in reward
 
             with db.transaction() as conn:
                 sect._ensure_rewards_generated_conn(conn, finished_cycle_start, finished_cycle_end)
@@ -225,7 +228,7 @@ def main() -> None:
             assert _cuifengdan_count(db, "owner") == before_claim
             assert "待领奖励" in sect.war("owner")
             claim_text = sect.claim_war_reward("owner")
-            assert "已领取宗门战奖励" in claim_text
+            assert "已领取宗门大会奖励" in claim_text
             assert _cuifengdan_count(db, "owner") > before_claim
             claimed_reward = db.fetch_one(
                 """
@@ -246,27 +249,29 @@ def main() -> None:
 
             db.execute("DELETE FROM ring_items WHERE client_id = ? AND ring_item_id = 'cuifengdan'", ("owner",))
             _give_cuifengdan(db, "owner", 3)
-            blocked = backpack.use_item("owner", "淬锋丹")
-            assert "淬锋丹不能直接使用" in blocked
+            item_name = str(item["name"])
+            blocked = backpack.use_item("owner", item_name)
+            assert "不能直接使用" in blocked
+            assert "武器升限" in blocked
             assert _cuifengdan_count(db, "owner") == 3
 
             weapon_id = int(db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ?", ("owner",))["weapon_id"])
             extra_weapon_id = weapon.create_weapon("owner", "qinglan_duanjian", "凡品", 40)
 
-            default_temper_text = ring.temper_weapon("owner", "")
-            assert "淬锋成功" in default_temper_text
+            default_temper_text = ring.raise_weapon_limit("owner", "")
+            assert "升限成功" in default_temper_text
             row = db.fetch_one("SELECT max_level FROM player_weapons WHERE weapon_id = ?", (weapon_id,))
             assert row is not None and int(row["max_level"]) == 41
 
-            temper_text = ring.temper_weapon("owner", str(extra_weapon_id))
-            assert "淬锋成功" in temper_text
+            temper_text = ring.raise_weapon_limit("owner", str(extra_weapon_id))
+            assert "升限成功" in temper_text
             row = db.fetch_one("SELECT max_level FROM player_weapons WHERE weapon_id = ?", (extra_weapon_id,))
             assert row is not None and int(row["max_level"]) == 41
             assert _cuifengdan_count(db, "owner") == 1
         finally:
             db.close()
 
-    print("修仙宗门战测试通过")
+    print("修仙宗门大会测试通过")
 
 
 def _build_sect(db: XiuxianDB, sect: SectService, client_id: str, name: str, *, x: int = -49, y: int = -49) -> None:
@@ -288,7 +293,7 @@ def _record_robbery_influence(
     client_id: str,
     occurred_at: datetime,
 ) -> int:
-    """按真实宗门战规则写入一笔抢劫影响力。"""
+    """按真实宗门大会规则写入一笔抢劫影响力。"""
 
     influence = 0
     with db.transaction() as conn:
@@ -398,14 +403,14 @@ def _index_exists(db: XiuxianDB, name: str) -> bool:
 
 
 def _check_sect_war_scheduler() -> None:
-    """确认宗门战结算定时任务能被 APScheduler 接受。"""
+    """确认宗门大会结算定时任务能被 APScheduler 接受。"""
 
     jobs = [
         task
         for task in sect_scheduler.Scheduler.sync_list
         if task.get("func") is sect_scheduler.sect_war_generate_rewards
     ]
-    assert jobs, "宗门战结算定时任务没有注册"
+    assert jobs, "宗门大会结算定时任务没有注册"
     task = jobs[0]
     args = task.get("args", ())
     assert args == ("cron",)

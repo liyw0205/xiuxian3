@@ -8,7 +8,25 @@ import sqlite3
 from datetime import timedelta
 from typing import Any
 
-from .common import CoreService, business_day, dt, dump_json, load_json, money, now, row_value, split_words, to_int, ts
+from .common import (
+    CoreService,
+    QUALITY_EPIC,
+    business_day,
+    currency_amount,
+    currency_name,
+    dt,
+    dump_json,
+    load_json,
+    money,
+    now,
+    quality_factor,
+    quality_label,
+    quality_rank,
+    row_value,
+    split_words,
+    to_int,
+    ts,
+)
 from .constants import (
     CITY_MAX_LEVEL,
     TRADE_ACTIVE_WINDOW_DAYS,
@@ -17,81 +35,26 @@ from .constants import (
 )
 from .format_text import T
 from .sect_war import record_sect_merit_conn, sect_direction_bonus_conn
-from .sql import TRADE_LOCATIONS, WAR_PREP_SEED, db
+from .sql import TRADE_LOCATION_NAMES_BY_ID, TRADE_LOCATIONS, WAR_PREP_SEED, db, world_category_key
 from .weapon_core import WeaponCore
 
 
-CITY_LOCATION_NAMES = tuple(location for location, _x, _y, _specialties in TRADE_LOCATIONS)
+CITY_LOCATION_IDS = tuple(TRADE_LOCATION_NAMES_BY_ID)
+CITY_LOCATION_NAMES = tuple(TRADE_LOCATION_NAMES_BY_ID.values())
 CITY_LOCATION_SET = set(CITY_LOCATION_NAMES)
 
-WORLD_RECYCLE_CATEGORIES = {"药路", "民生", "建设", "古物"}
-MATERIAL_STATE_COLUMNS = {
-    "血契丹": "medicine_material",
-    "阴冥草": "medicine_material",
-    "回春露": "medicine_material",
-    "凝神露": "medicine_material",
-    "生骨丹": "medicine_catalyst",
-    "养魂丹": "medicine_catalyst",
-    "城食": "life_food",
-    "盐鲜": "life_salt",
-    "水净": "life_water",
-    "衣被": "life_cloth",
-    "燃安": "life_fuel",
+WORLD_RECYCLE_CATEGORY_KEYS = {"medicine", "life", "build", "relic"}
+MEDICINE_ROLE_STATE_COLUMNS = {
+    "material": "medicine_material",
+    "catalyst": "medicine_catalyst",
+    "fuel": "medicine_fuel",
 }
-MEDICINE_VALUE_BY_SUBTYPE = {
-    "血契丹": 80,
-    "阴冥草": 80,
-    "回春露": 95,
-    "凝神露": 95,
-    "生骨丹": 150,
-    "养魂丹": 150,
-}
-MEDICINE_RING_BY_SUBTYPE = {
-    "血契丹": "xueqidan",
-    "阴冥草": "yinmingcao",
-    "回春露": "huichunlu",
-    "凝神露": "ningshenlu",
-    "生骨丹": "shenggudan",
-    "养魂丹": "yanghundan",
-}
-LIFE_VALUE_BY_SUBTYPE = {
-    "城食": 90,
-    "盐鲜": 95,
-    "水净": 100,
-    "衣被": 105,
-    "燃安": 135,
-}
-BUILD_EXP_BY_SUBTYPE = {
-    "基础": 400,
-    "水火": 550,
-    "阵基": 650,
-    "城防": 750,
-    "华饰": 1000,
-}
-BUILD_VALUE_BY_SUBTYPE = {
-    "基础": 90,
-    "水火": 120,
-    "阵基": 150,
-    "城防": 170,
-    "华饰": 220,
-}
-RELIC_ENERGY_BY_SUBTYPE = {
-    "微蕴": 10,
-    "中蕴": 35,
-    "厚蕴": 120,
-}
-RELIC_VALUE_BY_SUBTYPE = {
-    "微蕴": 180,
-    "中蕴": 650,
-    "厚蕴": 2200,
-}
-WAR_PREP_VALUE_BY_SUBTYPE = {
-    "鬼类": 20,
-    "兽类": 25,
-    "妖类": 30,
-    "兵戈类": 35,
-    "魔类": 40,
-    "龙类": 80,
+LIFE_STATE_COLUMNS_BY_KEY = {
+    "chengshi": "life_food",
+    "yanxian": "life_salt",
+    "shuijing": "life_water",
+    "yibei": "life_cloth",
+    "ranan": "life_fuel",
 }
 LIFE_THRESHOLDS = (100, 240, 430, 680, 1000, 1400, 1900, 2500, 3200, 4000)
 TREASURE_AUCTION_HOURS = 24
@@ -121,6 +84,61 @@ class WorldMaterialService(CoreService):
         super().__init__(database)
         self.weapon_core = WeaponCore(database)
 
+    def _city_location(
+        self,
+        location_name: object = "",
+        location_id: object = "",
+    ) -> dict[str, Any] | None:
+        """读取 11 个城池承接点；稳定 ID 优先，展示名只用于玩家输入。"""
+
+        with self.db.transaction() as conn:
+            return self._city_location_conn(conn, location_name, location_id)
+
+    @staticmethod
+    def _city_location_conn(
+        conn: sqlite3.Connection,
+        location_name: object = "",
+        location_id: object = "",
+    ) -> dict[str, Any] | None:
+        stable_id = str(location_id or "").strip()
+        row = None
+        if stable_id:
+            row = conn.execute(
+                "SELECT location_id, name, x, y FROM trade_locations WHERE location_id = ?",
+                (stable_id,),
+            ).fetchone()
+        if row is None:
+            name = str(location_name or "").strip()
+            if name:
+                row = conn.execute(
+                    "SELECT location_id, name, x, y FROM trade_locations WHERE name = ?",
+                    (name,),
+                ).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def _city_location_id_conn(
+        conn: sqlite3.Connection,
+        location_name: object = "",
+        location_id: object = "",
+    ) -> str:
+        city = WorldMaterialService._city_location_conn(conn, location_name, location_id)
+        return str(city["location_id"]) if city else ""
+
+    def _player_city_location(self, player: dict[str, Any]) -> dict[str, Any] | None:
+        return self._city_location(row_value(player, "location_name", ""), row_value(player, "location_id", ""))
+
+    @staticmethod
+    def _buyer_location_id_conn(conn: sqlite3.Connection, buyer_name: object, buyer_id: object = "") -> str:
+        stable_id = str(buyer_id or "").strip()
+        if stable_id:
+            return stable_id
+        row = conn.execute(
+            "SELECT location_id FROM special_buyers WHERE buyer_name = ?",
+            (str(buyer_name or "").strip(),),
+        ).fetchone()
+        return str(row["location_id"]) if row else ""
+
     def recycle(self, client_id: str, message: str) -> str:
         """回收药路、民生、建设和古物。"""
 
@@ -128,13 +146,15 @@ class WorldMaterialService(CoreService):
         if error:
             return error
         assert player is not None
-        location_name = str(player["location_name"])
-        if location_name not in CITY_LOCATION_SET:
+        city = self._player_city_location(player)
+        if not city:
             return T.hint(
                 "当前位置不能回收普通世界物资。",
                 "只有 11 个普通探险/跑商城池承接药路、民生、建设和古物；可发送：出售 物品名 数量 或 自动出售。",
                 buttons=("探险列表", "自动出售"),
             )
+        location_name = str(city["name"])
+        location_id = str(city["location_id"])
 
         targets, parse_error = self._recycle_targets(client_id, message)
         if parse_error:
@@ -151,10 +171,11 @@ class WorldMaterialService(CoreService):
         total_quantity = 0
         generated_maps: list[str] = []
         with self.db.transaction() as conn:
-            self.settle_city_conn(conn, location_name)
+            self.settle_city_id_conn(conn, location_id)
             for item, quantity in targets:
                 category, subtype = self.item_world_type(item)
-                if category not in WORLD_RECYCLE_CATEGORIES:
+                category_key, subtype_key = self.item_world_keys(item)
+                if category_key not in WORLD_RECYCLE_CATEGORY_KEYS:
                     continue
                 quantity = max(1, int(quantity))
                 if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
@@ -162,22 +183,25 @@ class WorldMaterialService(CoreService):
                 state_delta = self._apply_material_conn(conn, location_name, item, quantity, category, subtype)
                 stones = self._material_stones(conn, location_name, item, quantity, category, subtype)
                 conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                    "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                     (stones, client_id),
                 )
                 conn.execute(
                     """
                     INSERT INTO world_material_records
-                    (client_id, location_name, item_id, item_name, category, subtype, quantity, stones, state_delta, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (client_id, location_name, location_id, item_id, item_name, category, category_key, subtype, subtype_key, quantity, stones, state_delta, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         client_id,
                         location_name,
+                        location_id,
                         item["item_id"],
                         item["name"],
                         category,
+                        category_key,
                         subtype,
+                        subtype_key,
                         quantity,
                         stones,
                         dump_json(state_delta),
@@ -198,7 +222,7 @@ class WorldMaterialService(CoreService):
                 self._record_sect_material_merit_conn(conn, client_id, item, quantity, category, subtype, state_delta)
                 total_stones += stones
                 total_quantity += quantity
-                lines.append(self._material_line(item, quantity, category, subtype, stones, state_delta))
+                lines.append(self._material_line(item, quantity, category_key, category, subtype, stones, state_delta))
                 map_text = self._try_generate_treasure_map_conn(conn, location_name)
                 if map_text:
                     generated_maps.append(map_text)
@@ -225,21 +249,24 @@ class WorldMaterialService(CoreService):
         if error:
             return error
         assert player is not None
-        target = message.strip() or str(player["location_name"])
-        if target in CITY_LOCATION_SET:
-            self.city_state(target)
+        target_text = message.strip()
+        city = self._city_location(target_text) if target_text else self._player_city_location(player)
+        if city:
+            target = str(city["name"])
+            target_id = str(city["location_id"])
+            self.city_state_by_id(target_id)
             row = self.db.fetch_one(
                 """
                 SELECT *
                 FROM treasure_maps
-                WHERE city_name = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
+                WHERE city_id = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
                 ORDER BY generated_at DESC
                 LIMIT 1
                 """,
-                (target,),
+                (target_id,),
             )
             if not row:
-                state = self.city_state(target)
+                state = self.city_state_by_id(target_id)
                 lines = self.city_state_lines_from_state(state, compact=False)
                 return T.hint(f"{target} 暂无藏宝图。", "\n".join(lines) if lines else "出售古物可推动神秘蓄能。<自动出售>")
             return self._format_treasure_map(row, player)
@@ -274,23 +301,25 @@ class WorldMaterialService(CoreService):
         if error:
             return error
         assert player is not None
-        location_name = str(player["location_name"])
-        if location_name not in CITY_LOCATION_SET:
+        city = self._player_city_location(player)
+        if not city:
             return T.hint("只有在挂牌城池才能出价。", "先导航到对应城池，再发送：藏宝图出价 数量。<探险列表><藏宝图>")
+        location_name = str(city["name"])
+        location_id = str(city["location_id"])
         amount = to_int(message, 0)
         if amount <= 0:
             return T.hint("出价格式不正确。", "发送：藏宝图出价 数量，例如：藏宝图出价 20000。<藏宝图>")
         with self.db.transaction() as conn:
-            self.settle_city_conn(conn, location_name)
+            self.settle_city_id_conn(conn, location_id)
             row = conn.execute(
                 """
                 SELECT *
                 FROM treasure_maps
-                WHERE city_name = ? AND status = '拍卖中'
+                WHERE city_id = ? AND status = '拍卖中'
                 ORDER BY generated_at DESC
                 LIMIT 1
                 """,
-                (location_name,),
+                (location_id,),
             ).fetchone()
             if not row:
                 return T.hint(f"{location_name} 当前没有藏宝图拍卖。", "出售古物蓄能满后才会挂牌。<自动出售>")
@@ -302,11 +331,11 @@ class WorldMaterialService(CoreService):
             if amount < min_price:
                 return T.hint(f"出价太低，当前至少需要 {money(min_price)}。", f"发送：藏宝图出价 {min_price}<藏宝图出价 {min_price}>")
             if not self.spend_stones_conn(conn, client_id, amount):
-                return T.hint(f"随身源石不足，需要锁定 {money(amount)}。", "先取出源石或继续跑商。<源库><商场推荐>")
+                return T.hint(f"随身{currency_name()}不足，需要锁定 {money(amount)}。", f"先取出{currency_name()}或继续跑商。<银行><商场推荐>")
             old_bidder = str(row["highest_bidder"] or "")
             old_price = int(row["current_price"] or 0)
             if old_bidder:
-                conn.execute("UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?", (old_price, old_bidder))
+                conn.execute("UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?", (old_price, old_bidder))
                 conn.execute("UPDATE treasure_map_bids SET active = 0 WHERE map_id = ?", (row["map_id"],))
             bid_count = int(row["bid_count"]) + 1
             conn.execute(
@@ -343,8 +372,8 @@ class WorldMaterialService(CoreService):
             return error
         assert player is not None
         with self.db.transaction() as conn:
-            for city_name in CITY_LOCATION_NAMES:
-                self._settle_treasure_maps_conn(conn, city_name)
+            for city_id in CITY_LOCATION_IDS:
+                self._settle_treasure_maps_conn(conn, city_id)
             row = self._claimable_treasure_conn(conn, client_id, player)
             if not row:
                 return T.hint("当前没有可领取的藏宝图。", "拍下藏宝图、宗主待领，或走到荒地藏宝图坐标后才能领取。<藏宝图>")
@@ -352,7 +381,7 @@ class WorldMaterialService(CoreService):
                 conn,
                 client_id,
                 str(row["weapon_def_id"]),
-                "稀品",
+                QUALITY_EPIC,
                 int(row["weapon_max_level"]),
                 equipped=False,
             )
@@ -387,17 +416,25 @@ class WorldMaterialService(CoreService):
             )
         return (
             f"藏宝图兑现：{row['city_name']} 旧藏被你翻了出来，"
-            f"获得武器〔{weapon_id}〕{row['weapon_name']}[稀品] 上限{row['weapon_max_level']}。"
+            f"获得武器〔{weapon_id}〕{row['weapon_name']}[{quality_label(QUALITY_EPIC)}] 上限{row['weapon_max_level']}。"
             + T.buttons("武器", "藏宝图")
         )
 
     def city_state(self, location_name: str) -> dict[str, Any] | None:
         """读取并懒结算城池状态。"""
 
-        if location_name not in CITY_LOCATION_SET:
+        city = self._city_location(location_name)
+        if not city:
+            return None
+        return self.city_state_by_id(str(city["location_id"]))
+
+    def city_state_by_id(self, location_id: str) -> dict[str, Any] | None:
+        """按稳定城池 ID 读取并懒结算城池状态。"""
+
+        if str(location_id or "") not in CITY_LOCATION_IDS:
             return None
         with self.db.transaction() as conn:
-            return self.settle_city_conn(conn, location_name)
+            return self.settle_city_id_conn(conn, str(location_id))
 
     def city_state_lines(self, location_name: str, compact: bool = True) -> list[str]:
         """生成地点文本里的城池状态短句。"""
@@ -440,16 +477,28 @@ class WorldMaterialService(CoreService):
     def settle_city_conn(self, conn: sqlite3.Connection, location_name: str) -> dict[str, Any]:
         """懒结算城池状态并返回最新行。"""
 
-        row = conn.execute("SELECT * FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
+        location_id = self._city_location_id_conn(conn, location_name)
+        if not location_id:
+            return {}
+        return self.settle_city_id_conn(conn, location_id)
+
+    def settle_city_id_conn(self, conn: sqlite3.Connection, location_id: str) -> dict[str, Any]:
+        """按稳定城池 ID 懒结算城池状态并返回最新行。"""
+
+        city = self._city_location_conn(conn, location_id=location_id)
+        if not city:
+            return {}
+        city_name = str(city["name"])
+        row = conn.execute("SELECT * FROM city_world_states WHERE location_id = ?", (location_id,)).fetchone()
         if not row:
             conn.execute(
                 """
-                INSERT INTO city_world_states (location_name, last_settled_at, updated_at)
-                VALUES (?, ?, ?)
+                INSERT INTO city_world_states (location_name, location_id, last_settled_at, updated_at)
+                VALUES (?, ?, ?, ?)
                 """,
-                (location_name, ts(), ts()),
+                (city_name, location_id, ts(), ts()),
             )
-            row = conn.execute("SELECT * FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
+            row = conn.execute("SELECT * FROM city_world_states WHERE location_id = ?", (location_id,)).fetchone()
         assert row is not None
         state = dict(row)
         last = dt(str(state.get("last_settled_at") or ""))
@@ -457,7 +506,7 @@ class WorldMaterialService(CoreService):
             last = now()
         hours = max(0, int((now() - last).total_seconds() // 3600))
         if hours <= 0:
-            self._settle_treasure_maps_conn(conn, location_name)
+            self._settle_treasure_maps_conn(conn, location_id)
             return state
 
         guard = max(0, int(state["medicine_guard"]) - hours * self._medicine_guard_decay(state))
@@ -481,7 +530,7 @@ class WorldMaterialService(CoreService):
             SET medicine_guard = ?,
                 life_food = ?, life_salt = ?, life_water = ?, life_cloth = ?, life_fuel = ?,
                 last_settled_at = ?, updated_at = ?
-            WHERE location_name = ?
+            WHERE location_id = ?
             """,
             (
                 guard,
@@ -492,20 +541,23 @@ class WorldMaterialService(CoreService):
                 life_values["life_fuel"],
                 ts(),
                 ts(),
-                location_name,
+                location_id,
             ),
         )
-        self._settle_treasure_maps_conn(conn, location_name)
-        row = conn.execute("SELECT * FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
+        self._settle_treasure_maps_conn(conn, location_id)
+        row = conn.execute("SELECT * FROM city_world_states WHERE location_id = ?", (location_id,)).fetchone()
         assert row is not None
         return dict(row)
 
     def maybe_carry_medicine(self, conn: sqlite3.Connection, client_id: str, location_name: str) -> str:
         """普通跑商出售后按当地药路状态随机顺药。"""
 
-        if location_name not in CITY_LOCATION_SET:
+        city = self._city_location_conn(conn, location_name)
+        if not city:
             return ""
-        state = self.settle_city_conn(conn, location_name)
+        location_name = str(city["name"])
+        location_id = str(city["location_id"])
+        state = self.settle_city_id_conn(conn, location_id)
         med_score = self.medicine_stock_score(state)
         if med_score <= 0:
             return ""
@@ -546,7 +598,7 @@ class WorldMaterialService(CoreService):
                 medicine_fuel = max(0, medicine_fuel - ?),
                 medicine_guard = min(100, medicine_guard + ?),
                 updated_at = ?
-            WHERE location_name = ?
+            WHERE location_id = ?
             """,
             (
                 consume,
@@ -554,16 +606,16 @@ class WorldMaterialService(CoreService):
                 max(1, consume // 3),
                 8 + quantity * 4,
                 ts(),
-                location_name,
+                location_id,
             ),
         )
         conn.execute(
             """
             INSERT INTO trade_records
-            (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-            VALUES (?, 'medicine_carry', ?, ?, 0, 0, ?, ?, ?)
+            (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+            VALUES (?, 'medicine_carry', ?, ?, 0, 0, ?, ?, ?, ?)
             """,
-            (client_id, ring_id, quantity, location_name, business_day(), ts()),
+            (client_id, ring_id, quantity, location_name, location_id, business_day(), ts()),
         )
         record_sect_merit_conn(
             conn,
@@ -587,24 +639,27 @@ class WorldMaterialService(CoreService):
         """特殊出售战利品时增加对应势力战备。"""
 
         category, subtype = self.item_world_type(item)
-        if category != "战利品":
+        category_key, _subtype_key = self.item_world_keys(item)
+        if category_key != "loot":
             return {"added": 0, "text": ""}
-        prep = WAR_PREP_SEED.get(str(buyer_name))
+        buyer_id = self._buyer_location_id_conn(conn, buyer_name)
+        if not buyer_id:
+            return {"added": 0, "text": ""}
+        prep = WAR_PREP_SEED.get(buyer_id)
         if not prep:
             return {"added": 0, "text": ""}
-        base = WAR_PREP_VALUE_BY_SUBTYPE.get(subtype, 20)
-        added = max(1, int(base * max(1, int(quantity))))
+        added = self._war_prep_value(item, quantity)
         threshold = self.war_prep_threshold_conn(conn)
         now_text = ts()
-        row = conn.execute("SELECT * FROM war_prep_states WHERE buyer_name = ?", (buyer_name,)).fetchone()
+        row = conn.execute("SELECT * FROM war_prep_states WHERE location_id = ?", (buyer_id,)).fetchone()
         if not row:
             conn.execute(
                 """
                 INSERT INTO war_prep_states
-                (buyer_name, prep_name, loot_subtype, threshold, last_settled_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (location_id, buyer_name, prep_name, loot_subtype, threshold, last_settled_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (buyer_name, prep[0], prep[1], threshold, now_text, now_text),
+                (buyer_id, buyer_name, prep[0], prep[1], threshold, now_text, now_text),
             )
         conn.execute(
             """
@@ -614,9 +669,9 @@ class WorldMaterialService(CoreService):
                 pending = CASE WHEN prep_value + ? >= ? THEN 1 ELSE pending END,
                 pending_at = CASE WHEN prep_value + ? >= ? AND pending_at IS NULL THEN ? ELSE pending_at END,
                 updated_at = ?
-            WHERE buyer_name = ?
+            WHERE location_id = ?
             """,
-            (added, threshold, added, threshold, added, threshold, now_text, now_text, buyer_name),
+            (added, threshold, added, threshold, added, threshold, now_text, now_text, buyer_id),
         )
         if client_id:
             record_sect_merit_conn(
@@ -627,7 +682,7 @@ class WorldMaterialService(CoreService):
                 source="战利品战备",
                 detail=f"buyer={buyer_name}, item={item['item_id']}, quantity={quantity}, prep={prep[0]}",
             )
-        row = conn.execute("SELECT * FROM war_prep_states WHERE buyer_name = ?", (buyer_name,)).fetchone()
+        row = conn.execute("SELECT * FROM war_prep_states WHERE location_id = ?", (buyer_id,)).fetchone()
         current_value = int(row["prep_value"]) if row else added
         pending = bool(int(row["pending"])) if row else current_value >= threshold
         text = f"{prep[0]} +{added}，当前 {current_value}/{threshold}" + ("，已入待牵引队列" if pending else "")
@@ -671,6 +726,9 @@ class WorldMaterialService(CoreService):
     def consume_war_prep_conn(self, conn: sqlite3.Connection, buyer_name: str, threshold: int) -> None:
         """牵引战备虫洞后扣除本次阈值，溢出保留。"""
 
+        buyer_id = self._buyer_location_id_conn(conn, buyer_name)
+        if not buyer_id:
+            return
         conn.execute(
             """
             UPDATE war_prep_states
@@ -679,9 +737,9 @@ class WorldMaterialService(CoreService):
                 pending_at = CASE WHEN max(0, prep_value - ?) >= threshold THEN ? ELSE NULL END,
                 last_opened_at = ?,
                 updated_at = ?
-            WHERE buyer_name = ?
+            WHERE location_id = ?
             """,
-            (threshold, threshold, threshold, ts(), ts(), ts(), buyer_name),
+            (threshold, threshold, threshold, ts(), ts(), ts(), buyer_id),
         )
 
     def war_prep_threshold_conn(self, conn: sqlite3.Connection) -> int:
@@ -711,6 +769,14 @@ class WorldMaterialService(CoreService):
 
         effect = load_json(item.get("effect"), {})
         return str(effect.get("world_category") or item.get("category") or ""), str(effect.get("world_subtype") or "")
+
+    def item_world_keys(self, item: dict[str, Any]) -> tuple[str, str]:
+        """读取世界物资稳定规则键；展示名换皮后业务只认这组键。"""
+
+        effect = load_json(item.get("effect"), {})
+        category_key = str(effect.get("world_category_key") or "").strip()
+        subtype_key = str(effect.get("world_subtype_key") or "").strip()
+        return category_key, subtype_key
 
     @staticmethod
     def build_exp_need(level: int) -> int:
@@ -794,8 +860,9 @@ class WorldMaterialService(CoreService):
         rows = self.backpack_rows(client_id)
         if keyword in {"全部", "全回收", "一键回收"}:
             return self._recyclable_rows(rows), ""
-        if keyword in WORLD_RECYCLE_CATEGORIES:
-            return [row for row in self._recyclable_rows(rows) if self.item_world_type(row[0])[0] == keyword], ""
+        keyword_key = self._recycle_category_key(keyword)
+        if keyword_key:
+            return [row for row in self._recyclable_rows(rows) if self.item_world_keys(row[0])[0] == keyword_key], ""
         if len(parts) > 1 and parts[-1].lstrip("+-").isdigit():
             quantity = to_int(parts[-1], 0)
             item_name = " ".join(parts[:-1])
@@ -808,21 +875,47 @@ class WorldMaterialService(CoreService):
         if not item:
             return [], T.hint(f"没有找到物资：{item_name}。", "发送：背包 查看准确名称。<背包>")
         category, _subtype = self.item_world_type(item)
-        if category == "纯经济":
+        category_key, _subtype_key = self.item_world_keys(item)
+        if category_key == "trade":
             return [], T.hint(f"{item['name']} 是纯经济商场货。", "发送：出售 物品名 数量，系统会自动选择商场。<出售>")
-        if category == "战利品":
+        if category_key == "loot":
             return [], T.hint(f"{item['name']} 是战利品。", "发送：出售 物品名 数量，系统会自动前往收购点。<出售>")
-        if category not in WORLD_RECYCLE_CATEGORIES:
+        if category_key not in WORLD_RECYCLE_CATEGORY_KEYS:
             return [], T.hint(f"{item['name']} 不能走城池吸收。", "武器、宝石、技能书可发送：出售全部 武器/宝石/技能书。")
         return [(item, quantity)], ""
 
     def _recyclable_rows(self, rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], int]]:
         result = []
         for row in rows:
-            category, _subtype = self.item_world_type(row)
-            if category in WORLD_RECYCLE_CATEGORIES:
+            category_key, _subtype_key = self.item_world_keys(row)
+            if category_key in WORLD_RECYCLE_CATEGORY_KEYS:
                 result.append((row, int(row["quantity"])))
         return result
+
+    def _recycle_category_key(self, keyword: str) -> str:
+        """把当前皮肤分类名、默认分类名或稳定键解析成可回收世界大类。"""
+
+        value = str(keyword or "").strip()
+        if not value:
+            return ""
+        if value in WORLD_RECYCLE_CATEGORY_KEYS:
+            return value
+        default_key = world_category_key(value)
+        if default_key in WORLD_RECYCLE_CATEGORY_KEYS:
+            return default_key
+        rows = self.db.fetch_all(
+            """
+            SELECT category, json_extract(effect, '$.world_category_key') AS category_key
+            FROM item_defs
+            WHERE json_extract(effect, '$.world_category_key') IN ('medicine', 'life', 'build', 'relic')
+            GROUP BY category, category_key
+            """
+        )
+        for row in rows:
+            if str(row.get("category") or "").strip() == value:
+                key = str(row.get("category_key") or "").strip()
+                return key if key in WORLD_RECYCLE_CATEGORY_KEYS else ""
+        return ""
 
     def _apply_material_conn(
         self,
@@ -833,40 +926,42 @@ class WorldMaterialService(CoreService):
         category: str,
         subtype: str,
     ) -> dict[str, Any]:
-        if category == "药路":
-            amount = MEDICINE_VALUE_BY_SUBTYPE.get(subtype, 80) * quantity
-            column = MATERIAL_STATE_COLUMNS.get(subtype, "medicine_material")
-            if str(item.get("name", "")).endswith(("炭", "灰", "烟", "片")):
-                column = "medicine_fuel"
+        location_id = self._city_location_id_conn(conn, location_name)
+        if not location_id:
+            return {}
+        category_key, subtype_key = self.item_world_keys(item)
+        if category_key == "medicine":
+            amount = self._medicine_state_value(item, quantity)
+            column = self._medicine_state_column(item)
             conn.execute(
-                f"UPDATE city_world_states SET {column} = {column} + ?, updated_at = ? WHERE location_name = ?",
-                (amount, ts(), location_name),
+                f"UPDATE city_world_states SET {column} = {column} + ?, updated_at = ? WHERE location_id = ?",
+                (amount, ts(), location_id),
             )
             return {column: amount}
-        if category == "民生":
-            amount = LIFE_VALUE_BY_SUBTYPE.get(subtype, 100) * quantity
-            column = MATERIAL_STATE_COLUMNS.get(subtype, "life_food")
+        if category_key == "life":
+            amount = self._life_state_value(item, quantity)
+            column = LIFE_STATE_COLUMNS_BY_KEY.get(subtype_key, "life_food")
             conn.execute(
-                f"UPDATE city_world_states SET {column} = {column} + ?, updated_at = ? WHERE location_name = ?",
-                (amount, ts(), location_name),
+                f"UPDATE city_world_states SET {column} = {column} + ?, updated_at = ? WHERE location_id = ?",
+                (amount, ts(), location_id),
             )
             return {column: amount}
-        if category == "建设":
-            exp = BUILD_EXP_BY_SUBTYPE.get(subtype, 400) * quantity
-            old_row = conn.execute("SELECT city_level, build_exp FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
+        if category_key == "build":
+            exp = self._build_exp_value(item, quantity)
+            old_row = conn.execute("SELECT city_level, build_exp FROM city_world_states WHERE location_id = ?", (location_id,)).fetchone()
             old_level = int(old_row["city_level"]) if old_row else 1
             old_exp = 0 if old_level >= CITY_MAX_LEVEL else int(old_row["build_exp"] if old_row else 0)
             level, build_exp = self._apply_build_exp(old_level, old_exp + exp)
             conn.execute(
-                "UPDATE city_world_states SET city_level = ?, build_exp = ?, updated_at = ? WHERE location_name = ?",
-                (level, build_exp, ts(), location_name),
+                "UPDATE city_world_states SET city_level = ?, build_exp = ?, updated_at = ? WHERE location_id = ?",
+                (level, build_exp, ts(), location_id),
             )
             return {"build_exp": exp, "level_up": max(0, level - old_level)}
-        if category == "古物":
-            energy = RELIC_ENERGY_BY_SUBTYPE.get(subtype, 10) * quantity
+        if category_key == "relic":
+            energy = self._relic_energy_value(item, quantity)
             conn.execute(
-                "UPDATE city_world_states SET relic_energy = relic_energy + ?, updated_at = ? WHERE location_name = ?",
-                (energy, ts(), location_name),
+                "UPDATE city_world_states SET relic_energy = relic_energy + ?, updated_at = ? WHERE location_id = ?",
+                (energy, ts(), location_id),
             )
             return {"relic_energy": energy}
         return {}
@@ -881,19 +976,24 @@ class WorldMaterialService(CoreService):
         subtype: str,
     ) -> int:
         _ = conn, location_name
-        if category == "药路":
-            base = MEDICINE_VALUE_BY_SUBTYPE.get(subtype, max(80, int(item["base_price"]) // 4))
-            return int(base * quantity * random.uniform(0.9, 1.35))
-        if category == "民生":
-            base = LIFE_VALUE_BY_SUBTYPE.get(subtype, 100)
-            return int(base * quantity * random.uniform(1.1, 1.8))
-        if category == "建设":
-            base = BUILD_VALUE_BY_SUBTYPE.get(subtype, 120)
-            return int(base * quantity * random.uniform(0.9, 1.2))
-        if category == "古物":
-            base = RELIC_VALUE_BY_SUBTYPE.get(subtype, max(180, int(item["base_price"]) // 2))
-            return int(base * quantity * random.uniform(0.9, 1.25))
-        return max(1, int(item["base_price"]) * quantity)
+        category_key, _subtype_key = self.item_world_keys(item)
+        amount = max(1, int(quantity))
+        base_price = max(1, int(item.get("base_price", 1) or 1))
+        rank = quality_rank(item.get("quality"))
+        factor = quality_factor(item.get("quality"))
+        if category_key == "medicine":
+            unit = max(55, int(base_price * 0.33 * factor))
+            return int(unit * amount * random.uniform(0.9, 1.35))
+        if category_key == "life":
+            unit = max(80, int(base_price * (0.42 + rank * 0.08)))
+            return int(unit * amount * random.uniform(1.1, 1.8))
+        if category_key == "build":
+            unit = max(90, int(base_price * (0.18 + rank * 0.055)))
+            return int(unit * amount * random.uniform(0.9, 1.2))
+        if category_key == "relic":
+            unit = max(180, int(base_price * (0.36 + rank * 0.06)))
+            return int(unit * amount * random.uniform(0.9, 1.25))
+        return max(1, base_price * amount)
 
     def _apply_build_exp(self, level: int, build_exp: int) -> tuple[int, int]:
         current_level = max(1, min(CITY_MAX_LEVEL, int(level)))
@@ -908,17 +1008,67 @@ class WorldMaterialService(CoreService):
             current_exp = 0
         return current_level, current_exp
 
-    def _material_line(self, item: dict[str, Any], quantity: int, category: str, subtype: str, stones: int, delta: dict[str, Any]) -> str:
-        if category == "建设":
+    def _material_line(self, item: dict[str, Any], quantity: int, category_key: str, category: str, subtype: str, stones: int, delta: dict[str, Any]) -> str:
+        if category_key == "build":
             level_text = f"，城池升级 +{delta.get('level_up')}" if int(delta.get("level_up", 0)) > 0 else ""
-            return f"{item['name']} x{quantity}｜建设经验 +{delta.get('build_exp', 0)}{level_text}｜源石 +{money(stones)}"
-        if category == "古物":
-            return f"{item['name']} x{quantity}｜神秘蓄能 +{delta.get('relic_energy', 0)}｜源石 +{money(stones)}"
-        if category == "民生":
-            return f"{item['name']} x{quantity}｜民生底盘 +{sum(int(v) for v in delta.values())}｜源石 +{money(stones)}"
-        if category == "药路":
-            return f"{item['name']} x{quantity}｜药路来源 +{sum(int(v) for v in delta.values())}｜源石 +{money(stones)}"
-        return f"{item['name']} x{quantity}｜{category}/{subtype}｜源石 +{money(stones)}"
+            return f"{item['name']} x{quantity}｜建设经验 +{delta.get('build_exp', 0)}{level_text}｜{currency_amount(stones)}"
+        if category_key == "relic":
+            return f"{item['name']} x{quantity}｜神秘蓄能 +{delta.get('relic_energy', 0)}｜{currency_amount(stones)}"
+        if category_key == "life":
+            return f"{item['name']} x{quantity}｜民生底盘 +{sum(int(v) for v in delta.values())}｜{currency_amount(stones)}"
+        if category_key == "medicine":
+            return f"{item['name']} x{quantity}｜药路来源 +{sum(int(v) for v in delta.values())}｜{currency_amount(stones)}"
+        return f"{item['name']} x{quantity}｜{category}/{subtype}｜{currency_amount(stones)}"
+
+    @staticmethod
+    def _medicine_state_column(item: dict[str, Any]) -> str:
+        """药路物资计入哪一类储备，只看稳定 effect 字段。"""
+
+        effect = load_json(item.get("effect"), {})
+        role = str(effect.get("medicine_material_role") or "").strip()
+        return MEDICINE_ROLE_STATE_COLUMNS.get(role) or "medicine_material"
+
+    @staticmethod
+    def _medicine_state_value(item: dict[str, Any], quantity: int) -> int:
+        """药路状态值：按基础价和品质计算，不按药名或小类名判断。"""
+
+        unit = max(70, int(int(item.get("base_price", 260) or 260) * 0.36 * quality_factor(item.get("quality"))))
+        return unit * max(1, int(quantity))
+
+    @staticmethod
+    def _life_state_value(item: dict[str, Any], quantity: int) -> int:
+        """民生状态值：量大刚需，按基础价和品质折算。"""
+
+        base_price = int(item.get("base_price", 180) or 180)
+        unit = max(90, int(base_price * (0.45 + quality_rank(item.get("quality")) * 0.08)))
+        return unit * max(1, int(quantity))
+
+    @staticmethod
+    def _build_exp_value(item: dict[str, Any], quantity: int) -> int:
+        """建设经验：城池成长主价值，按基础价和品质拉开差距。"""
+
+        base_price = int(item.get("base_price", 420) or 420)
+        rank = quality_rank(item.get("quality"))
+        unit = max(320, int(base_price * (0.85 + rank * 0.22)))
+        return unit * max(1, int(quantity))
+
+    @staticmethod
+    def _relic_energy_value(item: dict[str, Any], quantity: int) -> int:
+        """古物蓄能：神秘物质只看含量强弱，含量由品质和基础价体现。"""
+
+        base_price = int(item.get("base_price", 1300) or 1300)
+        factor = quality_factor(item.get("quality"))
+        unit = max(8, int((base_price / 115) * factor))
+        return unit * max(1, int(quantity))
+
+    @staticmethod
+    def _war_prep_value(item: dict[str, Any], quantity: int) -> int:
+        """战备蓄能：按战利品价值和品质折算，不按战利品展示小类名判断。"""
+
+        base_price = int(item.get("base_price", 620) or 620)
+        rank = quality_rank(item.get("quality"))
+        unit = max(18, int(base_price / 34 * (0.85 + rank * 0.18)))
+        return unit * max(1, int(quantity))
 
     def _record_sect_material_merit_conn(
         self,
@@ -932,18 +1082,18 @@ class WorldMaterialService(CoreService):
     ) -> None:
         """世界物资回收同步沉淀宗门三底蕴。"""
 
-        if category == "建设":
+        category_key, _subtype_key = self.item_world_keys(item)
+        if category_key == "build":
             amount = int(state_delta.get("build_exp", 0) or 0)
             merit = "build"
-        elif category == "药路":
+        elif category_key == "medicine":
             amount = sum(int(v) for v in state_delta.values())
             merit = "support"
-        elif category == "民生":
+        elif category_key == "life":
             amount = int(sum(int(v) for v in state_delta.values()) * 0.8)
             merit = "support"
-        elif category == "古物":
-            base = RELIC_VALUE_BY_SUBTYPE.get(subtype, max(180, int(item.get("base_price", 180)) // 2))
-            amount = max(1, int(base * max(1, int(quantity)) / 4))
+        elif category_key == "relic":
+            amount = max(1, int(self._material_stones(conn, "", item, quantity, category, subtype) / 4))
             merit = "influence"
         else:
             return
@@ -957,16 +1107,21 @@ class WorldMaterialService(CoreService):
         )
 
     def _try_generate_treasure_map_conn(self, conn: sqlite3.Connection, location_name: str) -> str:
-        state = conn.execute("SELECT * FROM city_world_states WHERE location_name = ?", (location_name,)).fetchone()
+        city = self._city_location_conn(conn, location_name)
+        if not city:
+            return ""
+        location_name = str(city["name"])
+        location_id = str(city["location_id"])
+        state = conn.execute("SELECT * FROM city_world_states WHERE location_id = ?", (location_id,)).fetchone()
         if not state:
             return ""
         active = conn.execute(
             """
             SELECT 1 FROM treasure_maps
-            WHERE city_name = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
+            WHERE city_id = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
             LIMIT 1
             """,
-            (location_name,),
+            (location_id,),
         ).fetchone()
         if active:
             return ""
@@ -977,17 +1132,18 @@ class WorldMaterialService(CoreService):
         weapon = self._city_treasure_weapon(location_name, level)
         current = now()
         conn.execute(
-            "UPDATE city_world_states SET relic_energy = relic_energy - ?, updated_at = ? WHERE location_name = ?",
-            (limit, ts(current), location_name),
+            "UPDATE city_world_states SET relic_energy = relic_energy - ?, updated_at = ? WHERE location_id = ?",
+            (limit, ts(current), location_id),
         )
         conn.execute(
             """
             INSERT INTO treasure_maps
-            (city_name, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
-            VALUES (?, '拍卖中', ?, ?, ?, ?, ?, ?, ?)
+            (city_name, city_id, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
+            VALUES (?, ?, '拍卖中', ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 location_name,
+                location_id,
                 self._treasure_start_price(level),
                 weapon["weapon_def_id"],
                 weapon["name"],
@@ -999,14 +1155,14 @@ class WorldMaterialService(CoreService):
         )
         return f"{location_name}秘库震动，藏宝图挂牌，底价 {money(self._treasure_start_price(level))}。"
 
-    def _settle_treasure_maps_conn(self, conn: sqlite3.Connection, location_name: str) -> None:
+    def _settle_treasure_maps_conn(self, conn: sqlite3.Connection, location_id: str) -> None:
         rows = conn.execute(
             """
             SELECT *
             FROM treasure_maps
-            WHERE city_name = ? AND status IN ('拍卖中', '可拾取')
+            WHERE city_id = ? AND status IN ('拍卖中', '可拾取')
             """,
-            (location_name,),
+            (str(location_id),),
         ).fetchall()
         for row in rows:
             expires = dt(row["expires_at"])
@@ -1085,9 +1241,10 @@ class WorldMaterialService(CoreService):
             (int(row["x"]), int(row["y"]))
             for row in conn.execute("SELECT x, y FROM treasure_maps WHERE status = '可拾取' AND x IS NOT NULL AND y IS NOT NULL").fetchall()
         )
-        city_point = self._city_point(city_name)
+        city_id = self._city_location_id_conn(conn, city_name)
+        city_point = self._city_point(conn, city_id)
         if city_point:
-            radius = self._city_treasure_radius(conn, city_name)
+            radius = self._city_treasure_radius(conn, city_id)
             for _ in range(500):
                 x = random.randint(max(WORLD_COORD_MIN, city_point["x"] - radius), min(WORLD_COORD_MAX, city_point["x"] + radius))
                 y = random.randint(max(WORLD_COORD_MIN, city_point["y"] - radius), min(WORLD_COORD_MAX, city_point["y"] + radius))
@@ -1124,25 +1281,28 @@ class WorldMaterialService(CoreService):
         }
 
     @staticmethod
-    def _city_point(city_name: str) -> dict[str, int] | None:
+    def _city_point(conn: sqlite3.Connection, city_id: str) -> dict[str, int] | None:
         """读取 11 个普通城池坐标。"""
 
-        for name, x, y, _specialties in TRADE_LOCATIONS:
-            if name == city_name:
-                return {"x": int(x), "y": int(y)}
-        return None
+        row = conn.execute(
+            "SELECT x, y FROM trade_locations WHERE location_id = ?",
+            (str(city_id),),
+        ).fetchone()
+        return {"x": int(row["x"]), "y": int(row["y"])} if row else None
 
     @staticmethod
     def _distance(x1: int, y1: int, x2: int, y2: int) -> float:
         return math.hypot(int(x1) - int(x2), int(y1) - int(y2))
 
-    def _city_treasure_radius(self, conn: sqlite3.Connection, city_name: str) -> int:
-        row = conn.execute("SELECT city_level FROM city_world_states WHERE location_name = ?", (city_name,)).fetchone()
+    def _city_treasure_radius(self, conn: sqlite3.Connection, city_id: str) -> int:
+        row = conn.execute("SELECT city_level FROM city_world_states WHERE location_id = ?", (city_id,)).fetchone()
         level = int(row["city_level"]) if row else 1
         return max(1, min(CITY_MAX_LEVEL, level))
 
     def _city_treasure_weapon(self, location_name: str, city_level: int) -> dict[str, Any]:
-        rows = self.db.fetch_all("SELECT * FROM weapon_defs WHERE drop_location = ?", (location_name,))
+        with self.db.transaction() as conn:
+            location_id = self._city_location_id_conn(conn, location_name)
+        rows = self.db.fetch_all("SELECT * FROM weapon_defs WHERE drop_location_id = ?", (location_id,))
         if not rows:
             rows = self.db.fetch_all("SELECT * FROM weapon_defs")
         weapon = random.choice(rows)
@@ -1154,15 +1314,19 @@ class WorldMaterialService(CoreService):
         return int(30000 + max(1, int(city_level)) * 800)
 
     def _treasure_map_line(self, location_name: str) -> str:
+        with self.db.transaction() as conn:
+            location_id = self._city_location_id_conn(conn, location_name)
+        if not location_id:
+            return ""
         row = self.db.fetch_one(
             """
             SELECT status, current_price, bid_count, expires_at, x, y
             FROM treasure_maps
-            WHERE city_name = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
+            WHERE city_id = ? AND status IN ('拍卖中', '可拾取', '宗主待领', '已成交')
             ORDER BY generated_at DESC
             LIMIT 1
             """,
-            (location_name,),
+            (location_id,),
         )
         if not row:
             return ""
@@ -1209,7 +1373,7 @@ class WorldMaterialService(CoreService):
     def _format_treasure_map(self, row: dict[str, Any], player: dict[str, Any]) -> str:
         panel = T.panel()
         panel.section(f"藏宝图·{row['city_name']}")
-        panel.line(f"状态：{row['status']}｜武器：{row['weapon_name']}[稀品] 上限{row['weapon_max_level']}")
+        panel.line(f"状态：{row['status']}｜武器：{row['weapon_name']}[{quality_label(QUALITY_EPIC)}] 上限{row['weapon_max_level']}")
         if row["status"] == "拍卖中":
             expires = dt(row["expires_at"])
             left = max(0, int((expires - now()).total_seconds() // 60) + 1) if expires else 0
@@ -1223,7 +1387,7 @@ class WorldMaterialService(CoreService):
                 return panel.render() + T.buttons("领取藏宝图")
             return panel.render() + T.buttons(f"导航 {row['x']} {row['y']}", "藏宝图")
         if row["status"] in {"已成交", "宗主待领"} and str(row["owner_client_id"]) == str(player["client_id"]):
-            panel.line("这张图已经归你名下，领取后会兑现为城池特色稀品武器。")
+            panel.line(f"这张图已经归你名下，领取后会兑现为城池特色{quality_label(QUALITY_EPIC)}武器。")
             return panel.render() + T.buttons("领取藏宝图")
         return panel.render()
 
@@ -1272,8 +1436,7 @@ __all__ = [
     "CITY_LOCATION_NAMES",
     "CITY_LOCATION_SET",
     "TREASURE_BID_LIMIT",
-    "WAR_PREP_VALUE_BY_SUBTYPE",
-    "WORLD_RECYCLE_CATEGORIES",
+    "WORLD_RECYCLE_CATEGORY_KEYS",
     "WorldMaterialService",
     "service",
 ]

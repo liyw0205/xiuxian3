@@ -126,7 +126,7 @@ async def run_case(
     active = 0
     max_active = 0
 
-    async def fake_dispatch(client_id: str, message_data: dict[str, Any], manager: FakeManager, **_: Any) -> bool:
+    async def fake_dispatch(client_id: str, _message_data: dict[str, Any], manager: FakeManager, **_: Any) -> bool:
         nonlocal active, max_active
         active += 1
         max_active = max(max_active, active)

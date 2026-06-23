@@ -6,12 +6,16 @@ from ..format_text import T
 
 from ..common import (
     CoreService,
+    RING_CATEGORY_GEM,
     computed_weapon_attack,
     computed_weapon_enchant_slots,
+    currency_name,
     load_json,
     money,
     parse_name_level,
     parse_weapon_ref,
+    quality_label,
+    ring_category_key,
     split_words,
     to_int,
     ts,
@@ -84,7 +88,7 @@ class SecondHandService(CoreService):
         item_id = item["item_id"] if item else ""
         if not item:
             item = self.ring_item_def_by_name(item_name)
-            item_type = "gem" if item and item["category"] == "宝石" else "ring"
+            item_type = "gem" if item and ring_category_key(item.get("category_key") or item.get("category")) == RING_CATEGORY_GEM else "ring"
             item_id = item["ring_item_id"] if item else ""
         if not item:
             return T.hint(f"没有找到可上架物品：{item_name}。", "发送：背包、纳戒 或 武器，复制准确名称或武器 ID。")
@@ -194,11 +198,11 @@ class SecondHandService(CoreService):
             elif row["item_type"] not in {"ring", "gem"}:
                 return T.hint("该上架类型当前不支持购买。", "请重新查看二手市场，选择背包物品、纳戒物品或武器。<二手市场><背包><纳戒>")
             if not self.spend_stones_conn(conn, client_id, row["total_price"]):
-                return T.hint("随身源石不足。", "发送：源库 查看存量，或发送：取出源石 数量。<源库>")
+                return T.hint(f"随身{currency_name()}不足。", "发送：银行 查看存量，或发送：取出货币 数量。<银行>")
             fee = int(row["total_price"] * MARKET_FEE_RATE)
             seller_gain = row["total_price"] - fee
             conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                 (seller_gain, seller_id),
             )
             if row["item_type"] == "backpack":
@@ -352,7 +356,7 @@ class SecondHandService(CoreService):
 
         return conn.execute(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ? AND w.weapon_id = ?
@@ -365,7 +369,7 @@ class SecondHandService(CoreService):
 
         return conn.execute(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.weapon_id = ? AND w.holder_id = ?
@@ -391,7 +395,7 @@ class SecondHandService(CoreService):
 
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.weapon_id = ?
@@ -404,7 +408,7 @@ class SecondHandService(CoreService):
 
         enchants = len(load_json(weapon["enchant_effects"], []))
         return (
-            f"武器{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{weapon['quality']}] "
+            f"武器{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{quality_label(weapon['quality'])}] "
             f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{computed_weapon_attack(weapon)} "
             f"附魔:{enchants}/{computed_weapon_enchant_slots(weapon)}"
         )

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from ..format_text import T
 
-from ..common import CoreService, format_effect, load_json
+from ..common import CoreService, format_effect, load_json, quality_label
 from ..sql import db
+from ..world_skin import current_world_definition, current_world_definition_by_stable_id
+
+
+ITEM_INFO_KINDS = ("世界物品", "纳戒物品", "武器", "武器技能", "技能书附魔", "体质")
 
 
 class ItemInfoService(CoreService):
@@ -28,6 +32,10 @@ class ItemInfoService(CoreService):
         name = item_name.strip()
         if not name:
             return T.hint("缺少物品名称。", "发送：查看修仙物品 福袋")
+
+        definition = current_world_definition(name, self.db, kinds=ITEM_INFO_KINDS)
+        if definition:
+            return self._definition_text(definition.kind, definition.row)
 
         item = self.item_def_by_name(name)
         if item:
@@ -58,6 +66,23 @@ class ItemInfoService(CoreService):
             "发送：背包、纳戒、武器，复制准确名称后再查；武器实例请发送：查看武器，或查看武器 武器ID。<背包><纳戒><武器>",
         )
 
+    def _definition_text(self, kind: str, row: dict) -> str:
+        """按世界皮肤解析结果格式化完整定义。"""
+
+        if kind == "世界物品":
+            return self._backpack_item_text(row)
+        if kind == "纳戒物品":
+            return self._ring_item_text(row)
+        if kind == "武器":
+            return self._weapon_text(row)
+        if kind == "武器技能":
+            return self._weapon_skill_text(row)
+        if kind == "技能书附魔":
+            return self._weapon_enchant_text(row)
+        if kind == "体质":
+            return self._physique_text(row)
+        return T.hint("暂时不能查看这个世界条目。", "可以换成物品、武器、技能书、附魔或体质名称。")
+
     @staticmethod
     def _backpack_item_text(item: dict) -> str:
         """格式化背包物品定义。"""
@@ -65,10 +90,10 @@ class ItemInfoService(CoreService):
         effect = load_json(item["effect"], {})
         panel = T.panel()
         panel.section(item["name"])
-        panel.line(f"存放：背包｜分类：{item['category']}｜品级：{item['quality']}｜重量：**{item['weight']}**")
+        panel.line(f"存放：背包｜分类：{item['category']}｜品级：{quality_label(item['quality'])}｜重量：**{item['weight']}**")
         if effect.get("world_category"):
             panel.line(f"归属：{effect['world_category']} / {effect.get('world_subtype') or '未分小类'}")
-            panel.line(f"流向：{ItemInfoService._world_flow_text(str(effect['world_category']))}")
+            panel.line(f"流向：{ItemInfoService._world_flow_text(str(effect.get('world_category_key') or ''))}")
         panel.line(f"跑商：{'可' if item['tradeable'] else '不可'}｜使用：{'可' if item['usable'] else '不可'}")
         panel.line(f"基准价：**{item['base_price']}**")
         panel.line(f"效果：{format_effect(effect)}")
@@ -76,14 +101,14 @@ class ItemInfoService(CoreService):
         return panel.render()
 
     @staticmethod
-    def _world_flow_text(category: str) -> str:
+    def _world_flow_text(category_key: str) -> str:
         """展示世界物资当前去路。"""
 
-        if category == "纯经济":
+        if category_key == "trade":
             return "商场买卖，跑商赚价差"
-        if category in {"药路", "民生", "建设", "古物"}:
+        if category_key in {"medicine", "life", "build", "relic"}:
             return "出售/自动出售，转入当前城池状态"
-        if category == "战利品":
+        if category_key == "loot":
             return "出售/自动出售，流入特殊收购与战备蓄能"
         return "按对应玩法说明处理"
 
@@ -93,19 +118,20 @@ class ItemInfoService(CoreService):
         effect = load_json(item["effect"], {})
         panel = T.panel()
         panel.section(item["name"])
-        panel.line(f"存放：纳戒｜分类：{item['category']}｜品级：{item['quality']}")
+        panel.line(f"存放：纳戒｜分类：{item['category']}｜品级：{quality_label(item['quality'])}")
         panel.line(f"目标：{item['target_type']}｜使用：{'可' if item['usable'] else '不可'}")
         panel.line(f"效果：{format_effect(effect)}")
         panel.line(f"说明：{item['desc']}")
-        if item["name"] == "淬锋丹":
-            panel.line("纳戒专属命令：武器淬锋")
+        if str(item.get("ring_item_id") or "") == "cuifengdan":
+            panel.line("纳戒专属命令：武器升限")
         base_enchant_id = effect.get("base_enchant_id")
         if base_enchant_id:
-            base = self._weapon_enchant_by_id(str(base_enchant_id))
+            base = self._definition_row_by_stable_id("技能书附魔", str(base_enchant_id)) or self._weapon_enchant_by_id(str(base_enchant_id))
             if base:
                 panel.line(f"极版模板：{base['name']}｜来源：民生恩赐触发的技能书升级")
         enchant_id = effect.get("enchant_id")
-        enchant = self._weapon_enchant_by_id(enchant_id) if enchant_id else None
+        enchant = self._definition_row_by_stable_id("技能书附魔", str(enchant_id)) if enchant_id else None
+        enchant = enchant or (self._weapon_enchant_by_id(enchant_id) if enchant_id else None)
         if enchant:
             panel.line(f"附魔效果：{format_effect(enchant['effect'])}｜精神消耗变化：{enchant['mp_delta']:+d}")
         return panel.render()
@@ -113,7 +139,7 @@ class ItemInfoService(CoreService):
     def _weapon_text(self, weapon: dict) -> str:
         """格式化武器模板定义。"""
 
-        skill = self._weapon_skill_by_id(weapon["skill_id"])
+        skill = self._definition_row_by_stable_id("武器技能", str(weapon["skill_id"])) or self._weapon_skill_by_id(weapon["skill_id"])
         skill_text = "无"
         if skill:
             skill_text = (
@@ -167,6 +193,12 @@ class ItemInfoService(CoreService):
         """按名称读取武器模板。"""
 
         return self.db.fetch_one("SELECT * FROM weapon_defs WHERE name = ?", (name.strip(),))
+
+    def _definition_row_by_stable_id(self, kind: str, stable_id: str) -> dict | None:
+        """按稳定 ID 读取当前皮肤展示名覆盖后的定义。"""
+
+        definition = current_world_definition_by_stable_id(kind, stable_id, self.db)
+        return definition.row if definition else None
 
     def _weapon_skill_by_name(self, name: str) -> dict | None:
         """按名称读取武器自带技能。"""

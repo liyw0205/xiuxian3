@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from .. import combat_log_text
 from ..combat_core import CombatCore, service as combat_service
-from ..common import CoreService, business_day, dump_json, load_json, money, random, split_words, to_int, ts, weapon_id_label
+from ..common import (
+    CoreService,
+    RING_CATEGORY_BOOK,
+    business_day,
+    currency_name,
+    dump_json,
+    load_json,
+    money,
+    quality_factor,
+    quality_label,
+    quality_rank,
+    random,
+    ring_category_key,
+    split_words,
+    to_int,
+    ts,
+    weapon_id_label,
+)
 from ..format_text import T
 from ..sect_war import record_sect_robbery_influence_conn
 from ..sql import db
@@ -38,7 +55,7 @@ class DuelService(CoreService):
 
         target_ref, stake = self._parse_duel_message(message)
         if stake <= 0:
-            return T.hint("决斗格式不正确。", "发送：决斗 源石数量 对方名称，也可以直接@对方。")
+            return T.hint("决斗格式不正确。", "发送：决斗 货币数量 对方名称，也可以直接@对方。")
         return self._create_request(client_id, target_ref, "duel", stake)
 
     def accept_duel(self, client_id: str, message: str) -> str | dict:
@@ -68,7 +85,7 @@ class DuelService(CoreService):
             (client_id, client_id),
         )
         if not rows:
-            return T.hint("暂无切磋/决斗记录。", "发送：切磋 对方名称，或发送：决斗 源石数量 对方名称。")
+            return T.hint("暂无切磋/决斗记录。", "发送：切磋 对方名称，或发送：决斗 货币数量 对方名称。")
         panel = T.panel()
         panel.section("最近切磋/决斗记录")
         for row in rows:
@@ -453,7 +470,7 @@ class DuelService(CoreService):
             if loot.get("kind") == "weapon":
                 weapon_id = f"{weapon_id_label(loot['weapon_id'])} " if loot.get("weapon_id") else ""
                 drop = loot.get("weapon_drop") if isinstance(loot.get("weapon_drop"), dict) else {}
-                quality = f"[{drop.get('quality')}]" if drop.get("quality") else ""
+                quality = f"[{quality_label(drop.get('quality'))}]" if drop.get("quality") else ""
                 max_level = f" 上限{drop.get('max_level')}" if drop.get("max_level") else ""
                 texts.append(f"武器 {weapon_id}{loot.get('name', '武器')}{quality}{max_level}")
             else:
@@ -475,7 +492,7 @@ class DuelService(CoreService):
                 total += (int(row["base_price"]) if row else 0) * quantity
             elif kind == "ring":
                 row = conn.execute(
-                    "SELECT quality, category FROM ring_item_defs WHERE ring_item_id = ?",
+                    "SELECT quality, category_key FROM ring_item_defs WHERE ring_item_id = ?",
                     (str(loot.get("item_id", "")),),
                 ).fetchone()
                 total += self._ring_loot_base_value(row) * quantity
@@ -490,16 +507,9 @@ class DuelService(CoreService):
 
         if not row:
             return 0
-        base = {
-            "凡品": 800,
-            "良品": 1800,
-            "珍品": 4200,
-            "稀品": 9000,
-        }.get(str(row["quality"]), 1000)
-        if str(row["category"]) == "技能书":
+        base = {1: 800, 2: 1800, 3: 4200, 4: 9000}.get(quality_rank(row["quality"]), 1000)
+        if ring_category_key(row["category_key"]) == RING_CATEGORY_BOOK:
             return base * 2
-        if str(row["category"]) == "宝石":
-            return base
         return base
 
     def _weapon_drop_value_conn(self, conn, drop: dict) -> int:
@@ -513,13 +523,8 @@ class DuelService(CoreService):
         ).fetchone()
         base_attack = int(weapon_def["base_attack"]) if weapon_def else 10
         max_level = max(1, int(drop.get("max_level", 1) or 1))
-        quality_factor = {
-            "凡品": 1.0,
-            "良品": 1.4,
-            "珍品": 2.0,
-            "稀品": 3.0,
-        }.get(str(drop.get("quality", "")), 1.0)
-        return int((base_attack * 80 + max_level * 120) * quality_factor)
+        factor = quality_factor(drop.get("quality", ""))
+        return int((base_attack * 80 + max_level * 120) * factor)
 
     @staticmethod
     def _write_robbery_game_log_conn(
@@ -578,7 +583,7 @@ class DuelService(CoreService):
             return error
         assert player is not None
         if not target_id:
-            command = "决斗 源石数量 对方名称" if mode == "duel" else "切磋 对方名称"
+            command = "决斗 货币数量 对方名称" if mode == "duel" else "切磋 对方名称"
             return T.hint("没有找到对方。", f"发送：{command}，也可以直接@对方。")
         target, error = self.require_player(target_id)
         if error:
@@ -601,7 +606,7 @@ class DuelService(CoreService):
             if exists:
                 return T.hint("你或对方已有未处理的对战请求。", "先接受/拒绝当前请求，或等待请求超时后再发起。")
             if mode == "duel" and not self.spend_stones_conn(conn, client_id, stake):
-                return T.hint(f"源石不足，决斗需要冻结 {money(stake)}。", "发送：源库 查看存量，或先取出源石、签到、探险、出售物品。")
+                return T.hint(f"{currency_name()}不足，决斗需要冻结 {money(stake)}。", f"发送：银行 查看存量，或先取出货币、签到、探险、出售物品。")
             conn.execute(
                 """
                 INSERT INTO duel_requests
@@ -610,7 +615,7 @@ class DuelService(CoreService):
                 """,
                 (mode, client_id, target_id, stake, ts()),
             )
-        mode_text = "切磋" if mode == "spar" else f"决斗 {money(stake)} 源石"
+        mode_text = "切磋" if mode == "spar" else f"决斗 {money(stake)} {currency_name()}"
         accept_cmd = "接受切磋" if mode == "spar" else "接受决斗"
         reject_cmd = "拒绝切磋" if mode == "spar" else "拒绝决斗"
         from_name = str(player["display_name"])
@@ -714,7 +719,7 @@ class DuelService(CoreService):
                 return state_error
 
             if mode == "duel" and not self._spend_accept_stake_conn(conn, client_id, from_id, request):
-                return T.hint("你的源石不足，决斗已取消，发起人的冻结源石已退回。", "补足源石后让对方重新发起决斗。")
+                return T.hint(f"你的{currency_name()}不足，决斗已取消，发起人的冻结{currency_name()}已退回。", f"补足{currency_name()}后让对方重新发起决斗。")
 
             cursor = conn.execute(
                 "UPDATE duel_requests SET status = '已接受' WHERE duel_id = ? AND status = '等待'",
@@ -735,7 +740,7 @@ class DuelService(CoreService):
         if self.spend_stones_conn(conn, client_id, request["stake"]):
             return True
         conn.execute(
-            "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+            "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
             (request["stake"], from_id),
         )
         conn.execute(
@@ -752,7 +757,7 @@ class DuelService(CoreService):
         pool = request["stake"] * 2
         fee = int(pool * 0.03)
         conn.execute(
-            "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+            "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
             (pool - fee, result["winner_id"]),
         )
         return fee
@@ -1004,13 +1009,13 @@ class DuelService(CoreService):
                 return T.hint("没有找到待拒绝的请求。", "可能已超时或被处理，无需重复拒绝。")
             if mode == "duel":
                 conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                    "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                     (request["stake"], from_id),
                 )
         return "已拒绝。"
 
     def _expire_requests_conn(self, conn, *client_ids: str) -> None:
-        """把已超时的等待请求标记为超时，并退回决斗冻结源石。"""
+        """把已超时的等待请求标记为超时，并退回决斗冻结货币。"""
 
         ids = [client_id for client_id in dict.fromkeys(client_ids) if client_id]
         if ids:
@@ -1045,7 +1050,7 @@ class DuelService(CoreService):
                 continue
             if row["mode"] == "duel" and row["stake"] > 0:
                 conn.execute(
-                    "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                    "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                     (row["stake"], row["from_client_id"]),
                 )
             conn.execute(

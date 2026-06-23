@@ -17,9 +17,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from 修仙.common import load_json
-from 修仙.sql import XiuxianDB
-from 修仙.wormhole_service import BOSS_FLOW_TEXT, BOSS_POOL, WAR_PREP_REWARD_PROFILES, WormholeService
+from 修仙.common import CoreService, ENEMY_SKILL_NAMES_BY_KEY, dump_json, load_json
+from 修仙.sql import XiuxianDB, location_id_for_name
+from 修仙.wormhole_service import (
+    BOSS_POOL,
+    WAR_PREP_AFFIX_NAMES_BY_KEY,
+    WAR_PREP_BOSS_NAMES_BY_KEY,
+    WAR_PREP_REWARD_PROFILES,
+    WORMHOLE_BOSS_NAMES_BY_KEY,
+    WORMHOLE_COMBAT_PROFILES,
+    WORMHOLE_FLOW_NAMES_BY_KEY,
+    WormholeService,
+)
+from 修仙.探险.service import SECRET_REALM_ENVIRONMENT_NAMES_BY_KEY
 from 修仙.首领.service import SeasonalBossService
 import 修仙.wormhole_service as wormhole_module
 from 修仙.world_materials import WorldMaterialService
@@ -48,34 +58,65 @@ def _check_wormhole_metadata_and_war_prep_rewards(db: XiuxianDB) -> None:
 
     wormhole = WormholeService(db)
     expected_flows = {"高频连击", "重击破防", "持续伤害", "压制控制", "生存续航", "反击护身", "斩杀收割", "首领协作"}
-    assert {BOSS_FLOW_TEXT[name] for name, _kind, _factor in BOSS_POOL} == expected_flows
+    expected_profile_keys = {key for key, _flow_key, _flow, _kinds in WORMHOLE_COMBAT_PROFILES}
+    expected_flow_keys = {flow_key for _key, flow_key, _flow, _kinds in WORMHOLE_COMBAT_PROFILES}
+    expected_combat_kinds = {kind for _key, _flow_key, _flow, kinds in WORMHOLE_COMBAT_PROFILES for kind in kinds}
+    assert {flow for _key, _flow_key, flow, _kinds in WORMHOLE_COMBAT_PROFILES} == expected_flows
+    assert set(WORMHOLE_FLOW_NAMES_BY_KEY) == expected_flow_keys
+    assert {key for key, _name, _kind, _factor in BOSS_POOL} == set(WORMHOLE_BOSS_NAMES_BY_KEY)
+    assert len(BOSS_POOL) >= len(expected_flows)
     event = wormhole._open_event("tester", "test", "天枢城")
     meta = load_json(event["result"], {})
     assert meta.get("event_type") == "normal"
+    assert meta.get("boss_key") in WORMHOLE_BOSS_NAMES_BY_KEY
+    assert meta.get("boss_flow_key") in WORMHOLE_FLOW_NAMES_BY_KEY
     assert meta.get("boss_flow") in expected_flows
+    assert meta.get("combat_profile") in expected_profile_keys
+    assert meta.get("combat_kind") in expected_combat_kinds
+    assert CoreService._enemy_skill("妖", 10)["skill_key"] in ENEMY_SKILL_NAMES_BY_KEY
+    assert CoreService._enemy_skill("未知", 10)["skill_key"] == "enemy_skill_default"
+    assert len(SECRET_REALM_ENVIRONMENT_NAMES_BY_KEY) == 5
+    assert "幽冥风" in set(SECRET_REALM_ENVIRONMENT_NAMES_BY_KEY.values())
+    assert len(WAR_PREP_AFFIX_NAMES_BY_KEY) == 6
+    assert len(WAR_PREP_BOSS_NAMES_BY_KEY) == 18
+    captured_boss_kind: dict[str, str] = {}
+    old_fight_boss = wormhole_module.combat_service.fight_boss
+
+    def fake_fight_boss(_player, _event, *, boss_kind, action_limit=None, enemy_skill=None):
+        captured_boss_kind["value"] = boss_kind
+        return {}
+
+    try:
+        wormhole_module.combat_service.fight_boss = fake_fight_boss  # type: ignore[method-assign]
+        wormhole._fight_boss({"client_id": "tester", "level": 10}, event)
+    finally:
+        wormhole_module.combat_service.fight_boss = old_fight_boss  # type: ignore[method-assign]
+    assert captured_boss_kind["value"] == meta["combat_kind"]
 
     force = "伏魔殿"
-    book = wormhole._random_war_prep_book({"event_type": "war_prep", "force": force})
+    force_id = location_id_for_name(force)
+    book = wormhole._random_war_prep_book({"event_type": "war_prep", "force": force, "force_id": force_id})
     assert book is not None
     enchant_id = load_json(book["effect"], {}).get("enchant_id")
     enchant = db.fetch_one("SELECT effect FROM weapon_enchants WHERE enchant_id = ?", (enchant_id,))
     assert enchant is not None
     effect_keys = set(load_json(enchant["effect"], {}).keys())
-    assert effect_keys.intersection(WAR_PREP_REWARD_PROFILES[force]["book_effects"])
+    assert effect_keys.intersection(WAR_PREP_REWARD_PROFILES[force_id]["book_effects"])
 
+    dragon_id = location_id_for_name("龙渊阁")
     old_random = wormhole_module.random.random
     old_max_level = wormhole.weapon_core.random_max_level
     try:
         wormhole_module.random.random = lambda: 0.0
         wormhole.weapon_core.random_max_level = lambda: 20  # type: ignore[method-assign]
-        weapon = wormhole._random_war_prep_weapon({"event_type": "war_prep", "force": "龙渊阁"})
+        weapon = wormhole._random_war_prep_weapon({"event_type": "war_prep", "force": "龙渊阁", "force_id": dragon_id})
     finally:
         wormhole_module.random.random = old_random
         wormhole.weapon_core.random_max_level = old_max_level  # type: ignore[method-assign]
-    weapon_def = db.fetch_one("SELECT weapon_type FROM weapon_defs WHERE weapon_def_id = ?", (weapon["weapon_def_id"],))
+    weapon_def = db.fetch_one("SELECT weapon_type_key FROM weapon_defs WHERE weapon_def_id = ?", (weapon["weapon_def_id"],))
     assert weapon_def is not None
-    assert weapon_def["weapon_type"] in WAR_PREP_REWARD_PROFILES["龙渊阁"]["weapon_types"]
-    assert int(weapon["max_level"]) >= WAR_PREP_REWARD_PROFILES["龙渊阁"]["max_level_floor"]
+    assert weapon_def["weapon_type_key"] in WAR_PREP_REWARD_PROFILES[dragon_id]["weapon_types"]
+    assert int(weapon["max_level"]) >= WAR_PREP_REWARD_PROFILES[dragon_id]["max_level_floor"]
 
     _check_war_prep_reward_text(db, wormhole)
 
@@ -83,28 +124,48 @@ def _check_wormhole_metadata_and_war_prep_rewards(db: XiuxianDB) -> None:
 def _check_war_prep_reward_text(db: XiuxianDB, wormhole: WormholeService) -> None:
     """战备虫洞领奖必须展示来源、词条、倍率和定向奖励。"""
 
+    force_id = location_id_for_name("伏魔殿")
     with db.transaction() as conn:
         conn.execute(
             """
-            INSERT INTO players (client_id, display_name, level, hp, max_hp, mp, max_mp, source_stones, created_at)
+            INSERT INTO players (client_id, display_name, level, hp, max_hp, mp, max_mp, raw_stones, created_at)
             VALUES ('worm_reward_tester', '虫洞领奖测', 10, 100, 100, 60, 60, 0, '2000-01-01T00:00:00')
             """
         )
         cursor = conn.execute(
             """
             INSERT INTO wormholes (
-                boss_name, boss_kind, location_name, x, y,
+                boss_name, boss_kind, location_name, location_id, x, y,
                 level, max_hp, hp, attack, defense, difficulty,
                 opened_by, source, status, opened_at, closes_at, killed_at, result
             )
             VALUES (
-                '黑铠破界魔', '魔铠', '伏魔殿', -31, 21,
+                '黑铠破界魔', '魔铠', '伏魔殿', ?, -31, 21,
                 12, 1000, 0, 50, 10, 1.2,
                 'system', 'war_prep', '已击杀', '2000-01-01T00:00:00', '2999-01-01T00:00:00', '2000-01-01T00:05:00', ?
             )
             """,
             (
-                '{"event_type":"war_prep","force":"伏魔殿","war_prep_name":"伏魔战备","loot_subtype":"魔类","affixes":["余烬未冷"],"boss_flow":"重击破防","reward_multiplier":1.2,"reward_tendency":"魔类战利品、破防或镇魔技能书","war_prep_cost":900}',
+                force_id,
+                dump_json(
+                    {
+                        "event_type": "war_prep",
+                        "force": "伏魔殿",
+                        "force_id": force_id,
+                        "war_prep_name": "伏魔战备",
+                        "loot_subtype": "mo",
+                        "boss_key": "war_boss_fumodian_01",
+                        "affix_keys": ["war_prep_affix_warm_embers"],
+                        "affixes": ["余烬未冷"],
+                        "boss_flow_key": "worm_flow_heavy",
+                        "boss_flow": "重击破防",
+                        "combat_profile": "heavy",
+                        "combat_kind": "demon_general",
+                        "reward_multiplier": 1.2,
+                        "reward_tendency": "魔类战利品、破防或镇魔技能书",
+                        "war_prep_cost": 900,
+                    }
+                ),
             ),
         )
         wormhole_id = int(cursor.lastrowid)
@@ -130,22 +191,24 @@ def _check_treasure_map_city_radius(db: XiuxianDB) -> None:
     """无人竞拍藏宝图应优先落在所属城池影响半径内的荒地。"""
 
     world = WorldMaterialService(db)
+    city_id = location_id_for_name("天枢城")
     with db.transaction() as conn:
-        conn.execute("UPDATE city_world_states SET city_level = 8 WHERE location_name = '天枢城'")
+        conn.execute("UPDATE city_world_states SET city_level = 8 WHERE location_id = ?", (city_id,))
         conn.execute(
             """
             INSERT INTO treasure_maps
-            (city_name, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
-            VALUES ('天枢城', '拍卖中', 12000, 'qinglan_duanjian', '青岚短剑', 70, '2000-01-01T00:00:00', '2000-01-01T00:00:00', '{}')
-            """
+            (city_name, city_id, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
+            VALUES ('天枢城', ?, '拍卖中', 12000, 'qinglan_duanjian', '青岚短剑', 70, '2000-01-01T00:00:00', '2000-01-01T00:00:00', '{}')
+            """,
+            (city_id,),
         )
-        world._settle_treasure_maps_conn(conn, "天枢城")
+        world._settle_treasure_maps_conn(conn, city_id)
         row = conn.execute("SELECT * FROM treasure_maps WHERE city_name = '天枢城' ORDER BY map_id DESC LIMIT 1").fetchone()
         assert row is not None
         assert row["status"] == "可拾取"
         result = load_json(row["result"], {})
         assert result.get("near_city") is True
-        point = world._city_point("天枢城")
+        point = world._city_point(conn, city_id)
         assert point is not None
         assert world._distance(point["x"], point["y"], int(row["x"]), int(row["y"])) <= 8
         occupied = conn.execute("SELECT 1 FROM world_locations WHERE x = ? AND y = ?", (row["x"], row["y"])).fetchone()
@@ -170,21 +233,22 @@ def _check_treasure_map_city_radius(db: XiuxianDB) -> None:
             """,
             (cursor.lastrowid,),
         )
-        conn.execute("UPDATE city_world_states SET city_level = 0 WHERE location_name = '天枢城'")
+        conn.execute("UPDATE city_world_states SET city_level = 0 WHERE location_id = ?", (city_id,))
         conn.execute(
             """
             INSERT INTO treasure_maps
-            (city_name, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
-            VALUES ('天枢城', '拍卖中', 12000, 'qinglan_duanjian', '青岚短剑', 70, '2000-01-01T00:00:00', '2000-01-01T00:00:00', '{}')
-            """
+            (city_name, city_id, status, current_price, weapon_def_id, weapon_name, weapon_max_level, generated_at, expires_at, result)
+            VALUES ('天枢城', ?, '拍卖中', 12000, 'qinglan_duanjian', '青岚短剑', 70, '2000-01-01T00:00:00', '2000-01-01T00:00:00', '{}')
+            """,
+            (city_id,),
         )
         for x in range(-100, 101):
             for y in range(-100, 101):
                 conn.execute(
-                    "INSERT OR IGNORE INTO world_locations (name, x, y, category, terrain, desc) VALUES (?, ?, ?, '测试占位', '测试', '')",
-                    (f"测试占位{x}_{y}", x, y),
+                    "INSERT OR IGNORE INTO world_locations (location_id, name, x, y, category, terrain, features, desc) VALUES (?, ?, ?, ?, '测试占位', '测试', '[]', '')",
+                    (f"test_block_{x}_{y}", f"测试占位{x}_{y}", x, y),
                 )
-        world._settle_treasure_maps_conn(conn, "天枢城")
+        world._settle_treasure_maps_conn(conn, city_id)
         sect_row = conn.execute("SELECT * FROM treasure_maps WHERE city_name = '天枢城' ORDER BY map_id DESC LIMIT 1").fetchone()
         assert sect_row is not None
         assert sect_row["status"] == "宗主待领"

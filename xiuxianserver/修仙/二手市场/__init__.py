@@ -9,7 +9,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd=("二手市场", "小黄鱼"), priority=100, block=True)
-async def ws_second_hand_list(client_id: str, message: str) -> None:
+async def ws_second_hand_list(client_id: str) -> None:
     """查看二手市场。"""
 
     await send_reply(client_id, service.list_items(client_id), ws_manager, service)
@@ -23,7 +23,7 @@ async def ws_second_hand_sell(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd=("二手市场下架", "小黄鱼下架"), priority=100, block=True)
-async def ws_second_hand_cancel(client_id: str, message: str) -> None:
+async def ws_second_hand_cancel(client_id: str) -> None:
     """下架商品。"""
 
     await send_reply(client_id, service.cancel(client_id), ws_manager, service)

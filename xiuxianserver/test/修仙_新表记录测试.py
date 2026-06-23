@@ -22,7 +22,7 @@ from 修仙.rules import weapon_exp_for_level, weapon_exp_progress
 from 修仙.sql import XiuxianDB
 from 修仙.玩家.service import PlayerService
 from 修仙.武器.service import WeaponService
-from 修仙.源库.service import SourceVaultService
+from 修仙.银行.service import BankService
 
 
 def main() -> None:
@@ -34,12 +34,12 @@ def main() -> None:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_records_test.db")
         player = PlayerService(db)
         weapon = WeaponService(db)
-        vault = SourceVaultService(db)
+        bank = BankService(db)
 
         assert "创建成功" in player.create("record_player", "青衫客")
         assert "签到成功" in player.sign("record_player")
         assert "新手礼包领取成功" in player.newbie_gift("record_player")
-        assert "已存入源石" in vault.deposit("record_player", 1000)
+        assert "已存入：原石" in bank.deposit("record_player", 1000)
         weapon.ensure_starter_weapon("record_player")
         weapon_id = db.fetch_one("SELECT weapon_id FROM player_weapons WHERE holder_id = ?", ("record_player",))
         assert weapon_id is not None
@@ -67,11 +67,11 @@ def main() -> None:
 
         with db.transaction() as conn:
             conn.execute(
-                "UPDATE players SET level = 9, exp = 12345, source_stones = source_stones + 500000 WHERE client_id = ?",
+                "UPDATE players SET level = 9, exp = 12345, raw_stones = raw_stones + 500000 WHERE client_id = ?",
                 ("record_player",),
             )
             conn.execute(
-                "UPDATE source_vaults SET balance = 120000 WHERE client_id = ?",
+                "UPDATE bank_accounts SET balance = 120000 WHERE client_id = ?",
                 ("record_player",),
             )
             for index in range(5):
@@ -95,7 +95,7 @@ def main() -> None:
 
         profile_text = player.profile("record_player")
         assert "经验" in profile_text
-        assert "源石" in profile_text
+        assert "原石" in profile_text
         assert "武器" in profile_text
         assert "修仙日记" in player.diary("record_player")
 
@@ -131,7 +131,7 @@ def main() -> None:
                 ("record_player",),
             )
         }
-        assert {"创建用户", "签到", "新手礼包", "存入源石", "升级武器"}.issubset(log_actions)
+        assert {"创建用户", "签到", "新手礼包", "存入货币", "升级武器"}.issubset(log_actions)
         db.close()
 
     print("修仙长期记录表测试通过")

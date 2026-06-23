@@ -9,7 +9,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd="装备", priority=100, block=True)
-async def ws_equipment_list(client_id: str, message: str) -> None:
+async def ws_equipment_list(client_id: str) -> None:
     """查看装备。"""
 
     await send_reply(client_id, service.list_equipment(client_id), ws_manager, service)
@@ -51,7 +51,7 @@ async def ws_equipment_upgrade_inlay(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="宝石", priority=100, block=True)
-async def ws_equipment_my_inlays(client_id: str, message: str) -> None:
+async def ws_equipment_my_inlays(client_id: str) -> None:
     """查看宝石。"""
 
     await send_reply(client_id, service.my_inlays(client_id), ws_manager, service)

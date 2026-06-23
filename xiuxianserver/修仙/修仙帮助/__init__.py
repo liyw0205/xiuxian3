@@ -26,7 +26,7 @@ async def start_help_site() -> None:
 
 
 @WsMessageHandler.handler(cmd="帮助", priority=100, block=True)
-async def ws_web_help(client_id: str, message: str) -> None:
+async def ws_web_help(client_id: str) -> None:
     """发送帮助入口提示。"""
 
     await send_reply(
@@ -44,7 +44,7 @@ async def ws_web_help(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="修仙帮助", priority=100, block=True)
-async def ws_xiuxian_help_image(client_id: str, message: str) -> None:
+async def ws_xiuxian_help_image(client_id: str) -> None:
     """发送修仙帮助图。"""
 
     if not HELP_IMAGE.exists():

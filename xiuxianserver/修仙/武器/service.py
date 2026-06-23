@@ -5,15 +5,19 @@ from __future__ import annotations
 from ..format_text import T
 
 from ..common import (
+    RING_CATEGORY_BOOK,
     computed_weapon_enchant_slots,
     computed_weapon_potential_slots,
     computed_weapon_attack,
+    currency_name,
     dump_json,
     enchant_label_name,
     load_json,
     money,
     parse_weapon_ref,
     quality_factor,
+    quality_label,
+    ring_category_key,
     split_words,
     ts,
     weapon_id_label,
@@ -137,7 +141,7 @@ class WeaponService(WeaponCore):
                 weapon_id = int(equipped["weapon_id"]) if equipped else 0
             weapon = conn.execute(
                 """
-                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
                 WHERE w.holder_id = ? AND w.weapon_id = ?
@@ -154,7 +158,7 @@ class WeaponService(WeaponCore):
             next_level = current_level + 1
             cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
             if not self.spend_stones_conn(conn, client_id, cost):
-                return T.hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<签到><探险>")
+                return T.hint(f"{currency_name()}不足，升级需要 {money(cost)}。", f"发送：银行 查看存量，或通过签到、探险、出售物品获取{currency_name()}。<签到><探险>")
             target_exp = weapon_exp_for_level(next_level)
             exp_gain = max(0, target_exp - current_exp)
             next_weapon = dict(weapon)
@@ -213,7 +217,7 @@ class WeaponService(WeaponCore):
         if weapon_id <= 0 or not book_name:
             return T.hint("附魔格式不正确。", "发送：附魔武器 武器ID 技能书名，例如：附魔武器 武器#1 破甲残卷")
         book = self.ring_item_def_by_name(book_name)
-        if not book or book["category"] != "技能书":
+        if not book or ring_category_key(book.get("category_key") or book.get("category")) != RING_CATEGORY_BOOK:
             return T.hint(f"没有找到技能书：{book_name}。", "发送：纳戒 查看已有技能书。<纳戒>")
         effect = load_json(book["effect"], {})
         enchant_id = effect.get("enchant_id")
@@ -224,7 +228,7 @@ class WeaponService(WeaponCore):
         with self.db.transaction() as conn:
             weapon = conn.execute(
                 """
-                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
                 WHERE w.holder_id = ? AND w.weapon_id = ?
@@ -274,7 +278,7 @@ class WeaponService(WeaponCore):
         for enchant_id in enchant_ids:
             value = str(enchant_id)
             base_id = value
-            for row in self.db.fetch_all("SELECT effect FROM ring_item_defs WHERE category = '技能书'"):
+            for row in self.db.fetch_all("SELECT effect FROM ring_item_defs WHERE category_key = ?", (RING_CATEGORY_BOOK,)):
                 effect = load_json(row["effect"], {})
                 if str(effect.get("enchant_id") or "") == value:
                     base_id = str(effect.get("base_enchant_id") or value)
@@ -315,7 +319,7 @@ class WeaponService(WeaponCore):
         if not isinstance(enchant_ids, list):
             enchant_ids = []
         return (
-            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{weapon['quality']}] {mark} "
+            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{quality_label(weapon['quality'])}] {mark} "
             f"等级:{weapon['level']}/{weapon['max_level']} 经验:{self._exp_progress_text(weapon)} 攻击:{computed_weapon_attack(weapon)} "
             f"技能:{skill_name} 附魔:{len(enchant_ids)}/{computed_weapon_enchant_slots(weapon)}"
             f"{self._enchant_text(int(weapon['weapon_id']), enchant_ids)}"
@@ -338,7 +342,7 @@ class WeaponService(WeaponCore):
         recycle_text = self._recycle_state_text(weapon, total_count)
         legend_text = self._legend_text(int(weapon["weapon_id"]))
         return [
-            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{weapon['quality']}] {status}",
+            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{quality_label(weapon['quality'])}] {status}",
             (
                 f"模板：{weapon['name']}｜类型：{weapon['weapon_type']}｜"
                 f"掉落：{weapon['drop_location']}｜模板基础攻击：{weapon['base_attack']}"
@@ -381,7 +385,7 @@ class WeaponService(WeaponCore):
         current = self.format_player_name(legend.get("current_owner_id", fallback_holder))
         panel = T.panel()
         panel.section(f"武器传奇 {weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}")
-        panel.line(f"品质：{weapon['quality']}｜类型：{weapon['weapon_type']}｜等级：**{weapon['level']}/{weapon['max_level']}**")
+        panel.line(f"品质：{quality_label(weapon['quality'])}｜类型：{weapon['weapon_type']}｜等级：**{weapon['level']}/{weapon['max_level']}**")
         panel.line(f"武器经验：**{self._exp_progress_text(weapon)}**")
         panel.line(f"初主：{original}｜现主：{current}")
         panel.line(
@@ -402,7 +406,7 @@ class WeaponService(WeaponCore):
         cost = weapon_upgrade_cost(next_level, quality_factor(weapon["quality"]))
         current, need = weapon_exp_progress(int(weapon["exp"]), int(weapon["level"]), int(weapon["max_level"]))
         left = max(0, need - current)
-        return f"{next_level}级需源石{money(cost)}，补经验{left}"
+        return f"{next_level}级需{currency_name()}{money(cost)}，补经验{left}"
 
     @staticmethod
     def _exp_progress_text(weapon: dict) -> str:

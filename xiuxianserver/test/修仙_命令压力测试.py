@@ -75,7 +75,7 @@ def _prepare_resources(db: XiuxianDB) -> int:
     with db.transaction() as conn:
         for client_id in ("stress_a", "stress_b"):
             conn.execute(
-                "UPDATE players SET source_stones = source_stones + 5000000 WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + 5000000 WHERE client_id = ?",
                 (client_id,),
             )
         conn.execute(
@@ -160,7 +160,7 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
     return [
         ("stress_a", "帮助"),
         ("stress_a", "修仙帮助"),
-        ("stress_a", "修仙百科 宗门战奖励机制"),
+        ("stress_a", "修仙百科 宗门大会奖励机制"),
         ("stress_a", "指南"),
         ("stress_a", "创建用户 青衫客"),
         ("stress_a", "改名 云游客"),
@@ -169,8 +169,9 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", "宗门"),
         ("stress_a", "建立宗门 -49 -49 青云宗"),
         ("stress_b", "加入宗门 青云宗"),
-        ("stress_a", "宗门战"),
-        ("stress_a", "领取宗门战奖励"),
+        ("stress_a", "宗门成员"),
+        ("stress_a", "宗门大会"),
+        ("stress_a", "领取宗门大会奖励"),
         ("stress_b", "退出宗门"),
         ("stress_a", "修仙日记"),
         ("stress_a", "自动用药 开启"),
@@ -180,14 +181,14 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", "休息"),
         ("stress_a", "结束休息"),
         ("stress_a", "休息结束"),
-        ("stress_a", "源库"),
-        ("stress_a", "源库结息"),
-        ("stress_a", "升级源库"),
-        ("stress_a", "源库升级"),
-        ("stress_a", "存入源石 100"),
-        ("stress_a", "源石存入 100"),
-        ("stress_a", "取出源石 50"),
-        ("stress_a", "源石取出 50"),
+        ("stress_a", "银行"),
+        ("stress_a", "银行结息"),
+        ("stress_a", "升级银行"),
+        ("stress_a", "银行升级"),
+        ("stress_a", "存入货币 100"),
+        ("stress_a", "货币存入 100"),
+        ("stress_a", "取出货币 50"),
+        ("stress_a", "货币取出 50"),
         ("stress_a", "纳戒"),
         ("stress_a", "背包"),
         ("stress_a", "保险箱"),
@@ -205,7 +206,7 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", "使用 血契丹"),
         ("stress_a", "使用 洗髓液"),
         ("stress_a", "使用 风刃书"),
-        ("stress_a", "洗髓"),
+        ("stress_a", "体质重塑"),
         ("stress_a", "二手市场"),
         ("stress_a", "小黄鱼"),
         ("stress_a", "二手市场上架 妖脊骨 1 300"),
@@ -262,7 +263,7 @@ def _command_cases(weapon_id: int) -> list[tuple[str, str]]:
         ("stress_a", f"武器传奇 {weapon_id}"),
         ("stress_a", f"切换武器 {weapon_id}"),
         ("stress_a", f"升级武器 {weapon_id}"),
-        ("stress_a", "武器淬锋"),
+        ("stress_a", "武器升限"),
         ("stress_a", f"附魔武器 {weapon_id} 风刃书"),
         ("stress_a", "铭刻"),
         ("stress_a", "铭刻之羽"),
@@ -462,7 +463,7 @@ def _prepare_before_send(db: XiuxianDB, client_id: str, message: str) -> None:
             _add_common_items(conn, client_id)
         if command in {"藏宝图出价", "领取藏宝图"}:
             _ensure_treasure_map_conn(conn)
-        if command in {"使用", "洗髓", "存入保险箱", "存保险箱", "放入保险箱"}:
+        if command in {"使用", "体质重塑", "存入保险箱", "存保险箱", "放入保险箱"}:
             _add_common_items(conn, client_id)
         if command in {"镶嵌", "附魔武器"} or command.startswith("铭刻"):
             _add_common_items(conn, client_id)
@@ -481,15 +482,15 @@ def _prepare_before_send(db: XiuxianDB, client_id: str, message: str) -> None:
             "升",
             "宝石升级",
             "升级武器",
-            "升级源库",
-            "源库升级",
-            "存入源石",
-            "源石存入",
+            "升级银行",
+            "银行升级",
+            "存入货币",
+            "货币存入",
             "决斗",
-            "源石取出",
+            "货币取出",
         }:
             conn.execute(
-                "UPDATE players SET source_stones = source_stones + 5000000 WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + 5000000 WHERE client_id = ?",
                 (client_id,),
             )
         if command in {"切磋", "决斗"}:

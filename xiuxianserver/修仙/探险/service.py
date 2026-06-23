@@ -6,17 +6,35 @@ from datetime import timedelta
 
 from .. import combat_log_text
 from ..combat_core import service as combat_service
-from ..common import CoreService, dump_json, load_json, now, random, ts, weapon_id_label
-from ..constants import ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL, WORLD_COORD_MAX, WORLD_COORD_MIN
+from ..common import (
+    CoreService,
+    QUALITY_EPIC,
+    RING_CATEGORY_BOOK,
+    RING_CATEGORY_GEM,
+    RING_CATEGORY_RECOVERY,
+    dump_json,
+    enemy_kind_key,
+    load_json,
+    now,
+    player_level_label,
+    quality_factor,
+    quality_label,
+    quality_rank,
+    random,
+    ts,
+    weapon_id_label,
+)
+from ..constants import DEFAULT_LOCATION_ID, ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL, WORLD_COORD_MAX, WORLD_COORD_MIN
 from ..format_text import T
 from ..sect_war import sect_direction_bonus_conn
 from ..sql import db
 from ..weapon_core import service as weapon_service
 from ..world_materials import WorldMaterialService
+from ..world_skin import skin_record
 from ..battle_log_links import battle_log_markdown
 
 
-SECRET_REALM_LOCATIONS = {"太虚秘境"}
+SECRET_REALM_LOCATION_IDS = {"realm_taixu"}
 SECRET_REALM_FIRST_WEAPON_CHECK_ROUND = 3
 SECRET_REALM_WEAPON_ROUND_SIZE = 3
 SECRET_REALM_MAX_ENCOUNTERS = 30
@@ -25,7 +43,7 @@ SECRET_REALM_GEM_CHANCE = 0.25
 SECRET_REALM_GEM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]
 SECRET_REALM_GEM_LEVEL_WEIGHTS = [50, 25, 12, 7, 3, 2, 0.8, 0.2]
 MONSTER_KIND_LOOT_POOLS = {
-    "妖": (
+    "yao": (
         ("loot_yao_2", 28),
         ("loot_yao_3", 24),
         ("loot_yao_4", 24),
@@ -33,7 +51,7 @@ MONSTER_KIND_LOOT_POOLS = {
         ("loot_yao_5", 11),
         ("loot_yao_6", 8),
     ),
-    "魔": (
+    "demon": (
         ("loot_mo_4", 26),
         ("loot_mo_3", 22),
         ("loot_mo_2", 18),
@@ -41,7 +59,7 @@ MONSTER_KIND_LOOT_POOLS = {
         ("loot_mo_6", 11),
         ("loot_mo_5", 8),
     ),
-    "鬼": (
+    "ghost": (
         ("loot_gui_2", 28),
         ("loot_gui_4", 24),
         ("loot_gui_5", 20),
@@ -49,12 +67,12 @@ MONSTER_KIND_LOOT_POOLS = {
         ("loot_gui_3", 9),
         ("loot_gui_6", 7),
     ),
-    "龙": (
+    "dragon": (
         ("loot_long_1", 28),
         ("loot_long_2", 16),
         ("loot_long_3", 5),
     ),
-    "兽": (
+    "beast": (
         ("loot_shou_2", 26),
         ("loot_shou_3", 24),
         ("loot_shou_4", 22),
@@ -62,7 +80,7 @@ MONSTER_KIND_LOOT_POOLS = {
         ("loot_shou_5", 10),
         ("loot_shou_6", 7),
     ),
-    "兵": (
+    "soldier": (
         ("loot_bing_2", 24),
         ("loot_bing_3", 20),
         ("loot_bing_4", 18),
@@ -70,7 +88,7 @@ MONSTER_KIND_LOOT_POOLS = {
         ("loot_bing_5", 10),
         ("loot_bing_1", 5),
     ),
-    "傀": (
+    "puppet": (
         ("loot_bing_2", 28),
         ("loot_bing_3", 18),
         ("loot_bing_4", 16),
@@ -79,12 +97,13 @@ MONSTER_KIND_LOOT_POOLS = {
     ),
 }
 SECRET_REALM_ENVIRONMENTS = (
-    ("幽冥风", "阴风压魂，怪物精神压迫更重。", {"hp": 1.00, "attack": 1.05, "defense": 0.96}),
-    ("镜天影", "镜影错乱，遭遇强度起伏更大。", {"hp": 0.96, "attack": 1.02, "defense": 1.02}),
-    ("龙骨尘", "龙骨尘暴翻涌，怪物血防更厚。", {"hp": 1.10, "attack": 0.98, "defense": 1.08}),
-    ("星火雨", "星火落如雨，怪物攻势更烈。", {"hp": 0.98, "attack": 1.10, "defense": 0.98}),
-    ("归墟潮", "归墟潮汐反复，战斗更拖长。", {"hp": 1.06, "attack": 1.00, "defense": 1.04}),
+    ("secret_env_youming_wind", "幽冥风", "阴风压魂，怪物精神压迫更重。", {"hp": 1.00, "attack": 1.05, "defense": 0.96}),
+    ("secret_env_mirror_sky", "镜天影", "镜影错乱，遭遇强度起伏更大。", {"hp": 0.96, "attack": 1.02, "defense": 1.02}),
+    ("secret_env_dragon_bone_dust", "龙骨尘", "龙骨尘暴翻涌，怪物血防更厚。", {"hp": 1.10, "attack": 0.98, "defense": 1.08}),
+    ("secret_env_star_fire_rain", "星火雨", "星火落如雨，怪物攻势更烈。", {"hp": 0.98, "attack": 1.10, "defense": 0.98}),
+    ("secret_env_returning_tide", "归墟潮", "归墟潮汐反复，战斗更拖长。", {"hp": 1.06, "attack": 1.00, "defense": 1.04}),
 )
+SECRET_REALM_ENVIRONMENT_NAMES_BY_KEY = {key: name for key, name, _desc, _rates in SECRET_REALM_ENVIRONMENTS}
 FEATURE_LABELS = {
     "trade": "商路",
     "explore": "探险",
@@ -122,12 +141,12 @@ class ExplorationService(CoreService):
         panel.hr()
         panel.section("普通城池")
         for row in rows:
-            if self._is_secret_realm(row["name"]):
+            if self._is_secret_realm(row["name"], row.get("location_id", "")):
                 continue
-            specialties = self._trade_specialties_text(str(row["name"]))
+            specialties = self._trade_specialties_text(str(row["name"]), str(row.get("location_id") or ""))
             line = (
-                f"{row['name']} ({row['x']},{row['y']})｜推荐 **Lv.{row['recommended_level']}**｜"
-                f"怪物 Lv.{row['min_level']}-{row['max_level']}｜特产：{specialties}"
+                f"{row['name']} ({row['x']},{row['y']})｜推荐 **{player_level_label(row['recommended_level'])}**｜"
+                f"怪物 {player_level_label(row['min_level'])}-{player_level_label(row['max_level'])}｜特产：{specialties}"
             )
             state_lines = self.world_material.city_state_lines(str(row["name"]), compact=True)
             if state_lines:
@@ -135,7 +154,7 @@ class ExplorationService(CoreService):
             panel.line(line)
             for extra in state_lines[2:]:
                 panel.line(extra)
-        secret_rows = [row for row in rows if self._is_secret_realm(row["name"])]
+        secret_rows = [row for row in rows if self._is_secret_realm(row["name"], row.get("location_id", ""))]
         if secret_rows:
             panel.hr()
             panel.section("特殊秘境")
@@ -156,24 +175,12 @@ class ExplorationService(CoreService):
             .replace("，神秘蓄能 ", "｜神秘 ")
         )
 
-    @classmethod
-    def _secret_realm_map_line(cls, row: dict, player_level: int) -> str:
-        base_level = max(1, int(player_level))
-        normal_low = max(1, base_level - 5)
-        normal_high = base_level + 12
-        peak_high = base_level + 40
-        return (
-            f"{row['name']} ({row['x']},{row['y']})｜动态映身｜按你 **Lv.{base_level}** 映身｜"
-            f"常规 {cls._secret_realm_map_level_label(normal_low)}-{cls._secret_realm_map_level_label(normal_high)}｜"
-            f"上冲最高 {cls._secret_realm_map_level_label(peak_high)}｜{row['desc']}"
-        )
-
     @staticmethod
-    def _secret_realm_map_level_label(raw_level: int) -> str:
-        level = max(1, int(raw_level))
-        if level <= MAX_LEVEL:
-            return f"Lv.{level}"
-        return f"Lv.{MAX_LEVEL}+{level - MAX_LEVEL}"
+    def _secret_realm_map_line(row: dict, player_level: int) -> str:
+        _ = player_level
+        return (
+            f"{row['name']} ({row['x']},{row['y']})｜动态映身｜怪物随进入者变化｜{row['desc']}"
+        )
 
     def current_location(self, client_id: str) -> str:
         """查看当前位置。"""
@@ -207,7 +214,7 @@ class ExplorationService(CoreService):
 
         buttons: list[str] = []
         if exploration:
-            if self._is_secret_realm(str(exploration["name"])):
+            if self._is_secret_realm(str(exploration["name"]), str(exploration.get("location_id") or "")):
                 panel.hr()
                 panel.section("秘境")
                 panel.line("太虚秘境按玩家等级动态映身，主要产出高阶宝石和全池武器。")
@@ -215,15 +222,15 @@ class ExplorationService(CoreService):
                 panel.hr()
                 panel.section("探险")
                 panel.line(
-                    f"推荐 **Lv.{exploration['recommended_level']}**｜"
-                    f"怪物 Lv.{exploration['min_level']}-{exploration['max_level']}｜{exploration['desc']}"
+                    f"推荐 **{player_level_label(exploration['recommended_level'])}**｜"
+                    f"怪物 {player_level_label(exploration['min_level'])}-{player_level_label(exploration['max_level'])}｜{exploration['desc']}"
                 )
             buttons.append("探险")
 
         if trade:
             panel.hr()
             panel.section("商路城池")
-            panel.line(f"本地特产：{self._trade_specialties_text(str(trade['name']))}")
+            panel.line(f"本地特产：{self._trade_specialties_text(str(trade['name']), str(trade.get('location_id') or ''))}")
             state_lines = self.world_material.city_state_lines(str(trade["name"]), compact=True)
             if state_lines:
                 panel.lines(state_lines)
@@ -257,14 +264,20 @@ class ExplorationService(CoreService):
         if treasure:
             panel.hr()
             panel.section("藏宝图")
-            panel.line(f"{treasure['city_name']}旧藏散落于此：{treasure['weapon_name']}[稀品] 上限{treasure['weapon_max_level']}。")
+            panel.line(f"{treasure['city_name']}旧藏散落于此：{treasure['weapon_name']}[{quality_label(QUALITY_EPIC)}] 上限{treasure['weapon_max_level']}。")
             buttons.extend(["领取藏宝图", "藏宝图"])
 
         if not world_point and not sect:
-            buttons.extend(["导航 天枢城", "探险列表"])
+            buttons.extend([f"导航 {self._default_location_name()}", "探险列表"])
         else:
             buttons.append("探险列表")
         return panel.render() + T.buttons(*buttons)
+
+    def _default_location_name(self) -> str:
+        """读取主城当前展示名，避免世界皮肤切换后按钮还写死旧名。"""
+
+        row = self.db.fetch_one("SELECT name FROM world_locations WHERE location_id = ?", (DEFAULT_LOCATION_ID,))
+        return str(row["name"]) if row else "主城"
 
     def start(self, client_id: str, location_name: str = "") -> str:
         """开始探险。
@@ -295,6 +308,7 @@ class ExplorationService(CoreService):
         weapon_service.ensure_starter_weapon(client_id)
         explore_player = dict(player)
         explore_player["location_name"] = location["name"]
+        explore_player["location_id"] = location.get("location_id", "")
         explore_player["x"] = location["x"]
         explore_player["y"] = location["y"]
         result = self._precompute(client_id, explore_player)
@@ -329,10 +343,10 @@ class ExplorationService(CoreService):
             cursor = conn.execute(
                 """
                 UPDATE players
-                SET status = '探险中', location_name = ?, x = ?, y = ?
+                SET status = '探险中', location_name = ?, location_id = ?, x = ?, y = ?
                 WHERE client_id = ? AND status = '空闲' AND hp > 0
                 """,
-                (location["name"], location["x"], location["y"], client_id),
+                (location["name"], location.get("location_id", ""), location["x"], location["y"], client_id),
             )
             if cursor.rowcount <= 0:
                 return T.hint("当前状态已变化，不能开始探险。", "发送：修仙信息 查看当前状态后再操作。<修仙信息>")
@@ -341,10 +355,10 @@ class ExplorationService(CoreService):
             conn.execute(
                 """
                 INSERT INTO exploration_records
-                (client_id, location_name, status, started_at, ready_at, result)
-                VALUES (?, ?, '探险中', ?, ?, ?)
+                (client_id, location_name, location_id, status, started_at, ready_at, result)
+                VALUES (?, ?, ?, '探险中', ?, ?, ?)
                 """,
-                (client_id, location["name"], ts(started), ts(ready), dump_json(result)),
+                (client_id, location["name"], location.get("location_id", ""), ts(started), ts(ready), dump_json(result)),
             )
         auto_state = "开启" if player["auto_use_medicine"] else "关闭"
         duration_text = self._result_duration_text(result)
@@ -495,7 +509,7 @@ class ExplorationService(CoreService):
                     drop["max_level"],
                     equipped=False,
                 )
-                weapon_drops.append(f"{weapon_id_label(weapon_id)} {drop['name']}[{drop['quality']}] 上限{drop['max_level']}")
+                weapon_drops.append(f"{weapon_id_label(weapon_id)} {drop['name']}[{quality_label(drop['quality'])}] 上限{drop['max_level']}")
             final_hp = max(1, hp_left)
             final_mp = 0 if hp_left <= 0 else max(0, mp_left)
             conn.execute(
@@ -578,7 +592,7 @@ class ExplorationService(CoreService):
     def _precompute(self, client_id: str, player: dict) -> dict:
         """预计算 30 分钟探险事件。"""
 
-        if self._is_secret_realm(player["location_name"]):
+        if self._is_secret_realm(player["location_name"], player.get("location_id", "")):
             return self._precompute_secret_realm(client_id, player)
 
         min_level, max_level = self._monster_level_range(player)
@@ -623,6 +637,7 @@ class ExplorationService(CoreService):
                 start_hp=hp_left,
                 start_mp=mp_left,
             )
+            event["monster_level"] = int(monster.get("level") or 1)
             hp_left = int(event.get("hp_left", hp_left))
             mp_left = int(event.get("mp_left", mp_left))
             event["hp_left"] = hp_left
@@ -694,7 +709,8 @@ class ExplorationService(CoreService):
             if random.random() < 0.16 + explore_bonus * 0.3:
                 event["ring_drop_id"] = self._roll_ring_drop(
                     player["location_name"],
-                    0.004 if self._is_secret_realm(player["location_name"]) else 0.0,
+                    0.004 if self._is_secret_realm(player["location_name"], player.get("location_id", "")) else 0.0,
+                    str(player.get("location_id") or ""),
                 )
             events.append(event)
         return self._precompute_result(
@@ -727,6 +743,7 @@ class ExplorationService(CoreService):
             event = combat_service.fight_secret_realm_actor(client_id, monster, start_hp=hp_left, start_mp=mp_left)
             self._scale_secret_realm_exp(event)
             event["secret_realm"] = True
+            event["secret_environment_key"] = environment["key"]
             event["secret_environment"] = environment["name"]
             event["secret_environment_desc"] = environment["desc"]
             event["display_level"] = monster["display_level"]
@@ -826,7 +843,7 @@ class ExplorationService(CoreService):
     def _roll_weapon_drops(self, player: dict, events: list[dict], explore_bonus: float) -> list[dict]:
         """按探险类型生成武器预掉落。"""
 
-        if not self._is_secret_realm(player["location_name"]):
+        if not self._is_secret_realm(player["location_name"], player.get("location_id", "")):
             if not any(event.get("win") for event in events):
                 return []
             if random.random() < self._weapon_drop_chance(explore_bonus):
@@ -873,7 +890,7 @@ class ExplorationService(CoreService):
             "max_mp",
             "base_attack",
             "defense",
-            "source_stones",
+            "raw_stones",
             "status",
             "location_name",
             "x",
@@ -926,11 +943,20 @@ class ExplorationService(CoreService):
 
         return max(0.0, min(0.26, 0.20 + explore_bonus * 0.3))
 
-    @staticmethod
-    def _is_secret_realm(location_name: str) -> bool:
+    def _is_secret_realm(self, location_name: object = "", location_id: object = "") -> bool:
         """判断是否使用秘境规则。"""
 
-        return location_name in SECRET_REALM_LOCATIONS
+        stable_id = str(location_id or "").strip()
+        if stable_id:
+            return stable_id in SECRET_REALM_LOCATION_IDS
+        name = str(location_name or "").strip()
+        if not name:
+            return False
+        row = self.db.fetch_one(
+            "SELECT location_id FROM exploration_locations WHERE name = ?",
+            (name,),
+        )
+        return bool(row and str(row.get("location_id") or "") in SECRET_REALM_LOCATION_IDS)
 
     @staticmethod
     def _result_duration_seconds(result: dict) -> int:
@@ -969,8 +995,11 @@ class ExplorationService(CoreService):
     def _secret_realm_environment() -> dict:
         """随机一个太虚秘境环境。"""
 
-        name, desc, rates = random.choice(SECRET_REALM_ENVIRONMENTS)
-        return {"name": name, "desc": desc, "rates": rates}
+        key, name, desc, rates = random.choice(SECRET_REALM_ENVIRONMENTS)
+        skin = skin_record(("secret_realm", "environments"), key)
+        name = str(skin.get("name") or name)
+        desc = str(skin.get("desc") or desc)
+        return {"key": key, "name": name, "desc": desc, "rates": rates}
 
     def _secret_realm_actor(self, player: dict, templates: list[dict], environment: dict) -> dict:
         """按玩家状态生成一名太虚秘境对应角色。"""
@@ -1061,7 +1090,7 @@ class ExplorationService(CoreService):
     def _secret_realm_level_label(monster: dict) -> str:
         """秘境怪物等级展示，100 级后显示秘境强度。"""
 
-        label = f"Lv.{int(monster['display_level'])}"
+        label = player_level_label(monster["display_level"])
         void_power = int(monster.get("void_power", 0))
         if void_power > 0:
             label += f"｜秘境强度 +{void_power}"
@@ -1075,17 +1104,26 @@ class ExplorationService(CoreService):
         void_power = int(realm.get("highest_void_power") or 0)
         if level <= 0:
             return "无"
+        level_label = player_level_label(level)
         if void_power > 0:
-            return f"Lv.{level}｜秘境强度 +{void_power}"
-        return f"Lv.{level}"
+            return f"{level_label}｜秘境强度 +{void_power}"
+        return level_label
 
     def _monster_level_range(self, player: dict) -> tuple[int, int]:
         """按当前探险地点决定怪物等级段。"""
 
-        location = self.db.fetch_one(
-            "SELECT min_level, max_level FROM exploration_locations WHERE name = ?",
-            (player["location_name"],),
-        )
+        location = None
+        location_id = str(player.get("location_id") or "").strip()
+        if location_id:
+            location = self.db.fetch_one(
+                "SELECT min_level, max_level FROM exploration_locations WHERE location_id = ?",
+                (location_id,),
+            )
+        if not location:
+            location = self.db.fetch_one(
+                "SELECT min_level, max_level FROM exploration_locations WHERE name = ?",
+                (player["location_name"],),
+            )
         if location:
             return max(1, int(location["min_level"])), max(1, int(location["max_level"]))
         return max(1, player["level"] - 5), max(5, player["level"] + 8)
@@ -1160,10 +1198,15 @@ class ExplorationService(CoreService):
         row = self.db.fetch_one("SELECT display_name FROM players WHERE client_id = ?", (client_id,))
         return str(row["display_name"]) if row else client_id
 
-    def _trade_specialties_text(self, location_name: str) -> str:
+    def _trade_specialties_text(self, location_name: str, location_id: str = "") -> str:
         """读取城池三个纯经济特产。"""
 
-        row = self.db.fetch_one("SELECT specialties FROM trade_locations WHERE name = ?", (location_name,))
+        row = None
+        stable_id = str(location_id or "").strip()
+        if stable_id:
+            row = self.db.fetch_one("SELECT specialties FROM trade_locations WHERE location_id = ?", (stable_id,))
+        if not row:
+            row = self.db.fetch_one("SELECT specialties FROM trade_locations WHERE name = ?", (location_name,))
         if not row:
             return "无"
         names = [name.strip() for name in str(row["specialties"]).split(",") if name.strip()]
@@ -1233,7 +1276,7 @@ class ExplorationService(CoreService):
             """
             SELECT item_id
             FROM item_defs
-            WHERE category IN ('药路', '民生', '建设', '古物')
+            WHERE json_extract(effect, '$.world_category_key') IN ('medicine', 'life', 'build', 'relic')
             """
         )
         if not rows:
@@ -1241,8 +1284,9 @@ class ExplorationService(CoreService):
         weights = []
         for row in rows:
             item = self.item_def(row["item_id"])
-            category = str(item["category"]) if item else ""
-            weights.append({"药路": 34, "民生": 26, "建设": 28, "古物": 12}.get(category, 10))
+            effect = load_json(item["effect"], {}) if item else {}
+            category_key = str(effect.get("world_category_key") or "")
+            weights.append({"medicine": 34, "life": 26, "build": 28, "relic": 12}.get(category_key, 10))
         return random.choices(rows, weights=weights, k=1)[0]["item_id"]
 
     def _roll_secret_realm_location_drop(self) -> str:
@@ -1250,9 +1294,9 @@ class ExplorationService(CoreService):
 
         rows = self.db.fetch_all(
             """
-            SELECT item_id, category
+            SELECT item_id
             FROM item_defs
-            WHERE category IN ('古物', '战利品', '建设')
+            WHERE json_extract(effect, '$.world_category_key') IN ('relic', 'loot', 'build')
             """
         )
         if not rows:
@@ -1260,15 +1304,17 @@ class ExplorationService(CoreService):
         weights = []
         for row in rows:
             item = self.item_def(row["item_id"])
-            category = str(item["category"]) if item else str(row["category"])
             effect = load_json(item["effect"], {}) if item else {}
-            subtype = str(effect.get("subtype") or "")
-            if category == "古物":
-                weights.append({"厚蕴": 36, "中蕴": 24, "微蕴": 12}.get(subtype, 18))
-            elif category == "战利品":
-                weights.append(22)
-            elif category == "建设":
-                weights.append({"阵基": 12, "城防": 14, "华饰": 16}.get(subtype, 4))
+            category_key = str(effect.get("world_category_key") or "")
+            base_price = int(item["base_price"]) if item else 1
+            factor = quality_factor(item["quality"]) if item else 1.0
+            rank = quality_rank(item["quality"]) if item else 1
+            if category_key == "relic":
+                weights.append(max(10, int(base_price / 120 * factor)))
+            elif category_key == "loot":
+                weights.append(max(12, int(base_price / 80 * factor)))
+            elif category_key == "build":
+                weights.append(max(4, int(base_price / 140 * (0.8 + rank * 0.2))))
             else:
                 weights.append(1)
         return random.choices(rows, weights=weights, k=1)[0]["item_id"]
@@ -1278,7 +1324,7 @@ class ExplorationService(CoreService):
         """按怪物族群滚战利品，保留怪物原掉落作为偏向。"""
 
         base_item = str(monster.get("drop_item_id") or "").strip()
-        pool = MONSTER_KIND_LOOT_POOLS.get(str(monster.get("kind") or "").strip())
+        pool = MONSTER_KIND_LOOT_POOLS.get(enemy_kind_key(monster.get("kind_key") or monster.get("kind")))
         if not pool:
             return base_item
 
@@ -1296,8 +1342,9 @@ class ExplorationService(CoreService):
             """
             SELECT ring_item_id
             FROM ring_item_defs
-            WHERE category = '宝石'
-            """
+            WHERE category_key = ?
+            """,
+            (RING_CATEGORY_GEM,),
         )
         if not rows:
             return None
@@ -1335,43 +1382,43 @@ class ExplorationService(CoreService):
         except ValueError:
             return str(key), 0
 
-    def _roll_ring_drop(self, location_name: str = "", play_bonus: float = 0.0) -> str:
+    def _roll_ring_drop(self, location_name: str = "", play_bonus: float = 0.0, location_id: str = "") -> str:
         """随机掉落纳戒物品。
 
         恢复类、宝石和技能书都进纳戒，所以探险获得时直接写入纳戒。
         """
 
         rows = self.db.fetch_all("""
-            SELECT ring_item_id, category
+            SELECT ring_item_id, category_key
             FROM ring_item_defs
-            WHERE category IN ('恢复类', '宝石', '技能书')
+            WHERE category_key IN (?, ?, ?)
               AND ring_item_id != 'cuifengdan'
               AND ring_item_id NOT LIKE 'extreme_%'
-            """)
+            """, (RING_CATEGORY_RECOVERY, RING_CATEGORY_GEM, RING_CATEGORY_BOOK))
         if not rows:
             return ""
 
         groups = {
-            "恢复类": [row for row in rows if row["category"] == "恢复类"],
-            "宝石": [row for row in rows if row["category"] == "宝石"],
-            "技能书": [row for row in rows if row["category"] == "技能书"],
+            RING_CATEGORY_RECOVERY: [row for row in rows if row["category_key"] == RING_CATEGORY_RECOVERY],
+            RING_CATEGORY_GEM: [row for row in rows if row["category_key"] == RING_CATEGORY_GEM],
+            RING_CATEGORY_BOOK: [row for row in rows if row["category_key"] == RING_CATEGORY_BOOK],
         }
         roll = random.random()
-        if roll < 0.62 and groups["恢复类"]:
-            return random.choice(groups["恢复类"])["ring_item_id"]
-        if roll < 0.86 and groups["宝石"]:
-            return random.choice(groups["宝石"])["ring_item_id"]
-        if groups["技能书"]:
-            books = [row for row in groups["技能书"] if not str(row["ring_item_id"]).startswith("extreme_")]
-            book_id = random.choice(books or groups["技能书"])["ring_item_id"]
-            return self.maybe_upgrade_extreme_book(book_id, location_name, play_bonus)
+        if roll < 0.62 and groups[RING_CATEGORY_RECOVERY]:
+            return random.choice(groups[RING_CATEGORY_RECOVERY])["ring_item_id"]
+        if roll < 0.86 and groups[RING_CATEGORY_GEM]:
+            return random.choice(groups[RING_CATEGORY_GEM])["ring_item_id"]
+        if groups[RING_CATEGORY_BOOK]:
+            books = [row for row in groups[RING_CATEGORY_BOOK] if not str(row["ring_item_id"]).startswith("extreme_")]
+            book_id = random.choice(books or groups[RING_CATEGORY_BOOK])["ring_item_id"]
+            return self.maybe_upgrade_extreme_book(book_id, location_name, play_bonus, location_id)
         return random.choice(rows)["ring_item_id"]
 
     def _medicine_stock(self, client_id: str) -> dict[str, dict]:
         """读取可自动消耗的恢复药。
 
         只读取能恢复血气或精神的恢复类物品。
-        福袋虽然也在恢复类里，但它只给源石，不会被自动使用。
+        福袋虽然也在恢复类里，但它只给货币，不会被自动使用。
         """
 
         rows = self.db.fetch_all(
@@ -1381,10 +1428,10 @@ class ExplorationService(CoreService):
             JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
             WHERE r.client_id = ?
               AND r.quantity > 0
-              AND e.category = '恢复类'
+              AND e.category_key = ?
               AND e.usable = 1
             """,
-            (client_id,),
+            (client_id, RING_CATEGORY_RECOVERY),
         )
         stock: dict[str, dict] = {}
         for row in rows:
@@ -1592,7 +1639,11 @@ class ExplorationService(CoreService):
         losses = max(0, len(events) - wins)
         hp_left = int(player.get("hp", 1))
         mp_left = int(player.get("mp", 0))
-        level_text = f"{old_level} → {new_level}" if new_level > old_level else f"{new_level}，未升级"
+        level_text = (
+            f"{player_level_label(old_level)} → {player_level_label(new_level)}"
+            if new_level > old_level
+            else f"{player_level_label(new_level)}，未升级"
+        )
         highest_label = self._secret_realm_result_level_text(realm)
         stop_reason = self._stop_reason(dead, bag_full)
         if not dead and not bag_full:
@@ -1714,7 +1765,7 @@ class ExplorationService(CoreService):
                 texts.append("纳戒物品 " + self._ring_item_name(event["ring_drop_id"]))
         if event.get("weapon_drop"):
             drop = event["weapon_drop"]
-            texts.append(f"武器预掉落 {drop['name']}[{drop['quality']}] 上限{drop['max_level']}")
+            texts.append(f"武器预掉落 {drop['name']}[{quality_label(drop['quality'])}] 上限{drop['max_level']}")
         return "、".join(texts) if texts else "无"
 
     @staticmethod
@@ -1814,7 +1865,7 @@ class ExplorationService(CoreService):
                 ring_key = self._ring_drop_key(ring_id, int(event.get("ring_drop_level") or 0))
                 ring_drops[ring_key] = ring_drops.get(ring_key, 0) + 1
         for weapon_drop in self._weapon_drops_from_result(result):
-            weapon_drops.append(f"{weapon_drop['name']}[{weapon_drop['quality']}]上限{weapon_drop['max_level']}")
+            weapon_drops.append(f"{weapon_drop['name']}[{quality_label(weapon_drop['quality'])}]上限{weapon_drop['max_level']}")
 
         drop_parts = []
         if backpack_drops:
@@ -1879,4 +1930,4 @@ class ExplorationService(CoreService):
 
 service = ExplorationService(db)
 
-__all__ = ["ExplorationService", "service"]
+__all__ = ["ExplorationService", "SECRET_REALM_ENVIRONMENT_NAMES_BY_KEY", "service"]

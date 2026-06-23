@@ -31,6 +31,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from launch.config import config
+from 修仙.common import (
+    QUALITY_KEYS,
+    RING_CATEGORY_KEYS,
+    enemy_kind_key,
+    quality_factor,
+    quality_label,
+    quality_key,
+    random_quality,
+    ring_category_key,
+    weapon_type_key,
+)
 from 修仙.sql import TRADE_FORBIDDEN_SPECIALTY_TYPES, XiuxianDB
 from 修仙.修仙物品.service import ItemInfoService
 
@@ -209,6 +220,19 @@ def _check_seed_data() -> None:
             db.init()
             assert db.conn is not None
             conn = db.conn
+            assert quality_key("稀品") == "quality_epic"
+            assert quality_label("quality_epic") == "稀品"
+            assert quality_factor("quality_epic") == quality_factor("稀品")
+            assert random_quality() in QUALITY_KEYS
+            assert ring_category_key("技能书") == "book"
+            assert ring_category_key("宝石") == "gem"
+            assert ring_category_key("恢复类") == "recovery"
+            assert weapon_type_key("剑") == "sword"
+            assert weapon_type_key("sword") == "sword"
+            assert weapon_type_key("不存在武器类型") == "balanced"
+            assert enemy_kind_key("妖兽") == "beast"
+            assert enemy_kind_key("beast") == "beast"
+            assert enemy_kind_key("不存在族群") == "default"
             counts = {
                 "item_defs": _count(conn, "item_defs"),
                 "ring_item_defs": _count(conn, "ring_item_defs"),
@@ -221,6 +245,34 @@ def _check_seed_data() -> None:
             }
             empty = [name for name, count in counts.items() if count <= 0]
             assert not empty, "基础表为空：" + "、".join(empty)
+
+            _assert_no_rows(
+                conn,
+                """
+                SELECT 'item_defs' AS table_name, item_id AS object_id, quality
+                FROM item_defs
+                WHERE quality NOT IN ('quality_common', 'quality_good', 'quality_rare', 'quality_epic')
+                UNION ALL
+                SELECT 'ring_item_defs' AS table_name, ring_item_id AS object_id, quality
+                FROM ring_item_defs
+                WHERE quality NOT IN ('quality_common', 'quality_good', 'quality_rare', 'quality_epic')
+                """,
+                "定义表品质必须使用稳定键",
+            )
+            ring_category_placeholders = ",".join("?" for _ in RING_CATEGORY_KEYS)
+            _assert_no_rows(
+                conn,
+                f"""
+                SELECT ring_item_id, name, category, category_key
+                FROM ring_item_defs
+                WHERE category_key IS NULL
+                   OR category_key = ''
+                   OR category_key = category
+                   OR category_key NOT IN ({ring_category_placeholders})
+                """,
+                "纳戒物品必须保存稳定分类键，业务不能依赖展示分类",
+                tuple(sorted(RING_CATEGORY_KEYS)),
+            )
 
             _assert_no_rows(
                 conn,
@@ -246,8 +298,8 @@ def _check_seed_data() -> None:
                 """
                 SELECT t.name
                 FROM trade_locations t
-                LEFT JOIN exploration_locations e ON e.name = t.name
-                WHERE e.name IS NULL OR t.name = '太虚秘境'
+                LEFT JOIN exploration_locations e ON e.location_id = t.location_id
+                WHERE e.location_id IS NULL OR e.location_id = 'realm_taixu'
                 """,
                 "跑商地点必须与普通探险地点重合，且不能包含太虚秘境",
             )
@@ -256,8 +308,8 @@ def _check_seed_data() -> None:
                 """
                 SELECT e.name
                 FROM exploration_locations e
-                LEFT JOIN trade_locations t ON t.name = e.name
-                WHERE e.name != '太虚秘境' AND t.name IS NULL
+                LEFT JOIN trade_locations t ON t.location_id = e.location_id
+                WHERE e.location_id != 'realm_taixu' AND t.location_id IS NULL
                 """,
                 "普通探险地点必须都有跑商入口",
             )
@@ -267,10 +319,67 @@ def _check_seed_data() -> None:
                 SELECT name, json_extract(effect, '$.trade_type') AS trade_type
                 FROM item_defs
                 WHERE tradeable = 1
-                  AND category = '纯经济'
-                  AND json_extract(effect, '$.trade_group') != '纯经济'
+                  AND json_extract(effect, '$.world_category_key') = 'trade'
+                  AND json_extract(effect, '$.trade_group') != 'trade'
                 """,
-                "跑商特产必须统一为纯经济商品",
+                "跑商特产必须统一使用稳定 trade 规则组",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT name
+                FROM item_defs
+                WHERE json_extract(effect, '$.world_category') IS NOT NULL
+                  AND (
+                    json_extract(effect, '$.world_category_key') IS NULL
+                    OR json_extract(effect, '$.world_category_key') = ''
+                  )
+                """,
+                "世界物资必须写入稳定大类键",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT name
+                FROM item_defs
+                WHERE json_extract(effect, '$.world_category') IS NOT NULL
+                  AND (
+                    json_extract(effect, '$.world_subtype_key') IS NULL
+                    OR json_extract(effect, '$.world_subtype_key') = ''
+                  )
+                """,
+                "世界物资必须写入稳定小类键",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT location_id, loot_subtype
+                FROM war_prep_states
+                WHERE loot_subtype NOT IN ('yao', 'mo', 'gui', 'long', 'shou', 'bing')
+                """,
+                "战备状态必须保存战利品稳定小类键",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT name, weapon_type, weapon_type_key
+                FROM weapon_defs
+                WHERE weapon_type_key IS NULL
+                   OR weapon_type_key = ''
+                   OR weapon_type_key = weapon_type
+                """,
+                "武器模板必须保存稳定类型键，数值不能依赖武器类型展示名",
+            )
+            _assert_no_rows(
+                conn,
+                """
+                SELECT name, kind, kind_key
+                FROM monster_defs
+                WHERE kind_key IS NULL
+                   OR kind_key = ''
+                   OR kind_key = kind
+                """,
+                "怪物模板必须保存稳定族群键，技能和掉落不能依赖怪物类型展示名",
             )
             forbidden_placeholders = ",".join("?" for _ in TRADE_FORBIDDEN_SPECIALTY_TYPES)
             _assert_no_rows(
@@ -279,7 +388,7 @@ def _check_seed_data() -> None:
                 SELECT name, json_extract(effect, '$.trade_type') AS trade_type
                 FROM item_defs
                 WHERE tradeable = 1
-                  AND category = '纯经济'
+                  AND json_extract(effect, '$.world_category_key') = 'trade'
                   AND json_extract(effect, '$.trade_type') IN ({forbidden_placeholders})
                 """,
                 "跑商特产不能使用旧民生类或药路类",
@@ -313,8 +422,8 @@ def _check_seed_data() -> None:
                 SELECT w.weapon_def_id, w.name, w.drop_location
                 FROM weapon_defs w
                 LEFT JOIN exploration_locations e
-                  ON e.name = w.drop_location AND e.name != '太虚秘境'
-                WHERE e.name IS NULL
+                  ON e.location_id = w.drop_location_id AND e.location_id != 'realm_taixu'
+                WHERE e.location_id IS NULL
                 """,
                 "武器掉落地点必须是普通探险地点",
             )
@@ -324,7 +433,7 @@ def _check_seed_data() -> None:
                 SELECT e.ring_item_id, e.name
                 FROM ring_item_defs e
                 LEFT JOIN weapon_enchants w ON w.enchant_id = json_extract(e.effect, '$.enchant_id')
-                WHERE e.category = '技能书'
+                WHERE e.category_key = 'book'
                   AND w.enchant_id IS NULL
                 """,
                 "技能书没有对应附魔定义",
@@ -335,8 +444,8 @@ def _check_seed_data() -> None:
                 """
                 SELECT e.name
                 FROM exploration_locations e
-                LEFT JOIN world_locations w ON w.name = e.name
-                WHERE w.name IS NULL
+                LEFT JOIN world_locations w ON w.location_id = e.location_id
+                WHERE w.location_id IS NULL
                 """,
                 "探险地点不能导航到",
             )
@@ -395,10 +504,12 @@ def _check_known_effect_keys() -> None:
         "enchant_id",
         "explore_bonus",
         "home_location",
+        "home_location_id",
         "hp_delta",
         "hp_ratio",
         "max_hp_bonus",
         "max_mp_bonus",
+        "medicine_material_role",
         "mp_bonus",
         "mp_delta",
         "mp_ratio",
@@ -408,7 +519,7 @@ def _check_known_effect_keys() -> None:
         "random_stones_min",
         "random_stones_segments",
         "recover_bonus",
-        "source_stones_delta",
+        "raw_stones_delta",
         "trade_bonus",
         "trade_group",
         "trade_type",
@@ -416,7 +527,9 @@ def _check_known_effect_keys() -> None:
         "weapon_max_level_delta",
         "wash_physique",
         "world_category",
+        "world_category_key",
         "world_subtype",
+        "world_subtype_key",
     }
     with TemporaryDirectory() as temp_dir:
         db = XiuxianDB(Path(temp_dir) / "xiuxian_effect_audit.db")
@@ -497,15 +610,15 @@ def _check_deprecated_commands_removed() -> None:
     当前修仙模块是“新开始”，只保留正式命令。
     例外包括自然入口和手动保留的顺口别名：
     `帮助/修仙帮助`、`结束休息/休息结束`、
-    `修仙信息/状态`、`升级源库/源库升级`、`存入源石/源石存入`、`取出源石/源石取出`。
+    `修仙信息/状态`、`升级银行/银行升级`、`存入货币/货币存入`、`取出货币/货币取出`。
     """
 
     deprecated = {
         "用户创建",
         "礼包",
-        "获取源库",
-        "源库获取",
-        "结息源库",
+        "获取银行",
+        "银行获取",
+        "结息银行",
         "地点",
         "探索",
         "状态探险",

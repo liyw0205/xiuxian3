@@ -9,7 +9,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd="武器", priority=100, block=True)
-async def ws_weapon_list(client_id: str, message: str) -> None:
+async def ws_weapon_list(client_id: str) -> None:
     """查看武器简表。"""
 
     await send_reply(client_id, service.list_weapons(client_id), ws_manager, service)

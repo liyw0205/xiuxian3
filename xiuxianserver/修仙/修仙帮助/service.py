@@ -6,12 +6,13 @@ from pathlib import Path
 
 from launch import config
 
-from ..common import CoreService
+from ..common import CoreService, currency_name
 from ..format_text import T
 from ..sql import db
+from ..world_skin import DEFAULT_HELP_MAP_PATH, current_help_map_url
 
 HELP_IMAGE = Path(__file__).with_name("help.png")
-HELP_MAP_PATH = "/static/help/xiuxian-world-map.webp"
+HELP_MAP_PATH = DEFAULT_HELP_MAP_PATH
 
 
 def _project_base_url() -> str:
@@ -44,17 +45,16 @@ def _with_project_port(domain: str, port: str) -> str:
 
 HELP_BASE_URL = _project_base_url()
 HELP_PAGE_URL = f"{HELP_BASE_URL}/xiuxian/help"
-HELP_MAP_URL = f"{HELP_BASE_URL}{HELP_MAP_PATH}"
 GUIDE_SECTIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "成长": (
         "修行成长",
-        "角色状态、每日收益、休息恢复和源石管理。",
-        ("修仙信息", "状态", "签到", "新手礼包", "休息", "结束休息", "源库", "源库结息", "升级源库"),
+        f"角色状态、每日收益、休息恢复和{currency_name()}管理。",
+        ("修仙信息", "状态", "签到", "新手礼包", "休息", "结束休息", "银行", "银行结息", "升级银行"),
     ),
     "行囊": (
         "行囊装备",
         "背包、纳戒、保险箱、武器、装备、宝石和特殊消耗品。",
-        ("背包", "纳戒", "保险箱", "武器", "装备", "孔位", "宝石", "洗髓", "武器淬锋", "铭刻之羽"),
+        ("背包", "纳戒", "保险箱", "武器", "装备", "孔位", "宝石", "体质重塑", "武器升限", "铭刻之羽"),
     ),
     "战斗": (
         "探险战斗",
@@ -69,7 +69,7 @@ GUIDE_SECTIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "世界": (
         "宗门世界",
         "地图、宗门、世界记录、百科和帮助文档。",
-        ("地图", "宗门", "宗门成员", "宗门战", "领取宗门战奖励", "风云榜", "修仙早报", "修仙界历史", "修仙百科 武器", "修仙百科 跑商", "帮助", "修仙帮助"),
+        ("地图", "宗门", "宗门成员", "宗门大会", "领取宗门大会奖励", "风云榜", "修仙早报", "修仙界历史", "修仙百科 武器", "修仙百科 跑商", "帮助", "修仙帮助"),
     ),
 }
 GUIDE_ALIASES = {
@@ -107,7 +107,7 @@ class HelpService(CoreService):
         return (
             f"[修仙帮助网页]({HELP_PAGE_URL})\n\n"
             "发送：修仙帮助 查看指令速查图，发送：指南 查看关键入口。\n\n"
-            f"![修仙界地图 #720px #400px]({HELP_MAP_URL})"
+            f"![修仙界地图 #720px #400px]({current_help_map_url(HELP_BASE_URL, self.db)})"
         )
 
     def command_guide(self, section: str = "") -> str:

@@ -8,8 +8,12 @@ from datetime import timedelta
 from math import hypot
 
 from ..common import (
+    RING_CATEGORY_BOOK,
+    RING_CATEGORY_GEM,
     business_day,
     computed_weapon_attack,
+    currency_amount,
+    currency_name,
     dt,
     load_json,
     money,
@@ -17,6 +21,8 @@ from ..common import (
     parse_name_level,
     parse_weapon_ref,
     quality_factor,
+    quality_label,
+    ring_category_key,
     split_words,
     to_int,
     ts,
@@ -53,7 +59,7 @@ from ..rules import (
 from ..sql import TRADE_LOCATION_DEMANDS, db, trade_group_for_type
 from ..weapon_core import WeaponCore
 from ..wormhole_service import WormholeService
-from ..world_materials import WORLD_RECYCLE_CATEGORIES, WorldMaterialService
+from ..world_materials import WORLD_RECYCLE_CATEGORY_KEYS, WorldMaterialService
 
 
 class TradeService(WeaponCore):
@@ -102,8 +108,11 @@ class TradeService(WeaponCore):
         location = self._location(player["location_name"])
         if not location:
             return T.hint("当前位置不是商场城池，无法购买跑商商品。", "普通商场和探险地点重合；发送：探险列表 查看城池，再发送：导航 地点名。<探险列表>")
-        home = self.db.fetch_one("SELECT home_location FROM trade_goods WHERE item_id = ?", (item["item_id"],))
-        if not home or home["home_location"] != player["location_name"]:
+        location_id = str(location.get("location_id") or "")
+        if not location_id:
+            return T.hint("当前位置缺少稳定地点 ID，暂时不能交易。", "请检查 trade_locations 与 world_locations 配置。")
+        home = self.db.fetch_one("SELECT home_location, home_location_id FROM trade_goods WHERE item_id = ?", (item["item_id"],))
+        if not home or str(home["home_location_id"] or "") != location_id:
             return T.hint(f"{player['location_name']} 不出售 {item['name']}。", "发送：商场行情 商品名 查看各地价格，再导航到产地购买。")
         buy_price, _sell_price = self.price(player["location_name"], item["item_id"], save=True)
         total = buy_price * quantity
@@ -113,31 +122,31 @@ class TradeService(WeaponCore):
             if not ok:
                 return reason
             if not self.spend_stones_conn(conn, client_id, total + fee):
-                return T.hint(f"源石不足，需要 {money(total + fee)}。", "发送：源库 或 取出源石 数量，或先签到、探险、出售物品。<源库><签到><探险>")
+                return T.hint(f"{currency_name()}不足，需要 {money(total + fee)}。", f"发送：银行 或 取出货币 数量，或先签到、探险、出售物品。<银行><签到><探险>")
             self.add_backpack_conn(conn, client_id, item["item_id"], quantity)
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                VALUES (?, 'buy', ?, ?, ?, ?, ?, ?, ?)
+                (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+                VALUES (?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (client_id, item["item_id"], quantity, total, fee, player["location_name"], business_day(), ts()),
+                (client_id, item["item_id"], quantity, total, fee, player["location_name"], location_id, business_day(), ts()),
             )
-            self._add_heat_conn(conn, player["location_name"], item["item_id"], buy_count=quantity)
+            self._add_heat_conn(conn, player["location_name"], item["item_id"], buy_count=quantity, location_id=location_id)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO trade_buy_locks
-                (client_id, item_id, location_name, last_buy_at, last_buy_price)
-                VALUES (?, ?, ?, ?, ?)
+                (client_id, item_id, location_name, location_id, last_buy_at, last_buy_price)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (client_id, item["item_id"], player["location_name"], ts(), buy_price),
+                (client_id, item["item_id"], player["location_name"], location_id, ts(), buy_price),
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '商场购买', ?, ?)",
                 (client_id, f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}", ts()),
             )
         return f"购买成功：{item['name']} x{quantity}，花费 {money(total)}，手续费 {money(fee)}。" + self.wormhole.try_discover(
-            client_id, "trade_buy", player["location_name"]
+            client_id, "trade_buy", player["location_name"], location_id
         )
 
     def sell(self, client_id: str, message: str) -> str:
@@ -171,15 +180,15 @@ class TradeService(WeaponCore):
 
         backpack_item = self.item_def_by_name(item_name)
         if backpack_item:
-            return self._sell_backpack_item(client_id, player, backpack_item, quantity)
+            return self._sell_backpack_item(client_id, backpack_item, quantity)
 
         ring_name, gem_level = parse_name_level(item_name)
         ring_item = self.ring_item_def_by_name(ring_name)
         if ring_item:
-            category = str(ring_item["category"])
-            if category == "技能书":
+            category_key = ring_category_key(ring_item.get("category_key") or ring_item.get("category"))
+            if category_key == RING_CATEGORY_BOOK:
                 return self._sell_book_item(client_id, ring_item, quantity)
-            if category == "宝石":
+            if category_key == RING_CATEGORY_GEM:
                 return self._sell_gem_item(client_id, ring_item, gem_level, quantity)
             return T.hint(f"{ring_item['name']} 不能出售。", "纳戒里的专属道具一般用于养成或活动，不进入出售清单。<纳戒>")
 
@@ -321,7 +330,7 @@ class TradeService(WeaponCore):
             return T.hint("当前位置不是商场城池。", "普通商场和探险地点重合；发送：探险列表 查看城池，再发送：导航 地点名。<探险列表>")
         options = self._trade_options(client_id, player)
         if not options:
-            return T.hint("当前没有能购买且有利润的跑商路线。", "确认随身源石和背包空间足够，或换一个商场地点再试。")
+            return T.hint("当前没有能购买且有利润的跑商路线。", f"确认随身{currency_name()}和背包空间足够，或换一个商场地点再试。")
         panel = T.panel()
         panel.section(f"{current}跑商推荐")
         for index, option in enumerate(options[:3], start=1):
@@ -462,14 +471,14 @@ class TradeService(WeaponCore):
             )
             if cursor.rowcount <= 0:
                 return T.hint("今日跑商奖励已经领取。", "每日 04:00 后重置，明天继续跑商。")
-            self._grant_source_stones_conn(conn, client_id, reward)
+            self._grant_raw_stones_conn(conn, client_id, reward)
             self._write_game_log_conn(
                 conn,
                 client_id,
                 "跑商奖励",
                 f"day={day}, quantity={quantity}, net_profit={net_profit}, reward={reward}",
             )
-        return f"跑商奖励领取成功：今日出售 {quantity} 件，普通跑商净利润 {money(net_profit)}，奖励源石 {money(reward)}。"
+        return f"跑商奖励领取成功：今日出售 {quantity} 件，普通跑商净利润 {money(net_profit)}，奖励{currency_amount(reward)}。"
 
     def special_sell(self, client_id: str, message: str) -> str:
         """在特殊收购地点出售战利品。"""
@@ -492,6 +501,9 @@ class TradeService(WeaponCore):
         allowed = set(str(buyer["item_ids"]).split(","))
         if item["item_id"] not in allowed:
             return T.hint(f"{buyer['buyer_name']} 不收 {item['name']}。", "发送：出售 物品名 数量，系统会自动选择对应收购点。<出售>")
+        buyer_location_id = str(buyer.get("location_id") or "")
+        if not buyer_location_id:
+            return T.hint("当前收购点缺少稳定地点 ID，暂时不能出售。", "请检查 special_buyers 与 world_locations 配置。")
 
         raw_total = int(item["base_price"] * float(buyer["price_factor"]) * quantity)
         war_prep_text = ""
@@ -501,14 +513,14 @@ class TradeService(WeaponCore):
             total = max(1, int(raw_total * rate))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险获取。<背包>")
-            self._grant_source_stones_conn(conn, client_id, total)
+            self._grant_raw_stones_conn(conn, client_id, total)
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                VALUES (?, 'special_sell', ?, ?, ?, 0, ?, ?, ?)
+                (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+                VALUES (?, 'special_sell', ?, ?, ?, 0, ?, ?, ?, ?)
                 """,
-                (client_id, item["item_id"], quantity, total, buyer["buyer_name"], business_day(), ts()),
+                (client_id, item["item_id"], quantity, total, buyer["buyer_name"], buyer_location_id, business_day(), ts()),
             )
             self._write_game_log_conn(
                 conn,
@@ -522,7 +534,7 @@ class TradeService(WeaponCore):
             f"战利品出售成功：{item['name']} x{quantity}，"
             f"原价 {money(raw_total)}，当前倍率 {int(rate * 100)}%，收入 {money(total)}。"
             + (f"\n{war_prep_text}。" if war_prep_text else "")
-            + self.wormhole.try_discover(client_id, "special_sell", buyer["buyer_name"])
+            + self.wormhole.try_discover(client_id, "special_sell", buyer["buyer_name"], buyer_location_id)
         )
 
     def special_auto_sell(self, client_id: str, origin: dict | None = None) -> str:
@@ -558,14 +570,23 @@ class TradeService(WeaponCore):
                         sold_lines.append(f"{item['name']} x{quantity} 库存不足，已跳过")
                         continue
 
-                    self._grant_source_stones_conn(conn, client_id, total)
+                    self._grant_raw_stones_conn(conn, client_id, total)
                     conn.execute(
                         """
                         INSERT INTO trade_records
-                        (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                        VALUES (?, 'special_auto_sell', ?, ?, ?, 0, ?, ?, ?)
+                        (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+                        VALUES (?, 'special_auto_sell', ?, ?, ?, 0, ?, ?, ?, ?)
                         """,
-                        (client_id, item["item_id"], quantity, total, buyer["buyer_name"], business_day(), ts()),
+                        (
+                            client_id,
+                            item["item_id"],
+                            quantity,
+                            total,
+                            buyer["buyer_name"],
+                            str(buyer.get("location_id") or ""),
+                            business_day(),
+                            ts(),
+                        ),
                     )
                     used += total
                     total_gain += total
@@ -585,8 +606,14 @@ class TradeService(WeaponCore):
             if not last_buyer:
                 return T.hint("没有成功出售的特殊物品。", "发送：背包 确认可出售物品数量。<背包>")
             conn.execute(
-                "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
-                (last_buyer["buyer_name"], last_buyer["x"], last_buyer["y"], client_id),
+                "UPDATE players SET location_name = ?, location_id = ?, x = ?, y = ? WHERE client_id = ?",
+                (
+                    last_buyer["buyer_name"],
+                    str(last_buyer.get("location_id") or ""),
+                    last_buyer["x"],
+                    last_buyer["y"],
+                    client_id,
+                ),
             )
             self._write_game_log_conn(
                 conn,
@@ -598,7 +625,12 @@ class TradeService(WeaponCore):
         lines.append(f"合计收入：{money(total_gain)}")
         lines.append(f"当前位置：{last_buyer['buyer_name']} ({last_buyer['x']},{last_buyer['y']})")
         lines.append(f"此处是特殊收购点；继续探险或跑商前可回到原位置：{origin_name} ({origin_x},{origin_y})。")
-        notice = self.wormhole.try_discover(client_id, "special_auto_sell", last_buyer["buyer_name"])
+        notice = self.wormhole.try_discover(
+            client_id,
+            "special_auto_sell",
+            last_buyer["buyer_name"],
+            str(last_buyer.get("location_id") or ""),
+        )
         if notice:
             lines.append(notice.strip())
         panel = T.panel()
@@ -621,7 +653,9 @@ class TradeService(WeaponCore):
             name = str(location["name"])
             x = int(location["x"])
             y = int(location["y"])
+            location_id = str(location.get("location_id") or "")
             wormhole_location = name
+            wormhole_location_id = location_id
         elif len(parts) == 2:
             coordinate = self._parse_coordinates(parts)
             if not coordinate:
@@ -634,19 +668,21 @@ class TradeService(WeaponCore):
                 )
             location = self._known_location_at(x, y)
             name = str(location["name"]) if location else self._wilderness_name(x, y)
+            location_id = str(location.get("location_id") or "") if location else ""
             wormhole_location = name if location else ""
+            wormhole_location_id = location_id
         else:
             return T.hint("导航格式不正确。", "发送：导航 地点名，或发送：导航 x y")
         with self.db.transaction() as conn:
             conn.execute(
-                "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
-                (name, x, y, client_id),
+                "UPDATE players SET location_name = ?, location_id = ?, x = ?, y = ? WHERE client_id = ?",
+                (name, location_id, x, y, client_id),
             )
             conn.execute(
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '导航', ?, ?)",
                 (client_id, f"location={name}, x={x}, y={y}", ts()),
             )
-        notice = self.wormhole.try_discover(client_id, "navigate", wormhole_location) if wormhole_location else ""
+        notice = self.wormhole.try_discover(client_id, "navigate", wormhole_location, wormhole_location_id) if wormhole_location else ""
         return f"已到达 {name} ({x},{y})。" + notice + "<探险><商场推荐><自动出售>"
 
     def price(self, location_name: str, item_id: str, save: bool = False) -> tuple[int, int]:
@@ -667,21 +703,23 @@ class TradeService(WeaponCore):
         item_effect = load_json(item.get("effect"), {})
         trade_type = str(item_effect.get("trade_type") or "")
         trade_group = self._trade_group(item)
-        home = self.db.fetch_one("SELECT home_location FROM trade_goods WHERE item_id = ?", (item_id,))
-        home_name = home["home_location"] if home else location_name
         loc = self._location(location_name)
-        home_loc = self._location(home_name)
+        location_id = str(loc.get("location_id") or "") if loc else ""
+        home = self.db.fetch_one("SELECT home_location, home_location_id FROM trade_goods WHERE item_id = ?", (item_id,))
+        home_name = str(home["home_location"]) if home else location_name
+        home_id = str(home["home_location_id"] or "") if home else location_id
+        home_loc = self._location_by_id(home_id) or self._location(home_name)
         distance = hypot((loc["x"] - home_loc["x"]), (loc["y"] - home_loc["y"])) if loc and home_loc else 0
         daily_wave = 1.0
-        supply_factor = self._supply_factor(distance, location_name == home_name)
-        demand_factor = self._demand_factor(location_name, trade_type)
+        supply_factor = self._supply_factor(distance, bool(location_id and home_id and location_id == home_id))
+        demand_factor = self._demand_factor(location_id, trade_type)
         heat = (
             self.db.fetch_one(
                 """
                 SELECT buy_count, sell_count FROM trade_heat
-                WHERE location_name = ? AND item_id = ? AND business_day = ?
+                WHERE location_id = ? AND item_id = ? AND business_day = ?
                 """,
-                (location_name, item_id, day),
+                (location_id, item_id, day),
             )
             or {"buy_count": 0, "sell_count": 0}
         )
@@ -691,14 +729,14 @@ class TradeService(WeaponCore):
             1,
             int(market_price * 0.82 * max(0.65, 1.0 - heat["sell_count"] * 0.008)),
         )
-        if save:
+        if save and location_id:
             self.db.execute(
                 """
                 INSERT OR REPLACE INTO trade_prices
-                (location_name, item_id, buy_price, sell_price, business_day)
-                VALUES (?, ?, ?, ?, ?)
+                (location_name, location_id, item_id, buy_price, sell_price, business_day)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (location_name, item_id, buy_price, sell_price, day),
+                (location_name, location_id, item_id, buy_price, sell_price, day),
             )
         return buy_price, sell_price
 
@@ -711,12 +749,12 @@ class TradeService(WeaponCore):
         return 0.96 + min(0.36, distance / 2600)
 
     @staticmethod
-    def _demand_factor(location_name: str, trade_type: str) -> float:
+    def _demand_factor(location_id: str, trade_type: str) -> float:
         """读取地点对某类货物的需求倍率。"""
 
         if not trade_type:
             return 0.98
-        return TRADE_LOCATION_DEMANDS.get(location_name, {}).get(trade_type, 0.98)
+        return TRADE_LOCATION_DEMANDS.get(location_id, {}).get(trade_type, 0.98)
 
     def _trade_options(self, client_id: str, player: dict) -> list[dict]:
         """计算当前位置可执行的跑商路线。"""
@@ -724,14 +762,14 @@ class TradeService(WeaponCore):
         current = player["location_name"]
         buy_fee_rate = self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE)
         sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
-        source_stones = int(player["source_stones"])
+        raw_stones = int(player["raw_stones"])
         options: list[dict] = []
         with self.db.transaction() as conn:
             market_state = self._trade_market_state_conn(conn, client_id)
 
         for item in self._location_goods(current):
             buy_price, _ = self.price(current, item["item_id"])
-            quantity = self._max_buy_quantity(client_id, item, buy_price, buy_fee_rate, source_stones)
+            quantity = self._max_buy_quantity(client_id, item, buy_price, buy_fee_rate, raw_stones)
             if quantity <= 0:
                 continue
             for loc in self.db.fetch_all("SELECT name, x, y FROM trade_locations"):
@@ -774,10 +812,10 @@ class TradeService(WeaponCore):
         options.sort(key=lambda row: (row["total_profit"], row["profit_per_weight"]), reverse=True)
         return options
 
-    def _max_buy_quantity(self, client_id: str, item: dict, buy_price: int, buy_fee_rate: float, source_stones: int) -> int:
-        """计算当前源石和背包最多能买多少。"""
+    def _max_buy_quantity(self, client_id: str, item: dict, buy_price: int, buy_fee_rate: float, raw_stones: int) -> int:
+        """计算当前随身货币和背包最多能买多少。"""
 
-        high = min(int(item["stack_limit"]), source_stones // max(1, buy_price))
+        high = min(int(item["stack_limit"]), raw_stones // max(1, buy_price))
         low = 0
         with self.db.transaction() as conn:
             while low < high:
@@ -785,7 +823,7 @@ class TradeService(WeaponCore):
                 total = buy_price * mid
                 fee = int(total * buy_fee_rate)
                 ok, _reason = self.can_add_backpack_conn(conn, client_id, item["item_id"], mid)
-                if ok and total + fee <= source_stones:
+                if ok and total + fee <= raw_stones:
                     low = mid
                 else:
                     high = mid - 1
@@ -794,8 +832,10 @@ class TradeService(WeaponCore):
     def _sell_item(self, client_id: str, location_name: str, item: dict, quantity: int, discover: bool = True) -> str:
         """出售一类背包物品。"""
 
+        location = self._location(location_name)
+        location_id = str(location.get("location_id") or "") if location else ""
         _buy, sell_price = self.price(location_name, item["item_id"], save=True)
-        locked_text = self._resale_lock_text(client_id, item["item_id"], location_name)
+        locked_text = self._resale_lock_text(client_id, item["item_id"], location_name, location_id)
         if locked_text:
             return locked_text
         last_buy_price = self._last_trade_buy_price(client_id, item["item_id"])
@@ -810,16 +850,16 @@ class TradeService(WeaponCore):
             fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险/购买获取。")
-            self._grant_source_stones_conn(conn, client_id, total - fee)
+            self._grant_raw_stones_conn(conn, client_id, total - fee)
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                VALUES (?, 'sell', ?, ?, ?, ?, ?, ?, ?)
+                (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+                VALUES (?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (client_id, item["item_id"], quantity, total, fee, location_name, business_day(), ts()),
+                (client_id, item["item_id"], quantity, total, fee, location_name, location_id, business_day(), ts()),
             )
-            self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity)
+            self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity, location_id=location_id)
             self._write_game_log_conn(
                 conn,
                 client_id,
@@ -833,23 +873,23 @@ class TradeService(WeaponCore):
         if medicine_text:
             text += "\n商路顺药：" + medicine_text
         if discover:
-            text += self.wormhole.try_discover(client_id, "trade_sell", location_name)
+            text += self.wormhole.try_discover(client_id, "trade_sell", location_name, location_id)
         return text
 
-    def _sell_backpack_item(self, client_id: str, player: dict, item: dict, quantity: int) -> str:
+    def _sell_backpack_item(self, client_id: str, item: dict, quantity: int) -> str:
         """按背包物品类型自动选择出售去路。"""
 
-        category, _subtype = self.world_material.item_world_type(item)
+        category_key, _subtype_key = self.world_material.item_world_keys(item)
         if int(item["tradeable"]):
             text = self._sell_trade_item_auto(client_id, item, quantity)
             return text or T.hint(f"{item['name']} 暂无可出售商场。", "换个城池或先查看商场推荐。<商场推荐>")
-        if category in WORLD_RECYCLE_CATEGORIES:
+        if category_key in WORLD_RECYCLE_CATEGORY_KEYS:
             city = self._current_or_nearest_trade_location(client_id)
             if not city:
                 return T.hint("当前没有可承接世界物资的城池。", "请检查 11 个普通城池配置。")
             self._move_player_to_location(client_id, city["name"], int(city["x"]), int(city["y"]), "出售世界物资")
             return self.world_material.recycle(client_id, f"{item['name']} {quantity}")
-        if category == "战利品":
+        if category_key == "loot":
             buyer = self._buyer_for_item(str(item["item_id"]))
             if not buyer:
                 return T.hint(f"{item['name']} 暂无特殊收购点。", "这类战利品暂时不能出售。")
@@ -899,19 +939,19 @@ class TradeService(WeaponCore):
             if not self.remove_backpack_conn(conn, client_id, str(item["item_id"]), amount):
                 return f"{item['name']} x{amount} 库存不足，已跳过。"
             if total > 0:
-                self._grant_source_stones_conn(conn, client_id, total)
+                self._grant_raw_stones_conn(conn, client_id, total)
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                VALUES (?, 'misc_sell', ?, ?, ?, 0, ?, ?, ?)
+                (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
+                VALUES (?, 'misc_sell', ?, ?, ?, 0, ?, '', ?, ?)
                 """,
                 (client_id, item["item_id"], amount, total, "杂物甩卖", business_day(), ts()),
             )
             self._write_game_log_conn(conn, client_id, "杂物甩卖", f"item={item['item_id']}, quantity={amount}, total={total}")
         if total > 0:
             return f"甩卖杂物：{item['name']} x{amount}，收入 {money(total)}。"
-        return f"甩掉杂物：{item['name']} x{amount}，未得源石。"
+        return f"甩掉杂物：{item['name']} x{amount}，未得{currency_name()}。"
 
     def _sell_book_item(self, client_id: str, item: dict, quantity: int) -> str:
         """出售一本或多本纳戒技能书。"""
@@ -970,9 +1010,10 @@ class TradeService(WeaponCore):
         """经济行为需要自动换点时，统一更新玩家位置并记账。"""
 
         with self.db.transaction() as conn:
+            location_id = self._location_id_for_point_conn(conn, name, int(x), int(y))
             conn.execute(
-                "UPDATE players SET location_name = ?, x = ?, y = ? WHERE client_id = ?",
-                (name, int(x), int(y), client_id),
+                "UPDATE players SET location_name = ?, location_id = ?, x = ?, y = ? WHERE client_id = ?",
+                (name, location_id, int(x), int(y), client_id),
             )
             self._write_game_log_conn(conn, client_id, action, f"location={name}, x={x}, y={y}")
 
@@ -997,8 +1038,8 @@ class TradeService(WeaponCore):
         """背包里是否还有可入城池的世界物资。"""
 
         for row in self.backpack_rows(client_id):
-            category, _subtype = self.world_material.item_world_type(row)
-            if category in WORLD_RECYCLE_CATEGORIES:
+            category_key, _subtype_key = self.world_material.item_world_keys(row)
+            if category_key in WORLD_RECYCLE_CATEGORY_KEYS:
                 return True
         return False
 
@@ -1006,8 +1047,8 @@ class TradeService(WeaponCore):
         """背包里是否还有特殊收购战利品。"""
 
         for row in self.backpack_rows(client_id):
-            category, _subtype = self.world_material.item_world_type(row)
-            if category == "战利品" and self._buyer_for_item(str(row["item_id"])):
+            category_key, _subtype_key = self.world_material.item_world_keys(row)
+            if category_key == "loot" and self._buyer_for_item(str(row["item_id"])):
                 return True
         return False
 
@@ -1019,8 +1060,8 @@ class TradeService(WeaponCore):
             item = self.item_def(str(row["item_id"]))
             if not item:
                 continue
-            category, _subtype = self.world_material.item_world_type(item)
-            if int(item["tradeable"]) or category in WORLD_RECYCLE_CATEGORIES or category == "战利品":
+            category_key, _subtype_key = self.world_material.item_world_keys(item)
+            if int(item["tradeable"]) or category_key in WORLD_RECYCLE_CATEGORY_KEYS or category_key == "loot":
                 continue
             result.append((item, int(row["quantity"])))
         return result
@@ -1041,24 +1082,30 @@ class TradeService(WeaponCore):
             SELECT COALESCE(SUM(r.quantity), 0) AS quantity
             FROM ring_items r
             JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
-            WHERE r.client_id = ? AND e.category = '技能书'
+            WHERE r.client_id = ? AND e.category_key = ?
             """,
-            (client_id,),
+            (client_id, RING_CATEGORY_BOOK),
         )
         book_quantity = int(book_row["quantity"] if book_row else 0)
         if book_quantity > 0:
             lines.append(f"技能书 {book_quantity} 本：发送 出售全部 技能书。")
         return lines
 
-    def _resale_lock_text(self, client_id: str, item_id: str, location_name: str) -> str:
+    def _resale_lock_text(self, client_id: str, item_id: str, location_name: str, location_id: str = "") -> str:
         """同地点刚买入的货物不能立刻原地卖出。"""
 
+        stable_id = str(location_id or "").strip()
+        if not stable_id:
+            location = self._location(location_name)
+            stable_id = str(location.get("location_id") or "") if location else ""
+        if not stable_id:
+            return ""
         row = self.db.fetch_one(
             """
             SELECT last_buy_at FROM trade_buy_locks
-            WHERE client_id = ? AND item_id = ? AND location_name = ?
+            WHERE client_id = ? AND item_id = ? AND location_id = ?
             """,
-            (client_id, item_id, location_name),
+            (client_id, item_id, stable_id),
         )
         if not row:
             return ""
@@ -1114,7 +1161,7 @@ class TradeService(WeaponCore):
 
     @staticmethod
     def _trade_group(item: dict) -> str:
-        """读取跑商大类；现有库未回填 trade_group 时按 trade_type 现场归类。"""
+        """读取跑商规则大类；展示名不参与价格规则。"""
 
         effect = load_json(item.get("effect", "{}"), {})
         trade_group = str(effect.get("trade_group") or "")
@@ -1126,7 +1173,7 @@ class TradeService(WeaponCore):
     def _group_price_factor(trade_group: str) -> float:
         """按跑商大类调整基础成交价。"""
 
-        if trade_group == "纯经济":
+        if trade_group == "trade":
             return TRADE_PURE_ECONOMY_PRICE_FACTOR
         return 1.0
 
@@ -1205,19 +1252,30 @@ class TradeService(WeaponCore):
         return max(1, int(row["count"] if row else 0))
 
     @staticmethod
-    def _add_heat_conn(conn, location_name: str, item_id: str, buy_count: int = 0, sell_count: int = 0) -> None:
+    def _add_heat_conn(conn, location_name: str, item_id: str, buy_count: int = 0, sell_count: int = 0, location_id: str = "") -> None:
         """记录商场买卖热度。"""
 
+        row = None
+        if not location_id:
+            row = conn.execute(
+                "SELECT location_id FROM trade_locations WHERE name = ?",
+                (str(location_name or "").strip(),),
+            ).fetchone()
+        stable_id = location_id or (str(row["location_id"]) if row else "")
+        if not stable_id:
+            return
         conn.execute(
             """
-            INSERT INTO trade_heat (location_name, item_id, business_day, buy_count, sell_count)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(location_name, item_id, business_day)
+            INSERT INTO trade_heat (location_name, location_id, item_id, business_day, buy_count, sell_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_id, item_id, business_day)
             DO UPDATE SET
+                location_name = excluded.location_name,
+                location_id = excluded.location_id,
                 buy_count = buy_count + excluded.buy_count,
                 sell_count = sell_count + excluded.sell_count
             """,
-            (location_name, item_id, business_day(), buy_count, sell_count),
+            (location_name, stable_id, item_id, business_day(), buy_count, sell_count),
         )
 
     def _parse_name_quantity(self, message: str) -> tuple[str, int]:
@@ -1241,22 +1299,43 @@ class TradeService(WeaponCore):
     def _navigation_location(self, name: str) -> dict | None:
         """读取任意可命名导航地点。"""
 
-        row = self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE name = ?", (name.strip(),))
-        return {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE name = ?", (name.strip(),))
+        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+
+    def _location_by_id(self, location_id: str) -> dict | None:
+        """按稳定 ID 读取跑商城池。"""
+
+        row = self.db.fetch_one("SELECT location_id, name, x, y FROM trade_locations WHERE location_id = ?", (str(location_id),))
+        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+
+    @staticmethod
+    def _location_id_for_point_conn(conn, name: str, x: int, y: int) -> str:
+        """按坐标优先读取 NPC 稳定 ID；展示名只作为玩家输入兜底。"""
+
+        row = conn.execute(
+            "SELECT location_id FROM world_locations WHERE x = ? AND y = ?",
+            (int(x), int(y)),
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT location_id FROM world_locations WHERE name = ?",
+                (str(name or "").strip(),),
+            ).fetchone()
+        return str(row["location_id"] or "") if row else ""
 
     def _all_navigation_locations(self) -> list[dict]:
         """读取全部 NPC 地点，供坐标导航使用。"""
 
         return [
-            {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])}
-            for row in self.db.fetch_all("SELECT name, x, y FROM world_locations")
+            {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])}
+            for row in self.db.fetch_all("SELECT location_id, name, x, y FROM world_locations")
         ]
 
     def _known_location_at(self, x: int, y: int) -> dict | None:
         """读取精确坐标上的 NPC 地点。"""
 
-        row = self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE x = ? AND y = ?", (x, y))
-        return {"name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE x = ? AND y = ?", (x, y))
+        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
 
     def _nearest_location(self, x: int, y: int) -> dict | None:
         """按坐标找最近地点。"""
@@ -1349,16 +1428,16 @@ class TradeService(WeaponCore):
                 total_value += int(record["value"])
                 today_income += int(record["value"])
 
-            self._grant_source_stones_conn(conn, client_id, total_value)
+            self._grant_raw_stones_conn(conn, client_id, total_value)
 
         return self._format_weapon_recycle_result(records)
 
     @staticmethod
-    def _grant_source_stones_conn(conn, client_id: str, amount: int) -> None:
-        """在当前事务里给玩家增加源石。"""
+    def _grant_raw_stones_conn(conn, client_id: str, amount: int) -> None:
+        """在当前事务里给玩家增加随身货币。"""
 
         conn.execute(
-            "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+            "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
             (int(amount), client_id),
         )
 
@@ -1394,7 +1473,7 @@ class TradeService(WeaponCore):
         for weapon_id in weapon_ids:
             row = conn.execute(
                 """
-                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+                SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
                 FROM player_weapons w
                 JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
                 WHERE w.holder_id = ? AND w.weapon_id = ?
@@ -1426,9 +1505,9 @@ class TradeService(WeaponCore):
             INSERT INTO weapon_recycle_records (
                 client_id, weapon_id, weapon_name, quality, level, max_level,
                 raw_value, capped_value, price_rate, total_price,
-                location_name, business_day, created_at
+                location_name, location_id, business_day, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
@@ -1442,6 +1521,7 @@ class TradeService(WeaponCore):
                 quote["rate"],
                 value,
                 location["name"],
+                str(location.get("location_id") or ""),
                 business_day(),
                 ts(),
             ),
@@ -1508,7 +1588,7 @@ class TradeService(WeaponCore):
         if len(records) == 1:
             record = records[0]
             return TradeService._format_recycle_success(
-                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]",
+                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{quality_label(record['quality'])}]",
                 int(record["value"]),
                 float(record["rate"]),
             )
@@ -1519,7 +1599,7 @@ class TradeService(WeaponCore):
             f"{len(records)} 把",
             total_value,
             [
-                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{record['quality']}]｜"
+                f"{weapon_id_label(record['weapon_id'])} {record['name']}[{quality_label(record['quality'])}]｜"
                 f"收入 **{money(int(record['value']))}**｜倍率 {int(float(record['rate']) * 100)}%"
                 for record in records
             ],
@@ -1529,7 +1609,7 @@ class TradeService(WeaponCore):
     def _format_recycle_success(label: str, value: int, rate: float) -> str:
         """格式化单个纳戒资产回收结果。"""
 
-        return f"回收成功：{label}，获得源石 {money(value)}，当前倍率 {int(rate * 100)}%。"
+        return f"回收成功：{label}，获得{currency_amount(value)}，当前倍率 {int(rate * 100)}%。"
 
     @staticmethod
     def _format_batch_recycle_result(title: str, quantity_text: str, total_value: int, lines: list[str]) -> str:
@@ -1537,7 +1617,7 @@ class TradeService(WeaponCore):
 
         panel = T.panel()
         panel.section(title)
-        panel.line(f"回收 **{quantity_text}**，获得源石 **{money(total_value)}**。")
+        panel.line(f"回收 **{quantity_text}**，获得{currency_name()} **{money(total_value)}**。")
         for line in lines:
             panel.line(line)
         return panel.render()
@@ -1576,7 +1656,7 @@ class TradeService(WeaponCore):
                 )
                 if not self.remove_ring_conn(conn, client_id, item["ring_item_id"], amount):
                     return T.hint("技能书库存已变化，出售失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-                self._grant_source_stones_conn(conn, client_id, int(quote["value"]))
+                self._grant_raw_stones_conn(conn, client_id, int(quote["value"]))
                 self._insert_book_recycle_record_conn(conn, client_id, item, amount, quote, location)
                 self._write_game_log_conn(
                     conn,
@@ -1595,10 +1675,10 @@ class TradeService(WeaponCore):
                 SELECT r.ring_item_id, r.quantity, e.name, e.quality
                 FROM ring_items r
                 JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
-                WHERE r.client_id = ? AND r.quantity > 0 AND e.category = '技能书'
+                WHERE r.client_id = ? AND r.quantity > 0 AND e.category_key = ?
                 ORDER BY e.quality, e.name
                 """,
-                (client_id,),
+                (client_id, RING_CATEGORY_BOOK),
             ).fetchall()
             if not rows:
                 return T.hint(f"{location['name']}可以回收纳戒里的未附魔技能书，但你当前没有技能书。", "继续探险、挑战虫洞或首领获取技能书。")
@@ -1631,7 +1711,7 @@ class TradeService(WeaponCore):
 
             if not records:
                 return T.hint("技能书库存已变化，出售失败。", "发送：纳戒 查看当前库存后再试。<纳戒>")
-            self._grant_source_stones_conn(conn, client_id, total_value)
+            self._grant_raw_stones_conn(conn, client_id, total_value)
             self._write_game_log_conn(conn, client_id, "技能书批量回收", f"quantity={total_quantity}, stones={total_value}")
 
         return self._format_batch_recycle_result(
@@ -1639,7 +1719,7 @@ class TradeService(WeaponCore):
             f"{total_quantity} 本",
             total_value,
             [
-                f"{record['name']}[{record['quality']}] x{record['quantity']}｜"
+                f"{record['name']}[{quality_label(record['quality'])}] x{record['quantity']}｜"
                 f"收入 **{money(record['value'])}**｜倍率 {int(float(record['rate']) * 100)}%"
                 for record in records
             ],
@@ -1654,9 +1734,9 @@ class TradeService(WeaponCore):
             INSERT INTO book_recycle_records (
                 client_id, book_id, book_name, quality, quantity,
                 raw_value, capped_value, price_rate, total_price,
-                location_name, business_day, created_at
+                location_name, location_id, business_day, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
@@ -1669,6 +1749,7 @@ class TradeService(WeaponCore):
                 quote["rate"],
                 quote["value"],
                 location["name"],
+                str(location.get("location_id") or ""),
                 business_day(),
                 ts(),
             ),
@@ -1762,7 +1843,7 @@ class TradeService(WeaponCore):
                 )
                 if not self.remove_gem_conn(conn, client_id, item["ring_item_id"], resolved_level, amount):
                     return T.hint("宝石库存已变化，出售失败。", "发送：宝石 查看当前库存后再试。<宝石>")
-                self._grant_source_stones_conn(conn, client_id, int(quote["value"]))
+                self._grant_raw_stones_conn(conn, client_id, int(quote["value"]))
                 self._insert_gem_recycle_record_conn(
                     conn,
                     client_id,
@@ -1797,10 +1878,10 @@ class TradeService(WeaponCore):
                 SELECT g.gem_id, g.level, g.quantity, e.name, e.quality
                 FROM gem_items g
                 JOIN ring_item_defs e ON e.ring_item_id = g.gem_id
-                WHERE g.client_id = ? AND g.quantity > 0 AND e.category = '宝石'
+                WHERE g.client_id = ? AND g.quantity > 0 AND e.category_key = ?
                 ORDER BY e.name, g.level
                 """,
-                (client_id,),
+                (client_id, RING_CATEGORY_GEM),
             ).fetchall()
             if not rows:
                 return T.hint(f"{location['name']}可以回收纳戒里的未镶嵌宝石，但你当前没有宝石。", "继续探险或挑战首领、虫洞获取宝石。")
@@ -1836,7 +1917,7 @@ class TradeService(WeaponCore):
 
             if not records:
                 return T.hint("宝石库存已变化，出售失败。", "发送：宝石 查看当前库存后再试。<宝石>")
-            self._grant_source_stones_conn(conn, client_id, total_value)
+            self._grant_raw_stones_conn(conn, client_id, total_value)
             self._write_game_log_conn(conn, client_id, "宝石批量回收", f"quantity={total_quantity}, stones={total_value}, level=all")
 
         return self._format_batch_recycle_result(
@@ -1844,7 +1925,7 @@ class TradeService(WeaponCore):
             f"{total_quantity} 颗",
             total_value,
             [
-                f"{record['name']} {record['level']}级[{record['quality']}] x{record['quantity']}｜"
+                f"{record['name']} {record['level']}级[{quality_label(record['quality'])}] x{record['quantity']}｜"
                 f"收入 **{money(record['value'])}**｜倍率 {int(float(record['rate']) * 100)}%"
                 for record in records
             ],
@@ -1867,9 +1948,9 @@ class TradeService(WeaponCore):
             INSERT INTO gem_recycle_records (
                 client_id, gem_id, gem_name, quality, level, quantity,
                 raw_value, capped_value, price_rate, total_price,
-                location_name, business_day, created_at
+                location_name, location_id, business_day, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
@@ -1883,6 +1964,7 @@ class TradeService(WeaponCore):
                 quote["rate"],
                 quote["value"],
                 location["name"],
+                str(location.get("location_id") or ""),
                 business_day(),
                 ts(),
             ),
@@ -1964,16 +2046,20 @@ class TradeService(WeaponCore):
     def _location_goods(self, location_name: str) -> list[dict]:
         """读取地点可购买商品。"""
 
+        location = self._location(location_name)
+        location_id = str(location.get("location_id") or "") if location else ""
+        if not location_id:
+            return []
         return self.db.fetch_all(
             """
             SELECT i.*
             FROM trade_goods g
             JOIN item_defs i ON i.item_id = g.item_id
-            WHERE g.home_location = ?
+            WHERE g.home_location_id = ?
               AND i.tradeable = 1
             ORDER BY i.base_price, i.name
             """,
-            (location_name,),
+            (location_id,),
         )
 
     def _can_buy_one(self, client_id: str, player: dict, item: dict, buy_fee_rate: float) -> bool:
@@ -1983,7 +2069,7 @@ class TradeService(WeaponCore):
             return False
         buy_price, _sell_price = self.price(player["location_name"], item["item_id"])
         fee = int(buy_price * buy_fee_rate)
-        if int(player["source_stones"]) < buy_price + fee:
+        if int(player["raw_stones"]) < buy_price + fee:
             return False
         with self.db.transaction() as conn:
             ok, _reason = self.can_add_backpack_conn(conn, client_id, item["item_id"], 1)

@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import sqlite3
 
-from .common import CoreService, load_json, money, random
+from .common import CoreService, currency_amount, currency_name, load_json, money, random, ring_item_display_name
 from .format_text import T
 from .sql import db
 
 
 class ItemEffectService(CoreService):
-    """结算经验、源石、血气、精神和洗髓这几类使用效果。"""
+    """结算经验、货币、血气、精神和体质重塑这几类使用效果。"""
 
     def apply(self, client_id: str, item_def: dict, source: str) -> str:
         """使用一个物品，并把效果写回玩家。"""
@@ -70,9 +70,9 @@ class ItemEffectService(CoreService):
         self._apply_exp_conn(conn, client_id, effect, texts)
         self._apply_stones_conn(conn, client_id, effect, int(player["level"]), texts)
         self._apply_recovery_conn(conn, client_id, effect, player, texts)
-        wash_error = self._apply_wash_conn(conn, client_id, effect, texts)
-        if wash_error:
-            return wash_error
+        remold_error = self._apply_physique_remold_conn(conn, client_id, effect, texts)
+        if remold_error:
+            return remold_error
 
         return texts
 
@@ -96,19 +96,19 @@ class ItemEffectService(CoreService):
         player_level: int,
         texts: list[str],
     ) -> None:
-        """结算源石类效果。"""
+        """结算货币类效果。"""
 
-        stones_delta = int(effect.get("source_stones_delta") or 0)
+        stones_delta = int(effect.get("raw_stones_delta") or 0)
         if effect.get("random_stones_segments"):
             stones_delta += self._random_stones_by_level(effect["random_stones_segments"], player_level)
         if effect.get("random_stones_min") is not None:
             stones_delta += random.randint(int(effect["random_stones_min"]), int(effect["random_stones_max"]))
         if stones_delta:
             conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                 (stones_delta, client_id),
             )
-            texts.append(f"源石+{money(stones_delta)}")
+            texts.append(f"货币+{money(stones_delta)}")
 
     def _apply_recovery_conn(
         self,
@@ -139,18 +139,20 @@ class ItemEffectService(CoreService):
             if mp_add:
                 texts.append(f"精神+{mp_add}")
 
-    def _apply_wash_conn(self, conn: sqlite3.Connection, client_id: str, effect: dict, texts: list[str]) -> str:
-        """结算洗髓液体质变化。"""
+    def _apply_physique_remold_conn(self, conn: sqlite3.Connection, client_id: str, effect: dict, texts: list[str]) -> str:
+        """结算体质重塑变化。"""
 
         if effect.get("wash_physique"):
-            ok, text = self._wash_physique_conn(conn, client_id)
+            ok, text = self._remold_physique_conn(conn, client_id)
             if not ok:
-                return T.hint(text, "请先检查体质库配置，再重新使用洗髓液。")
+                item = conn.execute("SELECT * FROM ring_item_defs WHERE ring_item_id = ?", ("xisuiye",)).fetchone()
+                item_name = ring_item_display_name(dict(item) if item else None, "xisuiye")
+                return T.hint(text, f"请先检查体质库配置，再重新使用{item_name}。")
             texts.append(text)
         return ""
 
-    def _wash_physique_conn(self, conn: sqlite3.Connection, client_id: str) -> tuple[bool, str]:
-        """使用洗髓液重置体质。
+    def _remold_physique_conn(self, conn: sqlite3.Connection, client_id: str) -> tuple[bool, str]:
+        """使用体质重塑道具重置体质。
 
         规则很直接：大概率从更高体质里抽，小概率从更低体质里抽。
         抽完后同步写入 physique_id 和 physique_value，再重算玩家面板数值。
@@ -166,7 +168,7 @@ class ItemEffectService(CoreService):
             ).fetchall()
         ]
         if not rows:
-            return False, "体质库为空，暂时无法洗髓。"
+            return False, "体质库为空，暂时无法重塑。"
 
         player = conn.execute(
             "SELECT physique_id, physique_value FROM players WHERE client_id = ?",
@@ -176,7 +178,7 @@ class ItemEffectService(CoreService):
             return False, "玩家不存在。"
 
         current = self._find_physique(rows, player["physique_id"]) or rows[0]
-        target = self._choose_wash_target(rows, current)
+        target = self._choose_physique_target(rows, current)
         old_value = int(current["physique_value"])
         new_value = int(target["physique_value"])
 
@@ -195,7 +197,7 @@ class ItemEffectService(CoreService):
 
         delta = new_value - old_value
         return True, (
-            f"洗髓{trend}："
+            f"体质重塑{trend}："
             f"{current['name']}[{current['grade']}/{current['kind']}] → "
             f"{target['name']}[{target['grade']}/{target['kind']}]，体质{delta:+d}"
         )
@@ -210,13 +212,13 @@ class ItemEffectService(CoreService):
         return None
 
     @staticmethod
-    def _choose_wash_target(rows: list[dict], current: dict) -> dict:
-        """按洗髓概率选择新体质。"""
+    def _choose_physique_target(rows: list[dict], current: dict) -> dict:
+        """按重塑概率选择新体质。"""
 
         current_level = int(current["level"])
         max_level = max(int(row["level"]) for row in rows)
         roll = random.random()
-        up_rate, same_rate = ItemEffectService._wash_rates(current_level)
+        up_rate, same_rate = ItemEffectService._physique_remold_rates(current_level)
 
         if roll < up_rate:
             pool = [
@@ -240,8 +242,8 @@ class ItemEffectService(CoreService):
         return random.choice(pool or [current])
 
     @staticmethod
-    def _wash_rates(current_level: int) -> tuple[float, float]:
-        """返回洗髓的提升率和稳定率。
+    def _physique_remold_rates(current_level: int) -> tuple[float, float]:
+        """返回体质重塑的提升率和稳定率。
 
         三年服不能让体质太快毕业，所以越高阶越难提升。
         剩下的概率就是回落率：低阶 10%，中阶 15%-20%，高阶 25%-30%。
@@ -259,7 +261,7 @@ class ItemEffectService(CoreService):
 
     @staticmethod
     def _random_stones_by_level(segments: object, level: int) -> int:
-        """按玩家等级段随机福袋源石。"""
+        """按玩家等级段随机福袋货币。"""
 
         if not isinstance(segments, list):
             return 0
@@ -281,17 +283,17 @@ class ItemEffectService(CoreService):
 
     @staticmethod
     def _summarize_texts(texts: list[str]) -> list[str]:
-        """把批量使用的同类数值合并，保留洗髓等描述性文本。"""
+        """把批量使用的同类数值合并，保留体质重塑等描述性文本。"""
 
-        totals = {"经验": 0, "源石": 0, "血气": 0, "精神": 0}
+        totals = {"经验": 0, "货币": 0, "血气": 0, "精神": 0}
         level_text = ""
         others: list[str] = []
 
         for text in texts:
             if text.startswith("经验+"):
                 totals["经验"] += int(text.removeprefix("经验+").replace(",", ""))
-            elif text.startswith("源石+"):
-                totals["源石"] += int(text.removeprefix("源石+").replace(",", ""))
+            elif text.startswith("货币+"):
+                totals["货币"] += int(text.removeprefix("货币+").replace(",", ""))
             elif text.startswith("血气+"):
                 totals["血气"] += int(text.removeprefix("血气+").replace(",", ""))
             elif text.startswith("精神+"):
@@ -306,8 +308,8 @@ class ItemEffectService(CoreService):
             result.append(f"经验+{totals['经验']}")
         if level_text:
             result.append(level_text)
-        if totals["源石"]:
-            result.append(f"源石+{money(totals['源石'])}")
+        if totals["货币"]:
+            result.append(currency_amount(totals["货币"]))
         if totals["血气"]:
             result.append(f"血气+{totals['血气']}")
         if totals["精神"]:

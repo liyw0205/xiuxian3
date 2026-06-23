@@ -9,7 +9,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd=("保险箱", "查看保险箱"), priority=100, block=True)
-async def ws_vault_list(client_id: str, message: str) -> None:
+async def ws_vault_list(client_id: str) -> None:
     """查看保险箱。"""
 
     await send_reply(client_id, service.list_items(client_id), ws_manager, service)

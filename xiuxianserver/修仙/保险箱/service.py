@@ -6,12 +6,15 @@ from ..format_text import T
 
 from ..common import (
     CoreService,
+    RING_CATEGORY_GEM,
     computed_weapon_attack,
     computed_weapon_enchant_slots,
     load_json,
     parse_name_level,
     parse_name_quantity_optional,
     parse_weapon_ref,
+    quality_label,
+    ring_category_key,
     split_words,
     ts,
     weapon_id_label,
@@ -122,7 +125,7 @@ class InsuranceBoxService(CoreService):
                     return T.hint(f"背包里 {item['name']} 数量不足。", "发送：背包 确认库存，或减少存入数量。<背包>")
                 return T.hint(f"没有找到物品：{item_name}。", "发送：背包、纳戒 或 武器，复制准确名称或武器 ID。<背包><纳戒><武器>")
 
-            if equipment["category"] == "宝石":
+            if ring_category_key(equipment["category_key"]) == RING_CATEGORY_GEM:
                 gem_level, level_error = self.resolve_gem_level_conn(
                     conn,
                     client_id,
@@ -197,7 +200,7 @@ class InsuranceBoxService(CoreService):
                     return T.hint(f"保险箱里没有 {item['name']}。", "发送：保险箱 查看库存后再取。<保险箱>")
                 return T.hint(f"没有找到物品：{item_name}。", "发送：保险箱 查看准确名称。<保险箱>")
 
-            if equipment["category"] == "宝石":
+            if ring_category_key(equipment["category_key"]) == RING_CATEGORY_GEM:
                 gem_level, level_error = self._resolve_vault_gem_level_conn(
                     conn,
                     client_id,
@@ -260,7 +263,7 @@ class InsuranceBoxService(CoreService):
                 (self._vault_holder(client_id), client_id, weapon_id),
             )
             self._log_conn(conn, client_id, "存入保险箱", f"weapon:{weapon_id}")
-        return f"已存入保险箱：{weapon_id_label(weapon_id)} {weapon_label_name(dict(weapon))}[{weapon['quality']}]。"
+        return f"已存入保险箱：{weapon_id_label(weapon_id)} {weapon_label_name(dict(weapon))}[{quality_label(weapon['quality'])}]。"
 
     def _withdraw_weapon(self, client_id: str, weapon_id: int) -> str:
         """把保险箱武器取回武器库。"""
@@ -283,7 +286,7 @@ class InsuranceBoxService(CoreService):
             )
             conn.execute("DELETE FROM vault_weapons WHERE client_id = ? AND weapon_id = ?", (client_id, weapon_id))
             self._log_conn(conn, client_id, "取出保险箱", f"weapon:{weapon_id}")
-        return f"已取出到武器库：{weapon_id_label(weapon_id)} {weapon_label_name(dict(weapon))}[{weapon['quality']}]。"
+        return f"已取出到武器库：{weapon_id_label(weapon_id)} {weapon_label_name(dict(weapon))}[{quality_label(weapon['quality'])}]。"
 
     def _vault_item_rows(self, client_id: str) -> list[dict]:
         """读取保险箱里的普通物品。"""
@@ -315,7 +318,7 @@ class InsuranceBoxService(CoreService):
 
         return self.db.fetch_all(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM vault_weapons v
             JOIN player_weapons w ON w.weapon_id = v.weapon_id
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
@@ -330,7 +333,7 @@ class InsuranceBoxService(CoreService):
 
         return conn.execute(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ? AND w.weapon_id = ?
@@ -343,7 +346,7 @@ class InsuranceBoxService(CoreService):
 
         return conn.execute(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM vault_weapons v
             JOIN player_weapons w ON w.weapon_id = v.weapon_id
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
@@ -521,7 +524,7 @@ class InsuranceBoxService(CoreService):
         enchant_ids = load_json(weapon.get("enchant_effects"), [])
         enchants = len(enchant_ids) if isinstance(enchant_ids, list) else 0
         return (
-            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{weapon['quality']}] "
+            f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)}[{quality_label(weapon['quality'])}] "
             f"等级:{weapon['level']}/{weapon['max_level']} 攻击:{computed_weapon_attack(weapon)} "
             f"附魔:{enchants}/{computed_weapon_enchant_slots(weapon)}"
         )

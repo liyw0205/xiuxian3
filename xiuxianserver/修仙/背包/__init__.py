@@ -9,7 +9,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd="背包", priority=100, block=True)
-async def ws_backpack_list(client_id: str, message: str) -> None:
+async def ws_backpack_list(client_id: str) -> None:
     """查看背包。"""
 
     await send_reply(client_id, service.list_items(client_id), ws_manager, service)

@@ -10,7 +10,7 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd="宗门", priority=100, block=True)
-async def ws_sect_overview(client_id: str, message: str) -> None:
+async def ws_sect_overview(client_id: str) -> None:
     """查看宗门信息。"""
 
     await send_reply(client_id, service.overview(client_id), ws_manager, service)
@@ -38,21 +38,21 @@ async def ws_join_sect(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="退出宗门", priority=100, block=True)
-async def ws_quit_sect(client_id: str, message: str) -> None:
+async def ws_quit_sect(client_id: str) -> None:
     """退出当前宗门。"""
 
     await send_reply(client_id, service.quit(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="宗门战", priority=100, block=True)
-async def ws_sect_war(client_id: str, message: str) -> None:
-    """查看宗门战。"""
+@WsMessageHandler.handler(cmd="宗门大会", priority=100, block=True)
+async def ws_sect_war(client_id: str) -> None:
+    """查看宗门大会。"""
 
     await send_reply(client_id, service.war(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="领取宗门战奖励", priority=100, block=True)
-async def ws_claim_sect_war_reward(client_id: str, message: str) -> None:
-    """领取宗门战奖励。"""
+@WsMessageHandler.handler(cmd="领取宗门大会奖励", priority=100, block=True)
+async def ws_claim_sect_war_reward(client_id: str) -> None:
+    """领取宗门大会奖励。"""
 
     await send_reply(client_id, service.claim_war_reward(client_id), ws_manager, service)

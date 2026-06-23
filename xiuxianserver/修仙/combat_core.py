@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from .common import CoreService, random, ts
+from .common import CoreService, enemy_kind_key, random, ts
 from .rules import damage_after_defense, monster_exp, weapon_exp_from_combat
 from .sql import db
 from .weapon_core import service as weapon_core
@@ -42,7 +42,7 @@ class CombatCore(CoreService):
         enemy_state = self._enemy_combat_state(
             "monster",
             str(monster["name"]),
-            str(monster.get("kind") or "兽"),
+            enemy_kind_key(monster.get("kind_key") or monster.get("kind") or "beast"),
             int(monster["level"]),
             int(monster["hp"]),
             int(monster["attack"]),
@@ -69,12 +69,22 @@ class CombatCore(CoreService):
             "weapon_exp": weapon_exp,
             "highest_damage": highest_damage,
             "monster": monster["name"],
+            "player_level": int(player["level"]),
+            "monster_level": int(monster["level"]),
             "monster_hp_left": max(0, int(enemy_state["hp"])),
             "actions": actions,
             "drop_item_id": monster.get("drop_item_id", "") if win and random.random() <= float(monster.get("drop_chance", 0)) else "",
         }
 
-    def fight_boss(self, player: dict, event: dict, *, boss_kind: str, action_limit: int | None = None) -> dict:
+    def fight_boss(
+        self,
+        player: dict,
+        event: dict,
+        *,
+        boss_kind: str,
+        action_limit: int | None = None,
+        enemy_skill: dict | None = None,
+    ) -> dict:
         """玩家挑战虫洞或首领 Boss。
 
         Boss 与怪物共用行动条和技能条，只是行动次数上限更短，适合一次挑战。
@@ -100,6 +110,7 @@ class CombatCore(CoreService):
             int(event["defense"]),
             max_hp=int(event.get("max_hp", event["hp"])),
             boss=True,
+            enemy_skill=enemy_skill,
         )
         actions = self._run_action_bar_combat(player_state, enemy_state, action_limit or self.BOSS_ACTION_LIMIT)
         total_damage = max(0, int(event["hp"]) - max(0, int(enemy_state["hp"])))
@@ -118,6 +129,8 @@ class CombatCore(CoreService):
             "weapon_id": int(weapon["weapon_id"]) if weapon else 0,
             "weapon_exp": weapon_exp,
             "highest_damage": max((int(action.get("damage", 0)) for action in actions), default=0),
+            "player_level": int(player["level"]),
+            "boss_level": int(event["level"]),
             "actions": actions,
         }
 
@@ -222,6 +235,8 @@ class CombatCore(CoreService):
             "weapon_exp": weapon_exp,
             "highest_damage": highest_damage,
             "monster": opponent["name"],
+            "player_level": int(player["level"]),
+            "monster_level": int(opponent["level"]),
             "monster_hp_left": max(0, int(opponent_state["hp"])),
             "actions": actions,
             "drop_item_id": opponent.get("drop_item_id", "") if win and random.random() <= float(opponent.get("drop_chance", 0)) else "",
@@ -542,10 +557,12 @@ class CombatCore(CoreService):
         *,
         max_hp: int | None = None,
         boss: bool,
+        enemy_skill: dict | None = None,
     ) -> dict:
         """生成怪物或 Boss 战斗状态。"""
 
-        skill = self._enemy_skill(kind, level, boss=boss)
+        skill = dict(enemy_skill) if isinstance(enemy_skill, dict) else self._enemy_skill(kind, level, boss=boss)
+        skill["effects"] = dict(skill.get("effects") or {})
         speed = self._enemy_speed(level, kind, boss=boss)
         hp_max = int(hp if max_hp is None else max_hp)
         return {
@@ -555,7 +572,7 @@ class CombatCore(CoreService):
             "enemy_kind": kind,
             "level": int(level),
             "skill": skill,
-            "skill_label": str(skill["name"]),
+            "skill_label": str(skill.get("name") or "凶煞一击"),
             "effects": dict(skill.get("effects") or {}),
             "hp": int(hp),
             "max_hp": hp_max,
@@ -602,7 +619,7 @@ class CombatCore(CoreService):
                 actions.append(self._enemy_vs_player_action(action_no, actor, target))
         return actions
 
-    def _skill_ready(self, actor: dict, *, enemy: bool = False) -> bool:
+    def _skill_ready(self, actor: dict) -> bool:
         """推进技能条，并判断本次是否释放技能。"""
 
         actor["charge"] += actor["charge_gain"]
@@ -769,7 +786,7 @@ class CombatCore(CoreService):
     def _enemy_vs_player_action(self, action_no: int, actor: dict, target: dict) -> dict:
         """结算怪物或 Boss 的一次行动。"""
 
-        skill_used = self._skill_ready(actor, enemy=True)
+        skill_used = self._skill_ready(actor)
         skill_effects = dict(actor["effects"]) if skill_used else {}
         dodged = random.random() < min(0.55, float(self._defense_effects(target).get("dodge_bonus", 0)))
         hurt_raw = 0
@@ -788,10 +805,13 @@ class CombatCore(CoreService):
             "round": action_no,
             "actor": "enemy",
             "enemy_skill_used": skill_used,
+            "enemy_skill_key": str(actor["skill"].get("skill_key") or "") if skill_used else "",
             "enemy_skill_name": actor["skill_label"] if skill_used else "",
             "boss_skill_used": skill_used,
+            "boss_skill_key": str(actor["skill"].get("skill_key") or "") if skill_used else "",
             "boss_skill_name": actor["skill_label"] if skill_used else "",
             "monster_skill_used": skill_used,
+            "monster_skill_key": str(actor["skill"].get("skill_key") or "") if skill_used else "",
             "monster_skill_name": actor["skill_label"] if skill_used else "",
             "monster_attack": True,
             "boss_attack": True,

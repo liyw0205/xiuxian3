@@ -14,8 +14,25 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Iterable, Iterator
 
-from .common import ts
-from .constants import DEFAULT_LOCATION, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
+from .common import (
+    CURRENCY_DEFS,
+    ENEMY_SKILL_DEFS,
+    PLAYER_LEVEL_DEFS,
+    QUALITY_DEFS,
+    QUALITY_EPIC,
+    RING_CATEGORY_KEYS,
+    WEAPON_TYPE_ATTACK_BASE_FACTORS,
+    enemy_kind_key,
+    quality_key,
+    ring_category_key,
+    set_currency_label_overrides,
+    set_enemy_skill_label_overrides,
+    set_player_level_label_overrides,
+    set_quality_label_overrides,
+    ts,
+    weapon_type_key,
+)
+from .constants import DEFAULT_LOCATION_ID, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
 
 
 PHYSIQUE_DEFS = (
@@ -86,8 +103,8 @@ def _material_quality(quality: str | tuple[str, ...], index: int) -> str:
     """按组配置取物资品级。"""
 
     if isinstance(quality, tuple):
-        return quality[min(index, len(quality) - 1)]
-    return quality
+        return quality_key(quality[min(index, len(quality) - 1)])
+    return quality_key(quality)
 
 
 def _material_item_id(category_code: str, subtype_code: str, index: int) -> str:
@@ -98,12 +115,49 @@ def _material_item_id(category_code: str, subtype_code: str, index: int) -> str:
     return f"world_{category_code}_{subtype_code}_{index + 1}"
 
 
+WORLD_CATEGORY_KEYS = {
+    "纯经济": "trade",
+    "药路": "medicine",
+    "民生": "life",
+    "建设": "build",
+    "古物": "relic",
+    "战利品": "loot",
+}
+
+
+def world_category_key(category: str) -> str:
+    """世界物资规则大类；展示名可换皮，业务规则只认这个稳定键。"""
+
+    return WORLD_CATEGORY_KEYS.get(str(category or "").strip(), str(category or "").strip())
+
+
+def _medicine_material_role(category: str, subtype_code: str, index: int) -> str:
+    """药路物资稳定用途；换皮后不能靠展示名后缀判断燃料。"""
+
+    if world_category_key(category) != "medicine":
+        return ""
+    if index == 2:
+        return "fuel"
+    if subtype_code in {"shenggudan", "yanghundan"}:
+        return "catalyst"
+    return "material"
+
+
 def _build_world_items() -> tuple[tuple[str, str, str, str, int, int, int, int, int, dict[str, str], str], ...]:
     """把六大类世界物资设定展开为 item_defs 行。"""
 
     rows = []
     for category, category_code, subtype, subtype_code, names, quality, weight, stack_limit, base_price, desc in WORLD_MATERIAL_GROUPS:
         for index, name in enumerate(names):
+            effect = {
+                "world_category": category,
+                "world_category_key": world_category_key(category),
+                "world_subtype": subtype,
+                "world_subtype_key": subtype_code,
+            }
+            material_role = _medicine_material_role(category, subtype_code, index)
+            if material_role:
+                effect["medicine_material_role"] = material_role
             rows.append(
                 (
                     _material_item_id(category_code, subtype_code, index),
@@ -115,7 +169,7 @@ def _build_world_items() -> tuple[tuple[str, str, str, str, int, int, int, int, 
                     0,
                     0,
                     int(base_price) + index * 40,
-                    {"world_category": category, "world_subtype": subtype},
+                    effect,
                     f"{name}：{desc}",
                 )
             )
@@ -141,7 +195,7 @@ RING_ITEM_DEFS = (
                 {"min_level": 81, "max_level": 100, "min": 70000, "max": 150000},
             ],
         },
-        "打开后按等级段随机获得一笔源石。",
+        "打开后按等级段随机获得一笔货币。",
     ),
     ("xueqidan", "血契丹", "恢复类", "凡品", 1, "玩家", {"hp_ratio": 0.25}, "恢复 25% 血气。"),
     ("yinmingcao", "阴冥草", "恢复类", "凡品", 1, "玩家", {"mp_ratio": 0.25}, "恢复 25% 精神。"),
@@ -150,8 +204,8 @@ RING_ITEM_DEFS = (
     ("shenggudan", "生骨丹", "恢复类", "珍品", 1, "玩家", {"hp_ratio": 0.7}, "恢复 70% 血气。"),
     ("yanghundan", "养魂丹", "恢复类", "珍品", 1, "玩家", {"mp_ratio": 0.7}, "恢复 70% 精神。"),
     ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "装备", {}, "装备开孔材料，通过岁时情劫首领奖励获得。"),
-    ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的洗髓消耗品，通过洗髓命令消耗。"),
-    ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门战奖励。进入纳戒后通过武器淬锋消耗，使指定武器等级上限 +1，最高 100。"),
+    ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的体质重塑消耗品，通过体质重塑命令消耗。"),
+    ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门大会奖励。进入纳戒后通过武器升限消耗，使指定武器等级上限 +1，最高 100。"),
     ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "高频连击流派。技能蓄势更快、命中更稳，但单次威力下降。"),
     ("shaying_shu", "沙影书", "技能书", "良品", 0, "武器", {"enchant_id": "shaying_shu"}, "高频连击流派。更容易追加连击，但连击伤害偏低。"),
     ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "高频连击流派。技能节奏更快，但单次爆发降低。"),
@@ -231,14 +285,14 @@ def _extreme_book_defs() -> tuple[tuple[str, str, str, str, int, str, dict[str, 
 
     rows = []
     for ring_item_id, name, category, _quality, _usable, target_type, effect, desc in RING_ITEM_DEFS:
-        if category != "技能书":
+        if ring_category_key(category) != "book":
             continue
         rows.append(
             (
                 f"extreme_{ring_item_id}",
                 f"极·{name}",
                 category,
-                "稀品",
+                QUALITY_EPIC,
                 0,
                 target_type,
                 {"enchant_id": f"extreme_{ring_item_id}", "base_enchant_id": ring_item_id},
@@ -300,47 +354,67 @@ SEASONAL_BOSS_REWARD_RATES = (
 
 
 TRADE_SPECIALTY_GROUPS = (
-    ("天枢城", 0, 0, ("星官旧简", "白契纸", "旧朝钱")),
-    ("青岚坊", 8, 22, ("风骨玉", "听风纸", "雨竹简")),
-    ("赤霞港", 31, -6, ("晚潮珠", "火纹贝", "舶牙牌")),
-    ("玄铁岭", -28, 12, ("山铜契", "黑矿票", "老炉印")),
-    ("万药谷", -18, 32, ("谷市筹", "灵圃帖", "青囊账")),
-    ("云梦泽", 18, -24, ("雾泽贝", "蜃雾珠", "水市牌")),
-    ("流沙海市", -35, -18, ("走沙晶", "驼铃金", "驼队牌")),
-    ("寒霜关", -3, 39, ("冷玉髓", "雪关牒", "霜市帖")),
-    ("雷泽城", 29, 24, ("伏雷鼓", "惊雷符", "旧雷令")),
-    ("碧潮岛", 38, -32, ("青潮珊", "月汐珠", "水府玉")),
-    ("星陨墟", 5, -43, ("星砂瓶", "陨碑拓", "观星券")),
+    ("city_tianshu", "天枢城", 0, 0, (("trade_city_tianshu_01", "星官旧简"), ("trade_city_tianshu_02", "白契纸"), ("trade_city_tianshu_03", "旧朝钱"))),
+    ("city_qinglan", "青岚坊", 8, 22, (("trade_city_qinglan_01", "风骨玉"), ("trade_city_qinglan_02", "听风纸"), ("trade_city_qinglan_03", "雨竹简"))),
+    ("city_chixia", "赤霞港", 31, -6, (("trade_city_chixia_01", "晚潮珠"), ("trade_city_chixia_02", "火纹贝"), ("trade_city_chixia_03", "舶牙牌"))),
+    ("city_xuantie", "玄铁岭", -28, 12, (("trade_city_xuantie_01", "山铜契"), ("trade_city_xuantie_02", "黑矿票"), ("trade_city_xuantie_03", "老炉印"))),
+    ("city_wanyao", "万药谷", -18, 32, (("trade_city_wanyao_01", "谷市筹"), ("trade_city_wanyao_02", "灵圃帖"), ("trade_city_wanyao_03", "青囊账"))),
+    ("city_yunmeng", "云梦泽", 18, -24, (("trade_city_yunmeng_01", "雾泽贝"), ("trade_city_yunmeng_02", "蜃雾珠"), ("trade_city_yunmeng_03", "水市牌"))),
+    ("city_liusha", "流沙海市", -35, -18, (("trade_city_liusha_01", "走沙晶"), ("trade_city_liusha_02", "驼铃金"), ("trade_city_liusha_03", "驼队牌"))),
+    ("city_hanshuang", "寒霜关", -3, 39, (("trade_city_hanshuang_01", "冷玉髓"), ("trade_city_hanshuang_02", "雪关牒"), ("trade_city_hanshuang_03", "霜市帖"))),
+    ("city_leize", "雷泽城", 29, 24, (("trade_city_leize_01", "伏雷鼓"), ("trade_city_leize_02", "惊雷符"), ("trade_city_leize_03", "旧雷令"))),
+    ("city_bichao", "碧潮岛", 38, -32, (("trade_city_bichao_01", "青潮珊"), ("trade_city_bichao_02", "月汐珠"), ("trade_city_bichao_03", "水府玉"))),
+    ("city_xingyun", "星陨墟", 5, -43, (("trade_city_xingyun_01", "星砂瓶"), ("trade_city_xingyun_02", "陨碑拓"), ("trade_city_xingyun_03", "观星券"))),
 )
 
 
 TRADE_LOCATIONS = tuple(
-    (location, x, y, ",".join(specialties))
-    for location, x, y, specialties in TRADE_SPECIALTY_GROUPS
+    (location, x, y, ",".join(name for _item_id, name in specialties))
+    for _location_id, location, x, y, specialties in TRADE_SPECIALTY_GROUPS
 )
+
+TRADE_LOCATION_IDS_BY_NAME = {
+    location: location_id
+    for location_id, location, _x, _y, _specialties in TRADE_SPECIALTY_GROUPS
+}
+TRADE_LOCATION_NAMES_BY_ID = {
+    location_id: location
+    for location_id, location, _x, _y, _specialties in TRADE_SPECIALTY_GROUPS
+}
+TRADE_ITEM_IDS_BY_NAME = {
+    name: item_id
+    for _location_id, _location, _x, _y, specialties in TRADE_SPECIALTY_GROUPS
+    for item_id, name in specialties
+}
+TRADE_ITEM_HOME_LOCATION_IDS_BY_NAME = {
+    name: location_id
+    for location_id, _location, _x, _y, specialties in TRADE_SPECIALTY_GROUPS
+    for _item_id, name in specialties
+}
 
 
 def trade_item_id(name: str) -> str:
-    """跑商纯经济物品 id 只由最终名称决定。"""
+    """跑商纯经济物品 id 使用稳定槽位；显示名可随世界皮肤包替换。"""
 
-    return "trade_" + hashlib.md5(name.encode("utf-8")).hexdigest()[:12]
+    clean = str(name).strip()
+    return TRADE_ITEM_IDS_BY_NAME.get(clean) or "trade_" + hashlib.md5(clean.encode("utf-8")).hexdigest()[:12]
 
 
 def _trade_item_def(location: str, location_index: int, item_index: int, name: str) -> tuple[str, str, int, int, int, str]:
     """生成纯经济特产定义。"""
 
-    quality = ("良品", "良品", "凡品")[item_index]
+    quality = quality_key(("良品", "良品", "凡品")[item_index])
     weight = (2, 1, 1)[item_index] + (1 if item_index == 0 and location_index % 3 == 0 else 0)
     stack_limit = (50, 70, 80)[item_index]
     base_price = (900, 760, 600)[item_index] + location_index * 35
     desc = f"{location}流通的地方特产：{name}。它只服务本界商路差价和地区供需，不从探险或秘境掉落。"
-    return ("纯经济", quality, weight, stack_limit, base_price, desc)
+    return ("trade", quality, weight, stack_limit, base_price, desc)
 
 
 TRADE_ITEM_DEFS = {
     name: _trade_item_def(location, location_index, item_index, name)
-    for location_index, (location, _x, _y, specialties) in enumerate(TRADE_SPECIALTY_GROUPS)
-    for item_index, name in enumerate(specialties)
+    for location_index, (_location_id, location, _x, _y, specialties) in enumerate(TRADE_SPECIALTY_GROUPS)
+    for item_index, (_item_id, name) in enumerate(specialties)
 }
 
 
@@ -348,55 +422,79 @@ WORLD_ITEM_IDS = tuple(row[0] for row in ITEM_DEFS) + tuple(trade_item_id(name) 
 
 
 TRADE_LOCATION_DEMANDS = {
-    "天枢城": {"纯经济": 1.00},
-    "青岚坊": {"纯经济": 0.98},
-    "赤霞港": {"纯经济": 1.03},
-    "玄铁岭": {"纯经济": 0.96},
-    "万药谷": {"纯经济": 1.02},
-    "云梦泽": {"纯经济": 1.01},
-    "流沙海市": {"纯经济": 0.94},
-    "寒霜关": {"纯经济": 1.08},
-    "雷泽城": {"纯经济": 1.04},
-    "碧潮岛": {"纯经济": 1.06},
-    "星陨墟": {"纯经济": 1.12},
+    "city_tianshu": {"trade": 1.00},
+    "city_qinglan": {"trade": 0.98},
+    "city_chixia": {"trade": 1.03},
+    "city_xuantie": {"trade": 0.96},
+    "city_wanyao": {"trade": 1.02},
+    "city_yunmeng": {"trade": 1.01},
+    "city_liusha": {"trade": 0.94},
+    "city_hanshuang": {"trade": 1.08},
+    "city_leize": {"trade": 1.04},
+    "city_bichao": {"trade": 1.06},
+    "city_xingyun": {"trade": 1.12},
 }
 
 
 TRADE_FORBIDDEN_SPECIALTY_TYPES = {"药材", "丹材", "燃料", "纺织", "水产", "盐鲜", "香料"}
-TRADE_GROUP_BY_TYPE = {"纯经济": "纯经济"}
+TRADE_GROUP_BY_TYPE = {"trade": "trade"}
 
 
 def trade_group_for_type(trade_type: str) -> str:
-    """当前跑商特产只按纯经济货物处理。"""
+    """当前跑商特产使用稳定规则组 trade；展示名仍叫纯经济。"""
 
     return TRADE_GROUP_BY_TYPE.get(trade_type, "")
 
 
-SPECIAL_BUYERS = (
-    ("镇妖司", "loot_yao_1,loot_yao_2,loot_yao_3,loot_yao_4,loot_yao_5,loot_yao_6", 3.0, 4, 4),
-    ("伏魔殿", "loot_mo_1,loot_mo_2,loot_mo_3,loot_mo_4,loot_mo_5,loot_mo_6", 3.0, -31, 21),
-    ("鬼市", "loot_gui_1,loot_gui_2,loot_gui_3,loot_gui_4,loot_gui_5,loot_gui_6", 3.0, 34, -17),
-    ("龙渊阁", "loot_long_1,loot_long_2,loot_long_3", 3.0, 41, -35),
-    ("万兽盟", "loot_shou_1,loot_shou_2,loot_shou_3,loot_shou_4,loot_shou_5,loot_shou_6", 2.5, -39, -12),
-    ("破军营", "loot_bing_1,loot_bing_2,loot_bing_3,loot_bing_4,loot_bing_5,loot_bing_6", 3.2, 22, 36),
+SPECIAL_BUYER_DEFS = (
+    ("buyer_zhenyaosi", "镇妖司", "loot_yao_1,loot_yao_2,loot_yao_3,loot_yao_4,loot_yao_5,loot_yao_6", 3.0, 4, 4),
+    ("buyer_fumodian", "伏魔殿", "loot_mo_1,loot_mo_2,loot_mo_3,loot_mo_4,loot_mo_5,loot_mo_6", 3.0, -31, 21),
+    ("buyer_guishi", "鬼市", "loot_gui_1,loot_gui_2,loot_gui_3,loot_gui_4,loot_gui_5,loot_gui_6", 3.0, 34, -17),
+    ("buyer_longyuan", "龙渊阁", "loot_long_1,loot_long_2,loot_long_3", 3.0, 41, -35),
+    ("buyer_wanshou", "万兽盟", "loot_shou_1,loot_shou_2,loot_shou_3,loot_shou_4,loot_shou_5,loot_shou_6", 2.5, -39, -12),
+    ("buyer_pojun", "破军营", "loot_bing_1,loot_bing_2,loot_bing_3,loot_bing_4,loot_bing_5,loot_bing_6", 3.2, 22, 36),
 )
-
-
-WAR_PREP_SEED = {
-    "镇妖司": ("镇妖战备", "妖类"),
-    "伏魔殿": ("伏魔战备", "魔类"),
-    "鬼市": ("阴契战备", "鬼类"),
-    "龙渊阁": ("龙渊战备", "龙类"),
-    "万兽盟": ("驭兽战备", "兽类"),
-    "破军营": ("破军战备", "兵戈类"),
+SPECIAL_BUYERS = tuple(
+    (name, item_ids, price_factor, x, y)
+    for _location_id, name, item_ids, price_factor, x, y in SPECIAL_BUYER_DEFS
+)
+SPECIAL_BUYER_IDS_BY_NAME = {
+    name: location_id
+    for location_id, name, _item_ids, _price_factor, _x, _y in SPECIAL_BUYER_DEFS
+}
+SPECIAL_BUYER_NAMES_BY_ID = {
+    location_id: name
+    for location_id, name, _item_ids, _price_factor, _x, _y in SPECIAL_BUYER_DEFS
 }
 
 
-RECYCLE_LOCATIONS = (
-    ("weapon", "铸剑阁", 1.2, -12, 18, "专收探险所得备用武器，回收价稳定但受每日回收曲线影响。"),
-    ("gem", "琢玉楼", 1.15, 17, 15, "专收未镶嵌宝石，擅长鉴定灵玉、拆解碎宝。"),
-    ("book", "藏经阁", 1.1, 3, 29, "专收未附魔技能书，负责整理残卷、术法和旧拓本。"),
+WAR_PREP_SEED = {
+    "buyer_zhenyaosi": ("镇妖战备", "yao"),
+    "buyer_fumodian": ("伏魔战备", "mo"),
+    "buyer_guishi": ("阴契战备", "gui"),
+    "buyer_longyuan": ("龙渊战备", "long"),
+    "buyer_wanshou": ("驭兽战备", "shou"),
+    "buyer_pojun": ("破军战备", "bing"),
+}
+
+
+RECYCLE_LOCATION_DEFS = (
+    ("recycle_weapon", "weapon", "铸剑阁", 1.2, -12, 18, "专收探险所得备用武器，回收价稳定但受每日回收曲线影响。"),
+    ("recycle_gem", "gem", "琢玉楼", 1.15, 17, 15, "专收未镶嵌宝石，擅长鉴定灵玉、拆解碎宝。"),
+    ("recycle_book", "book", "藏经阁", 1.1, 3, 29, "专收未附魔技能书，负责整理残卷、术法和旧拓本。"),
 )
+RECYCLE_LOCATIONS = tuple(
+    (recycle_type, name, price_factor, x, y, desc)
+    for _location_id, recycle_type, name, price_factor, x, y, desc in RECYCLE_LOCATION_DEFS
+)
+RECYCLE_LOCATION_IDS_BY_NAME = {
+    name: location_id
+    for location_id, _recycle_type, name, _price_factor, _x, _y, _desc in RECYCLE_LOCATION_DEFS
+}
+RECYCLE_LOCATION_NAMES_BY_ID = {
+    location_id: name
+    for location_id, _recycle_type, name, _price_factor, _x, _y, _desc in RECYCLE_LOCATION_DEFS
+}
 
 
 EXPLORATION_LOCATIONS = (
@@ -414,29 +512,56 @@ EXPLORATION_LOCATIONS = (
     ("太虚秘境", -6, -49, 90, 1, 100, "动态映身秘境，少量经验，主产1-8级宝石和全池武器。"),
 )
 
+SECRET_REALM_IDS_BY_NAME = {"太虚秘境": "realm_taixu"}
+SECRET_REALM_NAMES_BY_ID = {value: key for key, value in SECRET_REALM_IDS_BY_NAME.items()}
+NPC_LOCATION_IDS_BY_NAME = {
+    **TRADE_LOCATION_IDS_BY_NAME,
+    **SECRET_REALM_IDS_BY_NAME,
+    **SPECIAL_BUYER_IDS_BY_NAME,
+    **RECYCLE_LOCATION_IDS_BY_NAME,
+}
+NPC_LOCATION_NAMES_BY_ID = {
+    **TRADE_LOCATION_NAMES_BY_ID,
+    **SECRET_REALM_NAMES_BY_ID,
+    **SPECIAL_BUYER_NAMES_BY_ID,
+    **RECYCLE_LOCATION_NAMES_BY_ID,
+}
+
+
+def location_id_for_name(name: object) -> str:
+    """读取 NPC 地点稳定 id；荒地和宗门返回空串。"""
+
+    return NPC_LOCATION_IDS_BY_NAME.get(str(name or "").strip(), "")
+
+
+def location_name_for_id(location_id: object) -> str:
+    """读取 NPC 地点当前显示名。"""
+
+    return NPC_LOCATION_NAMES_BY_ID.get(str(location_id or "").strip(), "")
+
 
 WORLD_TERRAINS = {
-    "天枢城": "城镇",
-    "青岚坊": "森林",
-    "赤霞港": "港湾",
-    "玄铁岭": "山岭",
-    "万药谷": "药谷",
-    "云梦泽": "水泽",
-    "流沙海市": "荒漠",
-    "寒霜关": "雪原",
-    "雷泽城": "雷泽",
-    "碧潮岛": "海岛",
-    "星陨墟": "遗迹",
-    "太虚秘境": "秘境",
-    "镇妖司": "城镇",
-    "伏魔殿": "遗迹",
-    "鬼市": "阴市",
-    "龙渊阁": "水泽",
-    "万兽盟": "草原",
-    "破军营": "军营",
-    "铸剑阁": "山岭",
-    "琢玉楼": "湖泽",
-    "藏经阁": "城镇",
+    "city_tianshu": "城镇",
+    "city_qinglan": "森林",
+    "city_chixia": "港湾",
+    "city_xuantie": "山岭",
+    "city_wanyao": "药谷",
+    "city_yunmeng": "水泽",
+    "city_liusha": "荒漠",
+    "city_hanshuang": "雪原",
+    "city_leize": "雷泽",
+    "city_bichao": "海岛",
+    "city_xingyun": "遗迹",
+    "realm_taixu": "秘境",
+    "buyer_zhenyaosi": "城镇",
+    "buyer_fumodian": "遗迹",
+    "buyer_guishi": "阴市",
+    "buyer_longyuan": "水泽",
+    "buyer_wanshou": "草原",
+    "buyer_pojun": "军营",
+    "recycle_weapon": "山岭",
+    "recycle_gem": "湖泽",
+    "recycle_book": "城镇",
 }
 
 
@@ -688,6 +813,7 @@ class XiuxianDB:
                     )
             self._create_tables()
             self._seed_data()
+            self._apply_active_world_skin()
             self._validate_seed_data()
             self._set_schema_version()
             self.initialized = True
@@ -809,6 +935,44 @@ class XiuxianDB:
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS world_skin_active (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                skin_id TEXT NOT NULL,
+                version TEXT NOT NULL DEFAULT '',
+                author TEXT NOT NULL DEFAULT '',
+                desc TEXT NOT NULL DEFAULT '',
+                switched_by TEXT NOT NULL DEFAULT '',
+                switched_at TEXT NOT NULL,
+                snapshot_id INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS world_skin_snapshots (
+                snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skin_id TEXT NOT NULL,
+                version TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS quality_labels (
+                quality_key TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                desc TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS currency_labels (
+                currency_key TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                desc TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS player_level_labels (
+                level INTEGER PRIMARY KEY,
+                label TEXT NOT NULL,
+                desc TEXT NOT NULL DEFAULT ''
+            );
+
             CREATE TABLE IF NOT EXISTS physique_defs (
                 physique_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -833,7 +997,7 @@ class XiuxianDB:
                 physique_value INTEGER NOT NULL DEFAULT 0,
                 base_attack INTEGER NOT NULL DEFAULT 5,
                 defense INTEGER NOT NULL DEFAULT 0,
-                source_stones INTEGER NOT NULL DEFAULT 0,
+                raw_stones INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT '空闲',
                 rest_full_at TEXT,
                 rest_window_started_at TEXT,
@@ -841,6 +1005,7 @@ class XiuxianDB:
                 rest_window_mp INTEGER NOT NULL DEFAULT 0,
                 rest_window_elapsed_seconds INTEGER NOT NULL DEFAULT 0,
                 location_name TEXT NOT NULL DEFAULT '天枢城',
+                location_id TEXT NOT NULL DEFAULT 'city_tianshu',
                 x INTEGER NOT NULL DEFAULT 0,
                 y INTEGER NOT NULL DEFAULT 0,
                 backpack_limit INTEGER NOT NULL DEFAULT 80,
@@ -853,7 +1018,7 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS source_vaults (
+            CREATE TABLE IF NOT EXISTS bank_accounts (
                 client_id TEXT PRIMARY KEY,
                 star_level INTEGER NOT NULL DEFAULT 1,
                 balance INTEGER NOT NULL DEFAULT 0,
@@ -919,6 +1084,7 @@ class XiuxianDB:
                 ring_item_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 category TEXT NOT NULL,
+                category_key TEXT NOT NULL,
                 quality TEXT NOT NULL,
                 usable INTEGER NOT NULL DEFAULT 0,
                 target_type TEXT NOT NULL DEFAULT '玩家',
@@ -949,6 +1115,7 @@ class XiuxianDB:
             );
 
             CREATE TABLE IF NOT EXISTS world_locations (
+                location_id TEXT PRIMARY KEY,
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
                 name TEXT NOT NULL,
@@ -957,7 +1124,7 @@ class XiuxianDB:
                 features TEXT NOT NULL DEFAULT '[]',
                 reserved INTEGER NOT NULL DEFAULT 0,
                 desc TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (x, y),
+                UNIQUE(x, y),
                 UNIQUE(name)
             );
 
@@ -1056,7 +1223,8 @@ class XiuxianDB:
             );
 
             CREATE TABLE IF NOT EXISTS trade_locations (
-                name TEXT PRIMARY KEY,
+                location_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
                 specialties TEXT NOT NULL
@@ -1064,29 +1232,33 @@ class XiuxianDB:
 
             CREATE TABLE IF NOT EXISTS trade_goods (
                 item_id TEXT PRIMARY KEY,
-                home_location TEXT NOT NULL
+                home_location TEXT NOT NULL,
+                home_location_id TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS trade_prices (
+                location_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 buy_price INTEGER NOT NULL,
                 sell_price INTEGER NOT NULL,
                 business_day TEXT NOT NULL,
-                PRIMARY KEY (location_name, item_id, business_day)
+                PRIMARY KEY (location_id, item_id, business_day)
             );
 
             CREATE TABLE IF NOT EXISTS trade_heat (
+                location_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 business_day TEXT NOT NULL,
                 buy_count INTEGER NOT NULL DEFAULT 0,
                 sell_count INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (location_name, item_id, business_day)
+                PRIMARY KEY (location_id, item_id, business_day)
             );
 
             CREATE TABLE IF NOT EXISTS city_world_states (
-                location_name TEXT PRIMARY KEY,
+                location_id TEXT PRIMARY KEY,
+                location_name TEXT NOT NULL,
                 city_level INTEGER NOT NULL DEFAULT 1,
                 build_exp INTEGER NOT NULL DEFAULT 0,
                 medicine_material INTEGER NOT NULL DEFAULT 0,
@@ -1107,10 +1279,13 @@ class XiuxianDB:
                 record_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 item_id TEXT NOT NULL,
                 item_name TEXT NOT NULL,
                 category TEXT NOT NULL,
+                category_key TEXT NOT NULL DEFAULT '',
                 subtype TEXT NOT NULL,
+                subtype_key TEXT NOT NULL DEFAULT '',
                 quantity INTEGER NOT NULL,
                 stones INTEGER NOT NULL,
                 state_delta TEXT NOT NULL DEFAULT '{}',
@@ -1120,6 +1295,7 @@ class XiuxianDB:
             CREATE TABLE IF NOT EXISTS treasure_maps (
                 map_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 city_name TEXT NOT NULL,
+                city_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 x INTEGER,
                 y INTEGER,
@@ -1147,7 +1323,8 @@ class XiuxianDB:
             );
 
             CREATE TABLE IF NOT EXISTS war_prep_states (
-                buyer_name TEXT PRIMARY KEY,
+                location_id TEXT PRIMARY KEY,
+                buyer_name TEXT NOT NULL,
                 prep_name TEXT NOT NULL,
                 loot_subtype TEXT NOT NULL,
                 prep_value INTEGER NOT NULL DEFAULT 0,
@@ -1168,6 +1345,7 @@ class XiuxianDB:
                 total_price INTEGER NOT NULL,
                 fee INTEGER NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 business_day TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
@@ -1186,13 +1364,15 @@ class XiuxianDB:
                 client_id TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL,
                 last_buy_at TEXT NOT NULL,
                 last_buy_price INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (client_id, item_id, location_name)
+                PRIMARY KEY (client_id, item_id, location_id)
             );
 
             CREATE TABLE IF NOT EXISTS special_buyers (
-                buyer_name TEXT PRIMARY KEY,
+                location_id TEXT PRIMARY KEY,
+                buyer_name TEXT NOT NULL UNIQUE,
                 item_ids TEXT NOT NULL,
                 price_factor REAL NOT NULL,
                 x INTEGER NOT NULL,
@@ -1200,7 +1380,8 @@ class XiuxianDB:
             );
 
             CREATE TABLE IF NOT EXISTS recycle_locations (
-                name TEXT PRIMARY KEY,
+                location_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
                 recycle_type TEXT NOT NULL,
                 price_factor REAL NOT NULL,
                 x INTEGER NOT NULL,
@@ -1221,6 +1402,7 @@ class XiuxianDB:
                 price_rate REAL NOT NULL,
                 total_price INTEGER NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 business_day TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
@@ -1238,6 +1420,7 @@ class XiuxianDB:
                 price_rate REAL NOT NULL,
                 total_price INTEGER NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 business_day TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
@@ -1254,11 +1437,13 @@ class XiuxianDB:
                 price_rate REAL NOT NULL,
                 total_price INTEGER NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 business_day TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS exploration_locations (
+                location_id TEXT PRIMARY KEY,
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
                 name TEXT NOT NULL,
@@ -1266,7 +1451,7 @@ class XiuxianDB:
                 min_level INTEGER NOT NULL,
                 max_level INTEGER NOT NULL,
                 desc TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (x, y),
+                UNIQUE(x, y),
                 UNIQUE(name)
             );
 
@@ -1274,6 +1459,7 @@ class XiuxianDB:
                 record_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id TEXT NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 ready_at TEXT NOT NULL,
@@ -1287,6 +1473,7 @@ class XiuxianDB:
                 name TEXT NOT NULL,
                 level INTEGER NOT NULL,
                 kind TEXT NOT NULL,
+                kind_key TEXT NOT NULL DEFAULT '',
                 hp INTEGER NOT NULL,
                 attack INTEGER NOT NULL,
                 defense INTEGER NOT NULL,
@@ -1307,9 +1494,11 @@ class XiuxianDB:
                 weapon_def_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 drop_location TEXT NOT NULL,
+                drop_location_id TEXT NOT NULL DEFAULT '',
                 base_attack INTEGER NOT NULL,
                 skill_id TEXT NOT NULL,
-                weapon_type TEXT NOT NULL
+                weapon_type TEXT NOT NULL,
+                weapon_type_key TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS player_weapons (
@@ -1497,6 +1686,7 @@ class XiuxianDB:
                 boss_name TEXT NOT NULL,
                 boss_kind TEXT NOT NULL,
                 location_name TEXT NOT NULL,
+                location_id TEXT NOT NULL DEFAULT '',
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
                 level INTEGER NOT NULL,
@@ -1620,16 +1810,28 @@ class XiuxianDB:
             WHERE equipped = 1;
             CREATE INDEX IF NOT EXISTS idx_physique_level ON physique_defs(level, physique_value);
             CREATE INDEX IF NOT EXISTS idx_trade_records_client ON trade_records(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_trade_records_location_id ON trade_records(location_id, business_day);
             CREATE INDEX IF NOT EXISTS idx_trade_daily_rewards_day ON trade_daily_rewards(business_day);
-            CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_name, item_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_heat_day ON trade_heat(business_day, location_id, item_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_heat_location_id ON trade_heat(business_day, location_id, item_id);
             CREATE INDEX IF NOT EXISTS idx_world_material_records_client ON world_material_records(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_world_material_records_location ON world_material_records(location_name, category, created_at);
+            CREATE INDEX IF NOT EXISTS idx_world_material_records_location_id ON world_material_records(location_id, category, created_at);
             CREATE INDEX IF NOT EXISTS idx_treasure_maps_status ON treasure_maps(status, expires_at);
             CREATE INDEX IF NOT EXISTS idx_treasure_maps_city ON treasure_maps(city_name, status);
+            CREATE INDEX IF NOT EXISTS idx_treasure_maps_city_id ON treasure_maps(city_id, status);
             CREATE INDEX IF NOT EXISTS idx_treasure_maps_coord ON treasure_maps(x, y, status);
             CREATE INDEX IF NOT EXISTS idx_treasure_bids_map ON treasure_map_bids(map_id, active, created_at);
             CREATE INDEX IF NOT EXISTS idx_war_prep_pending ON war_prep_states(pending, pending_at);
             CREATE INDEX IF NOT EXISTS idx_world_locations_category ON world_locations(category, terrain);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_world_locations_location_id ON world_locations(location_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_locations_location_id ON trade_locations(location_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_exploration_locations_location_id ON exploration_locations(location_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_special_buyers_location_id ON special_buyers(location_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_recycle_locations_location_id ON recycle_locations(location_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_city_world_states_location_id ON city_world_states(location_id) WHERE location_id != '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_war_prep_states_location_id ON war_prep_states(location_id) WHERE location_id != '';
+            CREATE INDEX IF NOT EXISTS idx_players_location_id ON players(location_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_master_client_id ON sects(master_client_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_founder_id ON sects(founder_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sects_location_xy ON sects(location_x, location_y);
@@ -1674,6 +1876,7 @@ class XiuxianDB:
         points: dict[tuple[int, int], dict[str, Any]] = {}
 
         def add_point(
+            location_id: str,
             name: str,
             x: int,
             y: int,
@@ -1683,10 +1886,11 @@ class XiuxianDB:
             reserved: int = 1,
         ) -> None:
             key = (int(x), int(y))
-            terrain = WORLD_TERRAINS.get(name, "荒野")
+            terrain = WORLD_TERRAINS.get(location_id, "荒野")
             point = points.setdefault(
                 key,
                 {
+                    "location_id": location_id,
                     "name": name,
                     "category": category,
                     "terrain": terrain,
@@ -1697,23 +1901,26 @@ class XiuxianDB:
             )
             if point["name"] != name:
                 raise RuntimeError(f"世界点位坐标重复：{key}/{point['name']}/{name}")
+            if point["location_id"] != location_id:
+                raise RuntimeError(f"世界点位 ID 重复：{key}/{point['location_id']}/{location_id}")
             point["features"].add(feature)
             point["reserved"] = max(int(point["reserved"]), int(reserved))
             if desc and not point["desc"]:
                 point["desc"] = desc
 
         for name, x, y, _specialties in TRADE_LOCATIONS:
-            category = "主城" if name == DEFAULT_LOCATION else "坊市"
-            add_point(name, x, y, category, "trade", reserved=1)
+            category = "主城" if location_id_for_name(name) == DEFAULT_LOCATION_ID else "坊市"
+            add_point(location_id_for_name(name), name, x, y, category, "trade", reserved=1)
         for name, x, y, _recommended, _min_level, _max_level, desc in EXPLORATION_LOCATIONS:
-            add_point(name, x, y, "探险点", "explore", desc, reserved=1)
+            add_point(location_id_for_name(name), name, x, y, "探险点", "explore", desc, reserved=1)
         for buyer_name, _item_ids, _price_factor, x, y in SPECIAL_BUYERS:
-            add_point(buyer_name, x, y, "NPC建筑", "special_buyer", reserved=1)
+            add_point(location_id_for_name(buyer_name), buyer_name, x, y, "NPC建筑", "special_buyer", reserved=1)
         for recycle_type, name, _price_factor, x, y, desc in RECYCLE_LOCATIONS:
-            add_point(name, x, y, "回收建筑", f"recycle:{recycle_type}", desc, reserved=1)
+            add_point(location_id_for_name(name), name, x, y, "回收建筑", f"recycle:{recycle_type}", desc, reserved=1)
 
         rows = [
             (
+                str(point["location_id"]),
                 x,
                 y,
                 str(point["name"]),
@@ -1729,9 +1936,11 @@ class XiuxianDB:
         self.conn.executemany(
             """
             INSERT INTO world_locations
-            (x, y, name, category, terrain, features, reserved, desc)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(x, y) DO UPDATE SET
+            (location_id, x, y, name, category, terrain, features, reserved, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_id) DO UPDATE SET
+                x = excluded.x,
+                y = excluded.y,
                 name = excluded.name,
                 category = excluded.category,
                 terrain = excluded.terrain,
@@ -1746,6 +1955,55 @@ class XiuxianDB:
         """写入基础配置数据。"""
 
         assert self.conn is not None
+        self.conn.executemany(
+            """
+            INSERT INTO quality_labels (quality_key, label, desc)
+            VALUES (?, ?, ?)
+            ON CONFLICT(quality_key) DO UPDATE SET
+                desc = excluded.desc
+            """,
+            [
+                (
+                    key,
+                    str(data["label"]),
+                    f"品质稳定键 {key}；倍率 {data['factor']}，排序 {data['rank']}，掉落权重 {data['drop_weight']}。",
+                )
+                for key, data in QUALITY_DEFS.items()
+            ],
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO currency_labels (currency_key, label, desc)
+            VALUES (?, ?, ?)
+            ON CONFLICT(currency_key) DO UPDATE SET
+                desc = excluded.desc
+            """,
+            [
+                (
+                    key,
+                    str(data["label"]),
+                    str(data.get("desc") or ""),
+                )
+                for key, data in CURRENCY_DEFS.items()
+            ],
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO player_level_labels (level, label, desc)
+            VALUES (?, ?, ?)
+            ON CONFLICT(level) DO UPDATE SET
+                desc = excluded.desc
+            """,
+            [
+                (
+                    level,
+                    str(data["label"]),
+                    str(data.get("desc") or ""),
+                )
+                for level, data in PLAYER_LEVEL_DEFS.items()
+            ],
+        )
+        self._load_skin_labels()
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO physique_defs
@@ -1770,18 +2028,44 @@ class XiuxianDB:
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO ring_item_defs
-            (ring_item_id, name, category, quality, usable, target_type, effect, desc)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (ring_item_id, name, category, category_key, quality, usable, target_type, effect, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in RING_ITEM_DEFS],
+            [
+                (
+                    row[0],
+                    row[1],
+                    row[2],
+                    ring_category_key(row[2]),
+                    quality_key(row[3]),
+                    row[4],
+                    row[5],
+                    json.dumps(row[6], ensure_ascii=False),
+                    row[7],
+                )
+                for row in RING_ITEM_DEFS
+            ],
         )
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO ring_item_defs
-            (ring_item_id, name, category, quality, usable, target_type, effect, desc)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (ring_item_id, name, category, category_key, quality, usable, target_type, effect, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [(*row[:-2], json.dumps(row[-2], ensure_ascii=False), row[-1]) for row in EXTREME_BOOK_DEFS],
+            [
+                (
+                    row[0],
+                    row[1],
+                    row[2],
+                    ring_category_key(row[2]),
+                    quality_key(row[3]),
+                    row[4],
+                    row[5],
+                    json.dumps(row[6], ensure_ascii=False),
+                    row[7],
+                )
+                for row in EXTREME_BOOK_DEFS
+            ],
         )
         self.conn.executemany(
             """
@@ -1798,8 +2082,16 @@ class XiuxianDB:
         self._seed_world_locations()
         self.conn.execute("DELETE FROM trade_locations")
         self.conn.executemany(
-            "INSERT OR REPLACE INTO trade_locations (name, x, y, specialties) VALUES (?, ?, ?, ?)",
-            TRADE_LOCATIONS,
+            """
+            INSERT INTO trade_locations (location_id, name, x, y, specialties)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(location_id) DO UPDATE SET
+                name = excluded.name,
+                x = excluded.x,
+                y = excluded.y,
+                specialties = excluded.specialties
+            """,
+            [(location_id_for_name(name), name, x, y, specialties) for name, x, y, specialties in TRADE_LOCATIONS],
         )
         self._seed_city_world_states()
         trade_names = {
@@ -1808,22 +2100,25 @@ class XiuxianDB:
             for name in specialties.split(",")
         }
         item_home_locations = {
-            name: _location
+            name: (_location, location_id_for_name(_location))
             for _location, _x, _y, specialties in TRADE_LOCATIONS
             for name in specialties.split(",")
         }
         for name, trade_def in TRADE_ITEM_DEFS.items():
-            home_location = item_home_locations.get(name, "")
+            home_location, home_location_id = item_home_locations.get(name, ("", ""))
             tradeable = 1 if home_location else 0
             trade_type, quality, weight, stack_limit, base_price, desc = trade_def
             item_id = trade_item_id(name)
             effect = json.dumps(
                 {
                     "world_category": "纯经济",
+                    "world_category_key": "trade",
                     "world_subtype": home_location,
+                    "world_subtype_key": home_location_id,
                     "trade_type": trade_type,
                     "trade_group": trade_group_for_type(trade_type),
                     "home_location": home_location,
+                    "home_location_id": home_location_id,
                 },
                 ensure_ascii=False,
             )
@@ -1851,36 +2146,52 @@ class XiuxianDB:
             for name in specialties.split(","):
                 item = self.conn.execute("SELECT item_id FROM item_defs WHERE name = ?", (name,)).fetchone()
                 if item:
-                    trade_goods.append((item["item_id"], location))
+                    trade_goods.append((item["item_id"], location, location_id_for_name(location)))
         self.conn.execute("DELETE FROM trade_goods")
         self.conn.executemany(
-            "INSERT OR REPLACE INTO trade_goods (item_id, home_location) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO trade_goods (item_id, home_location, home_location_id) VALUES (?, ?, ?)",
             trade_goods,
         )
         self.conn.executemany(
             """
-            INSERT OR REPLACE INTO special_buyers
-            (buyer_name, item_ids, price_factor, x, y)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO special_buyers
+            (location_id, buyer_name, item_ids, price_factor, x, y)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_id) DO UPDATE SET
+                buyer_name = excluded.buyer_name,
+                item_ids = excluded.item_ids,
+                price_factor = excluded.price_factor,
+                x = excluded.x,
+                y = excluded.y
             """,
-            SPECIAL_BUYERS,
+            [(location_id_for_name(buyer_name), buyer_name, item_ids, price_factor, x, y) for buyer_name, item_ids, price_factor, x, y in SPECIAL_BUYERS],
         )
         self._seed_war_prep_states()
         self.conn.executemany(
             """
-            INSERT OR REPLACE INTO recycle_locations
-            (recycle_type, name, price_factor, x, y, desc)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO recycle_locations
+            (location_id, recycle_type, name, price_factor, x, y, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_id) DO UPDATE SET
+                recycle_type = excluded.recycle_type,
+                name = excluded.name,
+                price_factor = excluded.price_factor,
+                x = excluded.x,
+                y = excluded.y,
+                desc = excluded.desc
             """,
-            RECYCLE_LOCATIONS,
+            [(location_id_for_name(name), recycle_type, name, price_factor, x, y, desc) for recycle_type, name, price_factor, x, y, desc in RECYCLE_LOCATIONS],
         )
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO monster_defs
-            (monster_id, name, level, kind, hp, attack, defense, drop_item_id, drop_chance)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (monster_id, name, level, kind, kind_key, hp, attack, defense, drop_item_id, drop_chance)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            MONSTER_DEFS,
+            [
+                (monster_id, name, level, kind, enemy_kind_key(kind), hp, attack, defense, drop_item_id, drop_chance)
+                for monster_id, name, level, kind, hp, attack, defense, drop_item_id, drop_chance in MONSTER_DEFS
+            ],
         )
         self.conn.executemany(
             """
@@ -1893,10 +2204,13 @@ class XiuxianDB:
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO weapon_defs
-            (weapon_def_id, name, drop_location, base_attack, skill_id, weapon_type)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (weapon_def_id, name, drop_location, drop_location_id, base_attack, skill_id, weapon_type, weapon_type_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            WEAPON_DEFS,
+            [
+                (weapon_def_id, name, location, location_id_for_name(location), attack, skill_id, weapon_type, weapon_type_key(weapon_type))
+                for weapon_def_id, name, location, attack, skill_id, weapon_type in WEAPON_DEFS
+            ],
         )
         self.conn.executemany(
             """
@@ -1926,66 +2240,170 @@ class XiuxianDB:
         self.conn.executemany(
             """
             INSERT INTO exploration_locations
-            (name, x, y, recommended_level, min_level, max_level, desc)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(x, y) DO UPDATE SET
+            (location_id, name, x, y, recommended_level, min_level, max_level, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(location_id) DO UPDATE SET
                 name = excluded.name,
+                x = excluded.x,
+                y = excluded.y,
                 recommended_level = excluded.recommended_level,
                 min_level = excluded.min_level,
                 max_level = excluded.max_level,
                 desc = excluded.desc
             """,
-            EXPLORATION_LOCATIONS,
+            [(location_id_for_name(name), name, x, y, recommended, min_level, max_level, desc) for name, x, y, recommended, min_level, max_level, desc in EXPLORATION_LOCATIONS],
         )
+        self._sync_location_identity_columns()
         self.conn.commit()
+
+    def _apply_active_world_skin(self) -> None:
+        """热重启后重放当前世界皮肤，避免默认种子覆盖展示名。"""
+
+        assert self.conn is not None
+        try:
+            from .world_skin import apply_active_world_skin_package
+
+            apply_active_world_skin_package(self.conn)
+        except ValueError as exc:
+            raise RuntimeError(f"当前世界皮肤包无法应用：{exc}") from exc
 
     def _seed_city_world_states(self) -> None:
         """写入 11 个承接城池的世界物资状态。"""
 
         assert self.conn is not None
-        current = tuple(location for location, _x, _y, _specialties in TRADE_LOCATIONS)
-        if current:
-            placeholders = ",".join("?" for _ in current)
+        current = tuple((location_id_for_name(location), location) for location, _x, _y, _specialties in TRADE_LOCATIONS)
+        current_ids = tuple(location_id for location_id, _location in current)
+        if current_ids:
+            placeholders = ",".join("?" for _ in current_ids)
             self.conn.execute(
-                f"DELETE FROM city_world_states WHERE location_name NOT IN ({placeholders})",
-                current,
+                f"DELETE FROM city_world_states WHERE location_id NOT IN ({placeholders})",
+                current_ids,
             )
-        self.conn.executemany(
-            """
-            INSERT OR IGNORE INTO city_world_states
-            (location_name, last_settled_at, updated_at)
-            VALUES (?, ?, ?)
-            """,
-            [(location, ts(), ts()) for location in current],
-        )
+        for location_id, location in current:
+            if not location_id:
+                continue
+            existing = self.conn.execute(
+                "SELECT 1 FROM city_world_states WHERE location_id = ?",
+                (location_id,),
+            ).fetchone()
+            if existing:
+                self.conn.execute(
+                    "UPDATE city_world_states SET location_name = ? WHERE location_id = ?",
+                    (location, location_id),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO city_world_states
+                    (location_id, location_name, last_settled_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (location_id, location, ts(), ts()),
+                )
 
     def _seed_war_prep_states(self) -> None:
         """写入特殊收购势力的战备状态。"""
 
         assert self.conn is not None
-        buyer_names = tuple(buyer_name for buyer_name, _items, _factor, _x, _y in SPECIAL_BUYERS)
-        if buyer_names:
-            placeholders = ",".join("?" for _ in buyer_names)
+        buyers = tuple((location_id_for_name(buyer_name), buyer_name) for buyer_name, _items, _factor, _x, _y in SPECIAL_BUYERS)
+        buyer_ids = tuple(location_id for location_id, _buyer_name in buyers)
+        if buyer_ids:
+            placeholders = ",".join("?" for _ in buyer_ids)
             self.conn.execute(
-                f"DELETE FROM war_prep_states WHERE buyer_name NOT IN ({placeholders})",
-                buyer_names,
+                f"DELETE FROM war_prep_states WHERE location_id NOT IN ({placeholders})",
+                buyer_ids,
             )
         rows = []
         for buyer_name, _items, _factor, _x, _y in SPECIAL_BUYERS:
-            prep_name, loot_subtype = WAR_PREP_SEED.get(buyer_name, (f"{buyer_name}战备", "战利品"))
-            rows.append((buyer_name, prep_name, loot_subtype, ts(), ts()))
-        self.conn.executemany(
-            """
-            INSERT INTO war_prep_states
-            (buyer_name, prep_name, loot_subtype, last_settled_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(buyer_name) DO UPDATE SET
-                prep_name = excluded.prep_name,
-                loot_subtype = excluded.loot_subtype,
-                updated_at = excluded.updated_at
-            """,
-            rows,
-        )
+            location_id = location_id_for_name(buyer_name)
+            prep_name, loot_subtype = WAR_PREP_SEED.get(location_id, (f"{buyer_name}战备", "战利品"))
+            rows.append((location_id, buyer_name, prep_name, loot_subtype, ts(), ts()))
+        for location_id, buyer_name, prep_name, loot_subtype, created_at, updated_at in rows:
+            existing = self.conn.execute(
+                "SELECT 1 FROM war_prep_states WHERE location_id = ?",
+                (location_id,),
+            ).fetchone()
+            if existing:
+                self.conn.execute(
+                    """
+                    UPDATE war_prep_states
+                    SET buyer_name = ?, prep_name = ?, loot_subtype = ?, updated_at = ?
+                    WHERE location_id = ?
+                    """,
+                    (buyer_name, prep_name, loot_subtype, updated_at, location_id),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    INSERT INTO war_prep_states
+                    (location_id, buyer_name, prep_name, loot_subtype, last_settled_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(location_id) DO UPDATE SET
+                        buyer_name = excluded.buyer_name,
+                        prep_name = excluded.prep_name,
+                        loot_subtype = excluded.loot_subtype,
+                        updated_at = excluded.updated_at
+                    """,
+                    (location_id, buyer_name, prep_name, loot_subtype, created_at, updated_at),
+                )
+
+    def _sync_location_identity_columns(self) -> None:
+        """用稳定地点 ID 同步当前皮肤包的显示名。"""
+
+        assert self.conn is not None
+
+        def sync(table: str, name_column: str, id_column: str = "location_id") -> None:
+            for current_name, location_id in NPC_LOCATION_IDS_BY_NAME.items():
+                self.conn.execute(
+                    f"UPDATE {table} SET {id_column} = ? WHERE {id_column} = '' AND {name_column} = ?",
+                    (location_id, current_name),
+                )
+            for location_id, current_name in NPC_LOCATION_NAMES_BY_ID.items():
+                self.conn.execute(
+                    f"UPDATE {table} SET {name_column} = ? WHERE {id_column} = ?",
+                    (current_name, location_id),
+                )
+
+        for table, name_column, id_column in (
+            ("world_locations", "name", "location_id"),
+            ("trade_locations", "name", "location_id"),
+            ("exploration_locations", "name", "location_id"),
+            ("special_buyers", "buyer_name", "location_id"),
+            ("recycle_locations", "name", "location_id"),
+            ("players", "location_name", "location_id"),
+            ("city_world_states", "location_name", "location_id"),
+            ("trade_prices", "location_name", "location_id"),
+            ("trade_heat", "location_name", "location_id"),
+            ("world_material_records", "location_name", "location_id"),
+            ("trade_records", "location_name", "location_id"),
+            ("trade_buy_locks", "location_name", "location_id"),
+            ("weapon_recycle_records", "location_name", "location_id"),
+            ("gem_recycle_records", "location_name", "location_id"),
+            ("book_recycle_records", "location_name", "location_id"),
+            ("exploration_records", "location_name", "location_id"),
+            ("wormholes", "location_name", "location_id"),
+        ):
+            sync(table, name_column, id_column)
+
+        for current_name, location_id in TRADE_LOCATION_IDS_BY_NAME.items():
+            self.conn.execute(
+                "UPDATE trade_goods SET home_location_id = ? WHERE home_location_id = '' AND home_location = ?",
+                (location_id, current_name),
+            )
+        for location_id, current_name in TRADE_LOCATION_NAMES_BY_ID.items():
+            self.conn.execute(
+                "UPDATE trade_goods SET home_location = ? WHERE home_location_id = ?",
+                (current_name, location_id),
+            )
+            self.conn.execute(
+                "UPDATE treasure_maps SET city_name = ? WHERE city_id = ?",
+                (current_name, location_id),
+            )
+        for current_name, location_id in TRADE_LOCATION_IDS_BY_NAME.items():
+            self.conn.execute(
+                "UPDATE treasure_maps SET city_id = ? WHERE city_id = '' AND city_name = ?",
+                (location_id, current_name),
+            )
 
     def _validate_seed_data(self) -> None:
         """检查配置引用是否都能落到真实表。
@@ -2015,6 +2433,47 @@ class XiuxianDB:
             except json.JSONDecodeError:
                 missing.append(f"体质特性不是 JSON：{row['name']}")
 
+        quality_rows = {
+            row["quality_key"]: row["label"]
+            for row in self.conn.execute("SELECT quality_key, label FROM quality_labels").fetchall()
+        }
+        for key in QUALITY_DEFS:
+            label = str(quality_rows.get(key) or "").strip()
+            if not label:
+                missing.append(f"品质显示名缺失：{key}")
+        for row in self.conn.execute("SELECT quality_key, label FROM quality_labels").fetchall():
+            if row["quality_key"] not in QUALITY_DEFS:
+                missing.append(f"未知品质稳定键：{row['quality_key']}/{row['label']}")
+
+        currency_rows = {
+            row["currency_key"]: row["label"]
+            for row in self.conn.execute("SELECT currency_key, label FROM currency_labels").fetchall()
+        }
+        for key in CURRENCY_DEFS:
+            label = str(currency_rows.get(key) or "").strip()
+            if not label:
+                missing.append(f"货币显示名缺失：{key}")
+        for row in self.conn.execute("SELECT currency_key, label FROM currency_labels").fetchall():
+            if row["currency_key"] not in CURRENCY_DEFS:
+                missing.append(f"未知货币稳定键：{row['currency_key']}/{row['label']}")
+
+        player_level_rows = {
+            int(row["level"]): row["label"]
+            for row in self.conn.execute("SELECT level, label FROM player_level_labels").fetchall()
+        }
+        for level in PLAYER_LEVEL_DEFS:
+            label = str(player_level_rows.get(level) or "").strip()
+            if not label:
+                missing.append(f"等级显示名缺失：{level}")
+        for row in self.conn.execute("SELECT level, label FROM player_level_labels").fetchall():
+            level = int(row["level"])
+            if level not in PLAYER_LEVEL_DEFS:
+                missing.append(f"未知等级显示稳定值：{level}/{row['label']}")
+
+        item_ids = {
+            row["item_id"]
+            for row in self.conn.execute("SELECT item_id FROM item_defs").fetchall()
+        }
         names = {
             row["name"]
             for row in self.conn.execute("SELECT name FROM item_defs").fetchall()
@@ -2026,6 +2485,39 @@ class XiuxianDB:
         duplicated_names = names & equipment_names
         if duplicated_names:
             missing.append(f"背包物品和纳戒物品重名：{','.join(sorted(duplicated_names))}")
+
+        valid_world_category_keys = {"trade", "medicine", "life", "build", "relic", "loot"}
+        medicine_roles = {"material", "catalyst", "fuel"}
+        for row in self.conn.execute("SELECT item_id, name, quality, tradeable, effect FROM item_defs").fetchall():
+            item_id = str(row["item_id"])
+            try:
+                effect = json.loads(row["effect"] or "{}")
+            except json.JSONDecodeError:
+                missing.append(f"背包物品 effect 不是 JSON：{item_id}/{row['name']}")
+                continue
+            category_key = str(effect.get("world_category_key") or "").strip()
+            subtype_key = str(effect.get("world_subtype_key") or "").strip()
+            if category_key not in valid_world_category_keys:
+                missing.append(f"世界物品稳定大类缺失或非法：{item_id}/{row['name']}/{category_key or '空'}")
+            if category_key and not subtype_key:
+                missing.append(f"世界物品稳定小类缺失：{item_id}/{row['name']}")
+            if category_key == "trade" and not int(row["tradeable"]):
+                missing.append(f"纯经济物品必须可跑商：{item_id}/{row['name']}")
+            if category_key != "trade" and int(row["tradeable"]):
+                missing.append(f"非纯经济物品不能标记为跑商货：{item_id}/{row['name']}/{category_key}")
+            if category_key == "medicine" and str(effect.get("medicine_material_role") or "") not in medicine_roles:
+                missing.append(f"药路物资缺少稳定药路角色：{item_id}/{row['name']}")
+            if category_key == "trade" and str(effect.get("home_location_id") or "") not in TRADE_LOCATION_NAMES_BY_ID:
+                missing.append(f"纯经济特产缺少合法产地 ID：{item_id}/{row['name']}/{effect.get('home_location_id')}")
+            if quality_key(row["quality"]) != row["quality"]:
+                missing.append(f"背包物品品质必须保存稳定键：{item_id}/{row['name']}/{row['quality']}")
+
+        for row in self.conn.execute("SELECT ring_item_id, name, category_key, quality FROM ring_item_defs").fetchall():
+            item_id = str(row["ring_item_id"])
+            if row["category_key"] not in RING_CATEGORY_KEYS:
+                missing.append(f"纳戒物品分类稳定键非法：{item_id}/{row['name']}/{row['category_key']}")
+            if quality_key(row["quality"]) != row["quality"]:
+                missing.append(f"纳戒物品品质必须保存稳定键：{item_id}/{row['name']}/{row['quality']}")
 
         coord_names: dict[tuple[int, int], str] = {}
         name_coords: dict[str, tuple[int, int]] = {}
@@ -2045,25 +2537,42 @@ class XiuxianDB:
             check_point(name, x, y, "商场")
         for name, x, y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS:
             check_point(name, x, y, "探险")
-        trade_location_names = {name for name, _x, _y, _specialties in TRADE_LOCATIONS}
-        normal_explore_names = {
-            name
+        trade_location_ids = {location_id_for_name(name) for name, _x, _y, _specialties in TRADE_LOCATIONS}
+        explore_location_ids = {
+            location_id_for_name(name)
             for name, _x, _y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS
-            if name != "太虚秘境"
         }
-        if trade_location_names != normal_explore_names:
+        special_explore_ids = set(SECRET_REALM_NAMES_BY_ID)
+        normal_explore_ids = explore_location_ids - special_explore_ids
+        if trade_location_ids != normal_explore_ids:
             missing.append(
                 "跑商地点必须与普通探险地点重合："
-                f"跑商独有={','.join(sorted(trade_location_names - normal_explore_names)) or '无'}；"
-                f"探险独有={','.join(sorted(normal_explore_names - trade_location_names)) or '无'}"
+                f"跑商独有={','.join(sorted(trade_location_ids - normal_explore_ids)) or '无'}；"
+                f"探险独有={','.join(sorted(normal_explore_ids - trade_location_ids)) or '无'}"
             )
         for buyer_name, _item_ids_text, _factor, x, y in SPECIAL_BUYERS:
             check_point(buyer_name, x, y, "特殊收购")
         for _recycle_type, name, _factor, x, y, _desc in RECYCLE_LOCATIONS:
             check_point(name, x, y, "回收")
 
+        npc_ids = {
+            row["location_id"]
+            for row in self.conn.execute("SELECT location_id FROM world_locations").fetchall()
+        }
+        for table, id_column in (
+            ("trade_locations", "location_id"),
+            ("exploration_locations", "location_id"),
+            ("special_buyers", "location_id"),
+            ("recycle_locations", "location_id"),
+            ("city_world_states", "location_id"),
+            ("war_prep_states", "location_id"),
+        ):
+            for row in self.conn.execute(f"SELECT DISTINCT {id_column} AS location_id FROM {table}").fetchall():
+                if row["location_id"] not in npc_ids:
+                    missing.append(f"{table} 指向不存在的 NPC 地点：{row['location_id']}")
+
         gem_rows = self.conn.execute(
-            "SELECT name, effect FROM ring_item_defs WHERE category = '宝石'"
+            "SELECT name, effect FROM ring_item_defs WHERE category_key = 'gem'"
         ).fetchall()
         for row in gem_rows:
             try:
@@ -2080,15 +2589,16 @@ class XiuxianDB:
                 missing.append(f"跑商地点必须正好 3 个特产：{location}/{specialties}")
             for name in specialty_names:
                 trade_def = TRADE_ITEM_DEFS.get(name)
+                item_id = trade_item_id(name)
                 if not trade_def:
                     missing.append(f"跑商特产缺少定价：{location}/{name}")
                     continue
-                if name not in names:
-                    missing.append(f"跑商特产未落背包物品定义：{location}/{name}")
+                if item_id not in item_ids:
+                    missing.append(f"跑商特产未落背包物品定义：{location}/{item_id}/{name}")
                 trade_type = str(trade_def[0])
                 if trade_type in TRADE_FORBIDDEN_SPECIALTY_TYPES:
                     missing.append(f"跑商特产不能使用旧民生类或药路类：{location}/{name}/{trade_type}")
-                if trade_group_for_type(trade_type) != "纯经济":
+                if trade_group_for_type(trade_type) != "trade":
                     missing.append(f"跑商特产必须是纯经济商品：{location}/{name}/{trade_type}")
         trade_names = {
             name
@@ -2096,16 +2606,13 @@ class XiuxianDB:
             for name in specialties.split(",")
         }
         for name, trade_def in TRADE_ITEM_DEFS.items():
-            if name not in names:
-                missing.append(f"纯经济特产定义未落背包物品定义：{name}")
+            item_id = trade_item_id(name)
+            if item_id not in item_ids:
+                missing.append(f"纯经济特产定义未落背包物品定义：{item_id}/{name}")
             trade_type = str(trade_def[0])
             if name not in trade_names and trade_type in TRADE_FORBIDDEN_SPECIALTY_TYPES:
                 missing.append(f"非入口纯经济特产不能复用药路或民生小类：{name}/{trade_type}")
 
-        item_ids = {
-            row["item_id"]
-            for row in self.conn.execute("SELECT item_id FROM item_defs").fetchall()
-        }
         for buyer_name, item_ids_text, _factor, _x, _y in SPECIAL_BUYERS:
             for item_id in item_ids_text.split(","):
                 if item_id not in item_ids:
@@ -2115,27 +2622,31 @@ class XiuxianDB:
             if drop_item_id and drop_item_id not in item_ids:
                 missing.append(f"怪物掉落物不存在：{monster_id}/{drop_item_id}")
 
+        for row in self.conn.execute("SELECT monster_id, name, kind_key FROM monster_defs").fetchall():
+            if str(row["kind_key"] or "") not in ENEMY_SKILL_DEFS:
+                missing.append(f"怪物类型稳定键非法：{row['monster_id']}/{row['name']}/{row['kind_key']}")
+
         skill_ids = {
             row["skill_id"]
             for row in self.conn.execute("SELECT skill_id FROM weapon_skill_defs").fetchall()
         }
-        normal_explore_names = {
-            name
-            for name, _x, _y, _recommended, _min_level, _max_level, _desc in EXPLORATION_LOCATIONS
-            if name != "太虚秘境"
-        }
         for weapon_def_id, _name, _location, _attack, skill_id, _weapon_type in WEAPON_DEFS:
             if skill_id not in skill_ids:
                 missing.append(f"武器技能不存在：{weapon_def_id}/{skill_id}")
-            if _location not in normal_explore_names:
+            if location_id_for_name(_location) not in normal_explore_ids:
                 missing.append(f"武器掉落地点必须是普通探险地点：{weapon_def_id}/{_location}")
+        for row in self.conn.execute("SELECT weapon_def_id, name, drop_location_id, weapon_type_key FROM weapon_defs").fetchall():
+            if str(row["drop_location_id"] or "") not in normal_explore_ids:
+                missing.append(f"武器掉落地点 ID 必须是普通探险地点：{row['weapon_def_id']}/{row['name']}/{row['drop_location_id']}")
+            if str(row["weapon_type_key"] or "") not in WEAPON_TYPE_ATTACK_BASE_FACTORS:
+                missing.append(f"武器类型稳定键非法：{row['weapon_def_id']}/{row['name']}/{row['weapon_type_key']}")
 
         enchant_ids = {
             row["enchant_id"]
             for row in self.conn.execute("SELECT enchant_id FROM weapon_enchants").fetchall()
         }
         rows = self.conn.execute(
-            "SELECT ring_item_id, name, effect FROM ring_item_defs WHERE category = '技能书'"
+            "SELECT ring_item_id, name, effect FROM ring_item_defs WHERE category_key = 'book'"
         ).fetchall()
         for row in rows:
             try:
@@ -2149,6 +2660,23 @@ class XiuxianDB:
 
         if missing:
             raise RuntimeError("修仙基础配置错误：\n" + "\n".join(missing))
+
+    def _load_skin_labels(self) -> None:
+        """把当前皮肤的品质、货币和等级显示名注入公共展示函数。"""
+
+        assert self.conn is not None
+        quality_rows = self.conn.execute("SELECT quality_key, label FROM quality_labels").fetchall()
+        set_quality_label_overrides({row["quality_key"]: row["label"] for row in quality_rows})
+        currency_rows = self.conn.execute("SELECT currency_key, label FROM currency_labels").fetchall()
+        set_currency_label_overrides({row["currency_key"]: row["label"] for row in currency_rows})
+        player_level_rows = self.conn.execute("SELECT level, label FROM player_level_labels").fetchall()
+        set_player_level_label_overrides({row["level"]: row["label"] for row in player_level_rows})
+        active = self.conn.execute("SELECT skin_id FROM world_skin_active WHERE id = 1").fetchone()
+        if active:
+            from .world_skin import load_skin_package
+
+            package = load_skin_package(str(active["skin_id"]))
+            set_enemy_skill_label_overrides(package.names.get("actors", {}).get("enemy_skills"))
 
     def ensure_fixed_equipment(self, client_id: str) -> None:
         """确保玩家装备位存在。"""
@@ -2169,4 +2697,4 @@ class XiuxianDB:
 db = XiuxianDB(Path(__file__).with_name("xiuxian.db"))
 
 
-__all__ = ["XiuxianDB", "db"]
+__all__ = ["XiuxianDB", "db", "world_category_key"]

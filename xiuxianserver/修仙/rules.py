@@ -72,7 +72,7 @@ from .constants import (
 
 
 def money(value: int) -> str:
-    """把源石数量转成稳定文本。"""
+    """把货币数量转成稳定文本。"""
 
     return f"{max(0, int(value)):,}".replace(",", "")
 
@@ -278,7 +278,7 @@ def defense(level: int, physique: int, equipment_bonus: int = 0) -> int:
 
 
 def sign_reward(level: int) -> int:
-    """计算每日签到源石。"""
+    """计算每日签到货币。"""
 
     return min(500 + int(level) * 30, 5_000)
 
@@ -462,7 +462,7 @@ def weapon_enchant_slots(max_level: int, level: int) -> int:
 
 
 def weapon_upgrade_cost(next_level: int, quality_factor: float) -> int:
-    """计算武器升级源石。"""
+    """计算武器升级货币消耗。"""
 
     factor = max(1.0, float(quality_factor))
     quality_cost = max(0.65, (factor**1.55) * 0.78)
@@ -470,13 +470,13 @@ def weapon_upgrade_cost(next_level: int, quality_factor: float) -> int:
 
 
 def equipment_upgrade_cost(next_level: int, slot_factor: float) -> int:
-    """计算装备升级源石。"""
+    """计算装备升级货币消耗。"""
 
     return floor(800 * (int(next_level) ** 1.55) * float(slot_factor))
 
 
 def gem_upgrade_cost(next_level: int) -> int:
-    """计算已镶嵌宝石升级源石。
+    """计算已镶嵌宝石升级货币消耗。
 
     1-5 级保持平滑铺底，6 级后用立方段拉开长期消耗。
     """

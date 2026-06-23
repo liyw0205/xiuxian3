@@ -51,7 +51,7 @@ async def ws_reject_duel(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="决斗记录", priority=100, block=True)
-async def ws_duel_records(client_id: str, message: str) -> None:
+async def ws_duel_records(client_id: str) -> None:
     """查看切磋和决斗记录。"""
 
     await send_reply(client_id, service.records(client_id), ws_manager, service)

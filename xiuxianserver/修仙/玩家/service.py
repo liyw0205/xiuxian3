@@ -8,6 +8,8 @@ from ..format_text import T
 from ..common import (
     CoreService,
     business_day,
+    currency_amount,
+    currency_name,
     dt,
     enchant_label_name,
     fixed_equipment_label,
@@ -15,6 +17,10 @@ from ..common import (
     load_json,
     money,
     now,
+    player_level_label,
+    QUALITY_EPIC,
+    QUALITY_RARE,
+    quality_label,
     timedelta,
     ts,
     weapon_id_label,
@@ -65,7 +71,7 @@ class PlayerService(CoreService):
         panel.section("状态")
         panel.line(f"经验：**{self.next_level_text(player)}**")
         panel.line(f"血气：**{player['hp']}/{player['max_hp']}**｜精神：**{player['mp']}/{player['max_mp']}**")
-        panel.line(f"源石：**{money(player['source_stones'])}**｜状态：{player['status']}｜自动用药：{'开启' if player['auto_use_medicine'] else '关闭'}")
+        panel.line(f"{currency_name()}：**{money(player['raw_stones'])}**｜状态：{player['status']}｜自动用药：{'开启' if player['auto_use_medicine'] else '关闭'}")
         panel.line(f"战斗日志：{mode_text(player)}")
         nemesis_text = self._nemesis_text(client_id)
         if nemesis_text:
@@ -109,14 +115,14 @@ class PlayerService(CoreService):
 
         weapon_text = "未装备"
         if weapon:
-            weapon_text = f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)} [{weapon['quality']}] 攻击 +{weapon_attack}"
+            weapon_text = f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)} [{quality_label(weapon['quality'])}] 攻击 +{weapon_attack}"
 
         panel = T.panel()
         panel.section("关键状态")
-        panel.line(f"等级：{player['level']}｜经验：{self.next_level_text(player)}")
+        panel.line(f"等级：{player_level_label(player['level'])}｜经验：{self.next_level_text(player)}")
         panel.line(f"血气：{player['hp']}/{player['max_hp']}｜精神：{player['mp']}/{player['max_mp']}")
         panel.line(f"状态：{player['status']}｜地点：{player['location_name']} ({player['x']},{player['y']})")
-        panel.line(f"源石：{money(player['source_stones'])}")
+        panel.line(f"{currency_name()}：{money(player['raw_stones'])}")
         panel.hr()
         panel.line(f"攻击：{total_attack}｜防御：{player['defense']}｜速度：{combat_info['speed']}")
         panel.line(f"技能节奏：{combat_info['skill_tempo']}")
@@ -240,7 +246,7 @@ class PlayerService(CoreService):
             cursor = conn.execute(
                 """
                 UPDATE players
-                SET source_stones = source_stones + ?, last_sign_date = ?
+                SET raw_stones = raw_stones + ?, last_sign_date = ?
                 WHERE client_id = ?
                   AND (last_sign_date IS NULL OR last_sign_date != ?)
                 """,
@@ -259,7 +265,7 @@ class PlayerService(CoreService):
                 (client_id, f"stones={reward}, day={today}", ts()),
             )
             fortune = self.ensure_daily_fortune_conn(conn, client_id)
-        return f"签到成功，获得源石 {money(reward)}。\n" f"今日气运：{fortune['fortune']}，{fortune['flavor']}" f"（{format_effect(fortune['effect'])}）"
+        return f"签到成功，获得{currency_amount(reward)}。\n" f"今日气运：{fortune['fortune']}，{fortune['flavor']}" f"（{format_effect(fortune['effect'])}）"
 
     def newbie_gift(self, client_id: str) -> str:
         """领取新手礼包。"""
@@ -273,7 +279,7 @@ class PlayerService(CoreService):
             cursor = conn.execute(
                 """
                 UPDATE players
-                SET newbie_claimed = 1, source_stones = source_stones + ?
+                SET newbie_claimed = 1, raw_stones = raw_stones + ?
                 WHERE client_id = ? AND newbie_claimed = 0
                 """,
                 (NEWBIE_GIFT_STONES, client_id),
@@ -286,7 +292,7 @@ class PlayerService(CoreService):
                 "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, '新手礼包', ?, datetime('now', 'localtime'))",
                 (client_id, "领取"),
             )
-        return "新手礼包领取成功：源石 10000、血契丹 2、阴冥草 2。"
+        return f"新手礼包领取成功：{currency_amount(10000)}、血契丹 2、阴冥草 2。"
 
     def rest(self, client_id: str) -> str:
         """进入休息状态。"""
@@ -512,7 +518,7 @@ class PlayerService(CoreService):
         base_skill = enchant_label_name(skill_name, custom_skill["custom_name"] if custom_skill else "")
         enchants = self._weapon_enchant_profile_text(weapon_id, load_json(weapon["enchant_effects"], []))
         return [
-            f"{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} [{weapon['quality']}]",
+            f"{weapon_id_label(weapon_id)} {weapon_label_name(weapon)} [{quality_label(weapon['quality'])}]",
             f"类型：{weapon['weapon_type']}｜定位：{combat_info['weapon_style']}",
             f"攻击：**+{self.weapon_attack(weapon)}**",
             f"技能：{base_skill}",
@@ -659,14 +665,14 @@ class PlayerService(CoreService):
     def _base_diary_entries(self, client_id: str, player: dict, now_text: str) -> list[tuple[str, str, str]]:
         """日记里的基础资料：创建、等级、财富和当前位置。"""
 
-        vault = self.db.fetch_one("SELECT balance FROM source_vaults WHERE client_id = ?", (client_id,))
-        vault_balance = int(vault["balance"]) if vault else 0
+        bank = self.db.fetch_one("SELECT balance FROM bank_accounts WHERE client_id = ?", (client_id,))
+        bank_balance = int(bank["balance"]) if bank else 0
         return [
             ("created", f"{player['created_at']} 初入修仙界，名为 {player['display_name']}。", player["created_at"]),
             ("level", f"修为已至 {player['level']} 级，累计经验 {player['exp']}。", now_text),
             (
                 "wealth",
-                f"随身源石 {money(player['source_stones'])}，源库存量 {money(vault_balance)}。",
+                f"随身{currency_name()} {money(player['raw_stones'])}，银行存量 {money(bank_balance)}。",
                 now_text,
             ),
             ("location", f"当前停留在 {player['location_name']}，状态为 {player['status']}。", now_text),
@@ -743,7 +749,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if trade_sell_count:
-            entries.append(("trade", f"累计跑商出售 {trade_sell_count} 次，净利润 {money(trade_net)} 源石。", now_text))
+            entries.append(("trade", f"累计跑商出售 {trade_sell_count} 次，净利润 {currency_amount(trade_net)}。", now_text))
 
         second_hand_sell = self.stat_count(
             client_id,
@@ -780,15 +786,15 @@ class PlayerService(CoreService):
             """
             SELECT quality, COUNT(*) AS count
             FROM player_weapons
-            WHERE holder_id = ? AND quality IN ('稀品', '珍品')
+            WHERE holder_id = ? AND quality IN (?, ?)
             GROUP BY quality
-            ORDER BY CASE quality WHEN '珍品' THEN 2 ELSE 1 END DESC
+            ORDER BY CASE quality WHEN ? THEN 2 ELSE 1 END DESC
             LIMIT 1
             """,
-            (client_id,),
+            (client_id, QUALITY_EPIC, QUALITY_RARE, QUALITY_EPIC),
         )
         if rare_weapon:
-            entries.append(("rare_weapon", f"曾得 {rare_weapon['quality']} 武器 {rare_weapon['count']} 把，坊间称其手气不浅。", now_text))
+            entries.append(("rare_weapon", f"曾得 {quality_label(rare_weapon['quality'])} 武器 {rare_weapon['count']} 把，坊间称其手气不浅。", now_text))
         return entries
 
     def _recycle_diary_entries(self, client_id: str, now_text: str) -> list[tuple[str, str, str]]:
@@ -808,7 +814,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if recycle_count:
-            entries.append(("weapon_recycle", f"累计出售武器 {recycle_count} 把，得源石 {money(recycle_income)}。", now_text))
+            entries.append(("weapon_recycle", f"累计出售武器 {recycle_count} 把，得{currency_amount(recycle_income)}。", now_text))
         gem_recycle_count = self.stat_count(
             client_id,
             "gem_recycle_count",
@@ -822,7 +828,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if gem_recycle_count:
-            entries.append(("gem_recycle", f"累计出售宝石 {gem_recycle_count} 次，得源石 {money(gem_recycle_income)}。", now_text))
+            entries.append(("gem_recycle", f"累计出售宝石 {gem_recycle_count} 次，得{currency_amount(gem_recycle_income)}。", now_text))
         book_recycle_count = self.stat_count(
             client_id,
             "book_recycle_count",
@@ -836,7 +842,7 @@ class PlayerService(CoreService):
             (client_id,),
         )
         if book_recycle_count:
-            entries.append(("book_recycle", f"累计出售技能书 {book_recycle_count} 次，得源石 {money(book_recycle_income)}。", now_text))
+            entries.append(("book_recycle", f"累计出售技能书 {book_recycle_count} 次，得{currency_amount(book_recycle_income)}。", now_text))
         return entries
 
     def _battle_diary_entries(self, client_id: str, now_text: str) -> list[tuple[str, str, str]]:

@@ -17,6 +17,7 @@ from .constants import (
     CITY_MAX_LEVEL,
     DAY_RESET_HOUR,
     DEFAULT_BACKPACK_LIMIT,
+    DEFAULT_LOCATION_ID,
     DEFAULT_LOCATION,
     DEFAULT_WEIGHT_LIMIT,
     DIRECT_FLOW_RETENTION_DAYS,
@@ -100,20 +101,157 @@ GAME_LOG_LIFETIME_STATS = {
 
 
 WEAPON_TYPE_STYLE_TEXT = {
-    "匕": "极速近身，靠高频出手、吸血和闪避找机会",
-    "飞刃": "高频游斗，适合连击、打断和清小怪",
-    "剑": "均衡灵活，速度和伤害都比较稳",
-    "铃": "轻灵扰神，偏精神压制和节奏干扰",
-    "刀": "均衡爆发，单次伤害和出手节奏都适中",
-    "弩": "远程点杀，伤害稳定但蓄势略慢",
-    "拂尘": "多段牵引，适合连击和持续压制",
-    "杖": "术法续航，偏恢复、精神和控制",
-    "枪": "穿透突进，伤害高但节奏偏沉",
-    "盾刃": "攻守兼备，输出较慢但更抗打",
-    "戟": "重兵破阵，高伤慢速，适合破防",
-    "盘": "法器镇压，单次很重，出手和蓄势都慢",
-    "斧": "极重爆发，伤害最高档，但速度代价明显",
+    "dagger": "极速近身，靠高频出手、吸血和闪避找机会",
+    "blade": "高频游斗，适合连击、打断和清小怪",
+    "sword": "均衡灵活，速度和伤害都比较稳",
+    "bell": "轻灵扰神，偏精神压制和节奏干扰",
+    "saber": "均衡爆发，单次伤害和出手节奏都适中",
+    "crossbow": "远程点杀，伤害稳定但蓄势略慢",
+    "whisk": "多段牵引，适合连击和持续压制",
+    "staff": "术法续航，偏恢复、精神和控制",
+    "spear": "穿透突进，伤害高但节奏偏沉",
+    "shield_blade": "攻守兼备，输出较慢但更抗打",
+    "halberd": "重兵破阵，高伤慢速，适合破防",
+    "disc": "法器镇压，单次很重，出手和蓄势都慢",
+    "axe": "极重爆发，伤害最高档，但速度代价明显",
 }
+WEAPON_TYPE_KEY_BY_LABEL = {
+    "匕": "dagger",
+    "飞刃": "blade",
+    "剑": "sword",
+    "铃": "bell",
+    "刀": "saber",
+    "弩": "crossbow",
+    "拂尘": "whisk",
+    "杖": "staff",
+    "枪": "spear",
+    "盾刃": "shield_blade",
+    "戟": "halberd",
+    "盘": "disc",
+    "斧": "axe",
+}
+DEFAULT_WEAPON_TYPE_KEY = "balanced"
+
+ENEMY_SKILL_DEFS = {
+    "yao": {
+        "skill_key": "enemy_skill_yao_bite",
+        "name": "妖影撕咬",
+        "interval": 4,
+        "power": 1.12,
+        "effects": {"bleed_rate": 0.10},
+    },
+    "yaojun": {
+        "skill_key": "enemy_skill_yaojun_shadow",
+        "name": "妖君裂影",
+        "interval": 4,
+        "power": 1.18,
+        "effects": {"bleed_rate": 0.12},
+    },
+    "beast": {
+        "skill_key": "enemy_skill_beast_charge",
+        "name": "蛮兽冲撞",
+        "interval": 5,
+        "power": 1.22,
+        "effects": {"stun_rate": 0.08},
+    },
+    "dragon": {
+        "skill_key": "enemy_skill_dragon_breath",
+        "name": "龙息压顶",
+        "interval": 6,
+        "power": 1.30,
+        "effects": {"mp_suppress": 0.08},
+    },
+    "dragon_shadow": {
+        "skill_key": "enemy_skill_dragon_shadow_breath",
+        "name": "龙影吐息",
+        "interval": 6,
+        "power": 1.32,
+        "effects": {"mp_suppress": 0.10},
+    },
+    "ghost": {
+        "skill_key": "enemy_skill_ghost_bite",
+        "name": "阴魂噬念",
+        "interval": 4,
+        "power": 1.08,
+        "effects": {"mp_suppress": 0.10},
+    },
+    "wandering_soul": {
+        "skill_key": "enemy_skill_wandering_soul_bind",
+        "name": "游魂缠身",
+        "interval": 4,
+        "power": 1.10,
+        "effects": {"mp_suppress": 0.08},
+    },
+    "demon": {
+        "skill_key": "enemy_skill_demon_flame",
+        "name": "魔焰灼心",
+        "interval": 5,
+        "power": 1.18,
+        "effects": {"burn_rate": 0.12},
+    },
+    "demon_general": {
+        "skill_key": "enemy_skill_demon_general_break",
+        "name": "魔将破阵",
+        "interval": 5,
+        "power": 1.24,
+        "effects": {"pierce_bonus": 0.08},
+    },
+    "soldier": {
+        "skill_key": "enemy_skill_soldier_armor_break",
+        "name": "残兵破甲",
+        "interval": 5,
+        "power": 1.16,
+        "effects": {"pierce_bonus": 0.06},
+    },
+    "ancient_guard": {
+        "skill_key": "enemy_skill_ancient_guard_suppress",
+        "name": "古卫镇压",
+        "interval": 6,
+        "power": 1.20,
+        "effects": {"damage_reduce": 0.08},
+    },
+    "puppet": {
+        "skill_key": "enemy_skill_puppet_crush",
+        "name": "傀儡重压",
+        "interval": 6,
+        "power": 1.18,
+        "effects": {"damage_reduce": 0.06},
+    },
+}
+DEFAULT_ENEMY_SKILL_DEF = {
+    "skill_key": "enemy_skill_default",
+    "name": "凶煞一击",
+    "interval": 5,
+    "power": 1.16,
+    "effects": {},
+}
+ENEMY_SKILL_NAMES_BY_KEY = {
+    str(skill["skill_key"]): str(skill["name"])
+    for skill in (*ENEMY_SKILL_DEFS.values(), DEFAULT_ENEMY_SKILL_DEF)
+}
+ENEMY_SKILL_LABEL_OVERRIDES: dict[str, str] = {}
+ENEMY_KIND_KEY_BY_LABEL = {
+    "妖": "yao",
+    "妖君": "yaojun",
+    "妖兽": "beast",
+    "兽": "beast",
+    "兽类": "beast",
+    "龙": "dragon",
+    "龙属": "dragon",
+    "龙影": "dragon_shadow",
+    "鬼": "ghost",
+    "鬼类": "ghost",
+    "游魂": "wandering_soul",
+    "魔": "demon",
+    "魔类": "demon",
+    "魔将": "demon_general",
+    "兵": "soldier",
+    "兵傀": "soldier",
+    "兵戈类": "soldier",
+    "古卫": "ancient_guard",
+    "傀": "puppet",
+}
+DEFAULT_ENEMY_KIND_KEY = "default"
 
 
 def now() -> datetime:
@@ -281,21 +419,36 @@ def enchant_label_name(enchant_name: object, custom_name: object = "") -> str:
     return custom_label(enchant_name, custom_name)
 
 
+def ring_item_display_name(item: dict[str, Any] | None, fallback_id: object = "") -> str:
+    """返回纳戒物品当前展示名；专属物品逻辑仍只认稳定 id。"""
+
+    if item:
+        name = str(item.get("name") or "").strip()
+        if name:
+            return name
+        fallback_id = item.get("ring_item_id") or fallback_id
+    item_id = str(fallback_id or "").strip()
+    return SPECIAL_RING_ITEM_DEFAULT_NAMES.get(item_id, item_id or "物品")
+
+
 def ring_item_use_hint(item: dict[str, Any]) -> str:
     """按纳戒物品类型给出正确消耗入口。"""
 
 
-    if item["name"] == "洗髓液":
-        return "<洗髓><宝石><武器>"
-    if item["name"] == "淬锋丹":
-        return "淬锋丹由纳戒承接消耗，请发送：武器淬锋；默认淬锋已装备武器，也可发送：武器淬锋 武器ID。<纳戒><武器>"
-    if item["category"] == "宝石":
-        return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<洗髓><宝石><武器>"
-    if item["category"] == "技能书":
-        return "技能书请发送：附魔武器 武器ID 技能书名；武器 ID 支持 武器#12、#12、12。<洗髓><宝石><武器>"
-    if item["name"] == "开孔器":
-        return "开孔器由纳戒承接消耗，请发送：开孔 装备位。<纳戒><宝石><装备>"
-    return "只有恢复类物品可以直接发送：使用 物品名，或使用 物品名 数量。<洗髓><宝石><武器>"
+    item_id = str(item.get("ring_item_id") or "").strip()
+    name = ring_item_display_name(item, item_id)
+    category_key = ring_category_key(item.get("category_key") or item.get("category"))
+    if item_id == "xisuiye":
+        return "<体质重塑><宝石><武器>"
+    if item_id == "cuifengdan":
+        return f"{name}由纳戒承接消耗，请发送：武器升限；默认提升已装备武器，也可发送：武器升限 武器ID。<纳戒><武器>"
+    if category_key == RING_CATEGORY_GEM:
+        return "宝石请发送：镶嵌 装备位 孔位号 宝石名称；同名多等级时加等级，例如：护心玉 2级。<体质重塑><宝石><武器>"
+    if category_key == RING_CATEGORY_BOOK:
+        return "技能书请发送：附魔武器 武器ID 技能书名；武器 ID 支持 武器#12、#12、12。<体质重塑><宝石><武器>"
+    if item_id == "kaikongqi":
+        return f"{name}由纳戒承接消耗，请发送：开孔 装备位。<纳戒><宝石><装备>"
+    return "只有恢复类物品可以直接发送：使用 物品名，或使用 物品名 数量。<体质重塑><宝石><武器>"
 
 
 def split_words(message: str) -> list[str]:
@@ -345,48 +498,273 @@ def parse_weapon_ref(text: str) -> int:
     return to_int(value)
 
 
-def quality_factor(quality: str) -> float:
+QUALITY_COMMON = "quality_common"
+QUALITY_GOOD = "quality_good"
+QUALITY_RARE = "quality_rare"
+QUALITY_EPIC = "quality_epic"
+
+QUALITY_DEFS = {
+    QUALITY_COMMON: {"label": "凡品", "factor": 1.0, "rank": 1, "drop_weight": 60},
+    QUALITY_GOOD: {"label": "良品", "factor": 1.4, "rank": 2, "drop_weight": 28},
+    QUALITY_RARE: {"label": "珍品", "factor": 2.0, "rank": 3, "drop_weight": 10},
+    QUALITY_EPIC: {"label": "稀品", "factor": 3.0, "rank": 4, "drop_weight": 2},
+}
+QUALITY_KEYS = tuple(QUALITY_DEFS)
+QUALITY_LABEL_TO_KEY = {str(data["label"]): key for key, data in QUALITY_DEFS.items()}
+QUALITY_LABEL_OVERRIDES: dict[str, str] = {}
+
+CURRENCY_RAW_STONES = "raw_stones"
+CURRENCY_DEFS = {
+    CURRENCY_RAW_STONES: {"label": "原石", "desc": "当前世界通用货币。"},
+}
+CURRENCY_LABEL_OVERRIDES: dict[str, str] = {}
+
+PLAYER_LEVEL_DEFS = {
+    level: {"label": f"LV{level}", "desc": f"等级 {level} 的默认展示名。"}
+    for level in range(1, MAX_LEVEL + 1)
+}
+PLAYER_LEVEL_LABEL_OVERRIDES: dict[int, str] = {}
+
+RING_CATEGORY_RECOVERY = "recovery"
+RING_CATEGORY_GEM = "gem"
+RING_CATEGORY_BOOK = "book"
+RING_CATEGORY_CONSUMABLE = "consumable"
+RING_CATEGORY_SPECIAL = "special"
+RING_CATEGORY_KEYS = {
+    RING_CATEGORY_RECOVERY,
+    RING_CATEGORY_GEM,
+    RING_CATEGORY_BOOK,
+    RING_CATEGORY_CONSUMABLE,
+    RING_CATEGORY_SPECIAL,
+}
+RING_CATEGORY_LABEL_TO_KEY = {
+    "恢复类": RING_CATEGORY_RECOVERY,
+    "宝石": RING_CATEGORY_GEM,
+    "技能书": RING_CATEGORY_BOOK,
+    "消耗品": RING_CATEGORY_CONSUMABLE,
+    "专属道具": RING_CATEGORY_SPECIAL,
+}
+SPECIAL_RING_ITEM_DEFAULT_NAMES = {
+    "kaikongqi": "开孔器",
+    "xisuiye": "洗髓液",
+    "cuifengdan": "淬锋丹",
+}
+
+
+def quality_key(quality: object) -> str:
+    """返回品质稳定键；展示名允许被皮肤包替换，规则只认稳定键。"""
+
+    value = str(quality or "").strip()
+    if value in QUALITY_DEFS:
+        return value
+    return _quality_label_to_key().get(value, QUALITY_COMMON)
+
+
+def quality_label(quality: object) -> str:
+    """返回品质当前展示名。"""
+
+    key = quality_key(quality)
+    return str(QUALITY_LABEL_OVERRIDES.get(key) or QUALITY_DEFS[key]["label"])
+
+
+def set_quality_label_overrides(labels: dict[str, object] | None) -> None:
+    """注入当前皮肤的品质显示名；规则键和数值仍固定在 QUALITY_DEFS。"""
+
+    QUALITY_LABEL_OVERRIDES.clear()
+    if not labels:
+        return
+    for raw_key, raw_label in labels.items():
+        key = str(raw_key or "").strip()
+        label = str(raw_label or "").strip()
+        if key in QUALITY_DEFS and label:
+            QUALITY_LABEL_OVERRIDES[key] = label
+
+
+def quality_label_overrides() -> dict[str, str]:
+    """读取当前品质显示名覆盖，用于皮肤名录和校验。"""
+
+    return dict(QUALITY_LABEL_OVERRIDES)
+
+
+def _quality_label_to_key() -> dict[str, str]:
+    labels = dict(QUALITY_LABEL_TO_KEY)
+    labels.update({label: key for key, label in QUALITY_LABEL_OVERRIDES.items()})
+    return labels
+
+
+def currency_name(currency_key: object = CURRENCY_RAW_STONES) -> str:
+    """返回当前世界货币展示名；规则和账本仍使用稳定货币键。"""
+
+    key = str(currency_key or CURRENCY_RAW_STONES).strip()
+    if key not in CURRENCY_DEFS:
+        key = CURRENCY_RAW_STONES
+    return str(CURRENCY_LABEL_OVERRIDES.get(key) or CURRENCY_DEFS[key]["label"])
+
+
+def currency_amount(value: int, currency_key: object = CURRENCY_RAW_STONES) -> str:
+    """格式化带货币名的金额。"""
+
+    return f"{currency_name(currency_key)} {money(value)}"
+
+
+def set_currency_label_overrides(labels: dict[str, object] | None) -> None:
+    """注入当前皮肤的货币显示名；内部字段和公式不随皮肤变化。"""
+
+    CURRENCY_LABEL_OVERRIDES.clear()
+    if not labels:
+        return
+    for raw_key, raw_label in labels.items():
+        key = str(raw_key or "").strip()
+        label = str(raw_label or "").strip()
+        if key in CURRENCY_DEFS and label:
+            CURRENCY_LABEL_OVERRIDES[key] = label
+
+
+def currency_label_overrides() -> dict[str, str]:
+    """读取当前货币显示名覆盖，用于皮肤名录和校验。"""
+
+    return dict(CURRENCY_LABEL_OVERRIDES)
+
+
+def player_level_label(level: object) -> str:
+    """返回当前等级展示名；规则和经验曲线仍只认数字等级。"""
+
+    value = max(1, min(MAX_LEVEL, to_int(level, 1)))
+    return PLAYER_LEVEL_LABEL_OVERRIDES.get(value) or str(PLAYER_LEVEL_DEFS[value]["label"])
+
+
+def set_player_level_label_overrides(labels: dict[object, object] | None) -> None:
+    """注入当前皮肤的等级显示名。"""
+
+    PLAYER_LEVEL_LABEL_OVERRIDES.clear()
+    if not labels:
+        return
+    for raw_level, raw_label in labels.items():
+        level = to_int(raw_level, 0)
+        label = str(raw_label or "").strip()
+        if 1 <= level <= MAX_LEVEL and label:
+            PLAYER_LEVEL_LABEL_OVERRIDES[level] = label
+
+
+def player_level_label_overrides() -> dict[int, str]:
+    """读取当前等级显示名覆盖，用于皮肤名录和校验。"""
+
+    return dict(PLAYER_LEVEL_LABEL_OVERRIDES)
+
+
+def enemy_skill_label(skill_key: object) -> str:
+    """返回敌方技能当前展示名；技能效果仍只认稳定 skill_key。"""
+
+    key = str(skill_key or "").strip()
+    if key not in ENEMY_SKILL_NAMES_BY_KEY:
+        key = str(DEFAULT_ENEMY_SKILL_DEF["skill_key"])
+    return str(ENEMY_SKILL_LABEL_OVERRIDES.get(key) or ENEMY_SKILL_NAMES_BY_KEY[key])
+
+
+def set_enemy_skill_label_overrides(labels: dict[str, object] | None) -> None:
+    """注入当前皮肤的敌方技能显示名。"""
+
+    ENEMY_SKILL_LABEL_OVERRIDES.clear()
+    if not labels:
+        return
+    for raw_key, raw_label in labels.items():
+        key = str(raw_key or "").strip()
+        label = str(raw_label or "").strip()
+        if key in ENEMY_SKILL_NAMES_BY_KEY and label:
+            ENEMY_SKILL_LABEL_OVERRIDES[key] = label
+
+
+def enemy_skill_label_overrides() -> dict[str, str]:
+    """读取当前敌方技能显示名覆盖。"""
+
+    return dict(ENEMY_SKILL_LABEL_OVERRIDES)
+
+
+def quality_rank(quality: object) -> int:
+    """返回品质排序权重。"""
+
+    return int(QUALITY_DEFS[quality_key(quality)]["rank"])
+
+
+def quality_is_at_least(quality: object, minimum: object) -> bool:
+    """判断品质是否达到某个稳定档位。"""
+
+    return quality_rank(quality) >= quality_rank(minimum)
+
+
+def quality_factor(quality: object) -> float:
     """返回品质系数。"""
 
-    return {"凡品": 1.0, "良品": 1.4, "珍品": 2.0, "稀品": 3.0}.get(quality, 1.0)
+    return float(QUALITY_DEFS[quality_key(quality)]["factor"])
 
 
 def random_quality() -> str:
-    """随机品质。"""
+    """随机品质稳定键。"""
 
-    return random.choices(("凡品", "良品", "珍品", "稀品"), weights=(60, 28, 10, 2), k=1)[0]
+    return random.choices(
+        QUALITY_KEYS,
+        weights=[int(QUALITY_DEFS[key]["drop_weight"]) for key in QUALITY_KEYS],
+        k=1,
+    )[0]
+
+
+def ring_category_key(value: object) -> str:
+    """纳戒物品规则分类；展示分类可换皮，业务判断只认稳定键。"""
+
+    text = str(value or "").strip()
+    if text in RING_CATEGORY_KEYS:
+        return text
+    return RING_CATEGORY_LABEL_TO_KEY.get(text, text)
+
+
+def weapon_type_key(value: object) -> str:
+    """武器类型规则键；展示名可换皮，战斗公式只认稳定键。"""
+
+    text = str(value or "").strip()
+    if text in WEAPON_TYPE_INTERVAL_FACTORS:
+        return text
+    return WEAPON_TYPE_KEY_BY_LABEL.get(text, DEFAULT_WEAPON_TYPE_KEY)
+
+
+def enemy_kind_key(value: object) -> str:
+    """敌方类型规则键；展示名可换皮，技能和速度只认稳定键。"""
+
+    text = str(value or "").strip()
+    if text in ENEMY_SKILL_DEFS:
+        return text
+    return ENEMY_KIND_KEY_BY_LABEL.get(text, DEFAULT_ENEMY_KIND_KEY)
 
 
 WEAPON_TYPE_ATTACK_BASE_FACTORS = {
-    "匕": 0.90,
-    "飞刃": 0.94,
-    "铃": 0.90,
-    "剑": 1.00,
-    "刀": 1.05,
-    "弩": 1.08,
-    "拂尘": 1.00,
-    "杖": 0.98,
-    "枪": 1.16,
-    "盾刃": 1.08,
-    "戟": 1.22,
-    "盘": 1.25,
-    "斧": 1.30,
+    "dagger": 0.90,
+    "blade": 0.94,
+    "bell": 0.90,
+    "sword": 1.00,
+    "saber": 1.05,
+    "crossbow": 1.08,
+    "whisk": 1.00,
+    "staff": 0.98,
+    "spear": 1.16,
+    "shield_blade": 1.08,
+    "halberd": 1.22,
+    "disc": 1.25,
+    "axe": 1.30,
 }
 
 WEAPON_TYPE_ATTACK_GROWTH_FACTORS = {
-    "匕": 1.08,
-    "飞刃": 1.05,
-    "铃": 1.00,
-    "剑": 1.00,
-    "刀": 0.98,
-    "弩": 0.96,
-    "拂尘": 0.94,
-    "杖": 0.92,
-    "枪": 0.92,
-    "盾刃": 0.90,
-    "戟": 0.96,
-    "盘": 0.95,
-    "斧": 0.96,
+    "dagger": 1.08,
+    "blade": 1.05,
+    "bell": 1.00,
+    "sword": 1.00,
+    "saber": 0.98,
+    "crossbow": 0.96,
+    "whisk": 0.94,
+    "staff": 0.92,
+    "spear": 0.92,
+    "shield_blade": 0.90,
+    "halberd": 0.96,
+    "disc": 0.95,
+    "axe": 0.96,
 }
 
 
@@ -400,7 +778,7 @@ def weapon_attack_value(base_attack_value: object, quality: object, level: objec
     base_attack_int = max(1, to_int(base_attack_value, 1))
     level_int = max(0, min(MAX_LEVEL, to_int(level, 0)))
     quality_value = max(1.0, quality_factor(str(quality or "")))
-    weapon_type_text = str(weapon_type or "")
+    weapon_type_text = weapon_type_key(weapon_type)
     base_factor = WEAPON_TYPE_ATTACK_BASE_FACTORS.get(weapon_type_text, 1.0)
     growth_factor = WEAPON_TYPE_ATTACK_GROWTH_FACTORS.get(weapon_type_text, 1.0)
 
@@ -423,9 +801,9 @@ def computed_weapon_attack(weapon: Any | None) -> int:
         return 0
     return weapon_attack_value(
         base_attack_value,
-        row_value(weapon, "quality", "凡品"),
+        row_value(weapon, "quality", QUALITY_COMMON),
         row_value(weapon, "level", 0),
-        row_value(weapon, "weapon_type", ""),
+        row_value(weapon, "weapon_type_key", "") or row_value(weapon, "weapon_type", ""),
     )
 
 
@@ -524,7 +902,7 @@ class CoreService:
 
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ? AND w.equipped = 1
@@ -568,9 +946,9 @@ class CoreService:
             """
             INSERT INTO player_weapons
             (holder_id, weapon_def_id, level, max_level, quality, equipped, enchant_effects, custom_name, created_at)
-            VALUES (?, 'qinglan_duanjian', 0, 40, '凡品', 1, ?, '', ?)
+            VALUES (?, 'qinglan_duanjian', 0, 40, ?, 1, ?, '', ?)
             """,
-            (client_id, dump_json([]), ts()),
+            (client_id, QUALITY_COMMON, dump_json([]), ts()),
         )
         self.record_weapon_created_conn(conn, client_id, int(cursor.lastrowid))
 
@@ -712,7 +1090,7 @@ class CoreService:
         """清理已不存在玩家的当前态数据，避免事故删号后残留可交互状态。"""
 
         player_tables = (
-            "source_vaults",
+            "bank_accounts",
             "backpack_items",
             "ring_items",
             "gem_items",
@@ -969,29 +1347,29 @@ class CoreService:
         rows = conn.execute(
             """
             SELECT client_id,
-                   category,
+                   category_key,
                    COUNT(*) AS total,
                    COALESCE(SUM(quantity), 0) AS quantity,
                    COALESCE(SUM(stones), 0) AS income
             FROM world_material_records
             WHERE datetime(replace(created_at, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
               AND datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
-            GROUP BY client_id, category
+            GROUP BY client_id, category_key
             """,
             (start_at, cutoff_at),
         ).fetchall()
         for row in rows:
             client_id = row["client_id"]
-            category = str(row["category"] or "未分")
+            category_key = str(row["category_key"] or "unknown")
             total = int(row["total"] or 0)
             quantity = int(row["quantity"] or 0)
             income = int(row["income"] or 0)
             self.add_lifetime_stat_conn(conn, client_id, "world_material_count", total)
             self.add_lifetime_stat_conn(conn, client_id, "world_material_quantity", quantity)
             self.add_lifetime_stat_conn(conn, client_id, "world_material_income", income)
-            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_count", total)
-            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_quantity", quantity)
-            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category}_income", income)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category_key}_count", total)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category_key}_quantity", quantity)
+            self.add_lifetime_stat_conn(conn, client_id, f"world_material_{category_key}_income", income)
 
     def _rollup_exploration_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
         """汇总已领取探险次数；未领取探险保留，不进入清理。"""
@@ -1322,15 +1700,22 @@ class CoreService:
         hp = max_hp(1, 0)
         mp = max_mp(1)
         with self.db.transaction() as conn:
+            start = conn.execute(
+                "SELECT name, x, y FROM world_locations WHERE location_id = ?",
+                (DEFAULT_LOCATION_ID,),
+            ).fetchone()
+            start_name = str(start["name"]) if start else DEFAULT_LOCATION
+            start_x = int(start["x"]) if start else 0
+            start_y = int(start["y"]) if start else 0
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO players (
                     client_id, display_name, level, exp, hp, max_hp, mp, max_mp,
-                    physique_id, physique_value, base_attack, defense, source_stones, status,
-                    location_name, x, y, backpack_limit, weight_limit, created_at
+                    physique_id, physique_value, base_attack, defense, raw_stones, status,
+                    location_name, location_id, x, y, backpack_limit, weight_limit, created_at
                 )
                 VALUES (?, ?, 1, 0, ?, ?, ?, ?, 'fanti', 0, ?, ?, 0, '空闲',
-                        ?, 0, 0, ?, ?, ?)
+                        ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     client_id,
@@ -1341,7 +1726,10 @@ class CoreService:
                     mp,
                     base_attack(1),
                     defense(1, 0),
-                    DEFAULT_LOCATION,
+                    start_name,
+                    DEFAULT_LOCATION_ID,
+                    start_x,
+                    start_y,
                     DEFAULT_BACKPACK_LIMIT,
                     DEFAULT_WEIGHT_LIMIT,
                     ts(),
@@ -1355,7 +1743,7 @@ class CoreService:
                 return T.hint("创建用户失败。", "请稍后重试，或换一个不重复的名称。")
             conn.execute(
                 """
-                INSERT INTO source_vaults (client_id, star_level, balance, last_settle_at)
+                INSERT INTO bank_accounts (client_id, star_level, balance, last_settle_at)
                 VALUES (?, 1, 0, ?)
                 """,
                 (client_id, ts()),
@@ -1664,9 +2052,9 @@ class CoreService:
         def count(table: str, where: str, params: tuple[Any, ...]) -> int:
             return self._count_conn(conn, table, where, params)
 
-        vault = conn.execute("SELECT balance FROM source_vaults WHERE client_id = ?", (client_id,)).fetchone()
+        vault = conn.execute("SELECT balance FROM bank_accounts WHERE client_id = ?", (client_id,)).fetchone()
         vault_balance = int(vault["balance"]) if vault else 0
-        source_stones = int(player["source_stones"])
+        raw_stones = int(player["raw_stones"])
         max_weapon = conn.execute(
             """
             SELECT max_level, level
@@ -1681,9 +2069,9 @@ class CoreService:
         highest_weapon_level = int(max_weapon["level"]) if max_weapon else 0
 
         return {
-            "source_stones": source_stones,
+            "raw_stones": raw_stones,
             "vault_balance": vault_balance,
-            "total_assets": source_stones + vault_balance,
+            "total_assets": raw_stones + vault_balance,
             "sign_count": self.stat_count_conn(conn, client_id, "sign_count", "game_logs", "client_id = ? AND action = '签到'", (client_id,)),
             "explore_count": self.stat_count_conn(conn, client_id, "explore_count", "exploration_records", "client_id = ?", (client_id,)),
             "recent_explore_count": self._recent_count_conn(
@@ -1695,10 +2083,10 @@ class CoreService:
             ),
             "trade_sell_count": self.stat_count_conn(conn, client_id, "trade_sell_count", "trade_records", "client_id = ? AND action = 'sell'", (client_id,)),
             "recent_trade_sell_count": self._recent_count_conn(conn, "trade_records", "client_id = ? AND action = 'sell'", (client_id,)),
-            "recent_world_med_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '药路'", (client_id,)),
-            "recent_world_life_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '民生'", (client_id,)),
-            "recent_world_build_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '建设'", (client_id,)),
-            "recent_world_relic_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category = '古物'", (client_id,)),
+            "recent_world_med_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category_key = 'medicine'", (client_id,)),
+            "recent_world_life_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category_key = 'life'", (client_id,)),
+            "recent_world_build_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category_key = 'build'", (client_id,)),
+            "recent_world_relic_count": self._recent_count_conn(conn, "world_material_records", "client_id = ? AND category_key = 'relic'", (client_id,)),
             "recent_special_sell_count": self._recent_count_conn(
                 conn,
                 "trade_records",
@@ -1755,7 +2143,7 @@ class CoreService:
             "rare_weapon": self._exists_conn(
                 conn,
                 "player_weapons",
-                "holder_id = ? AND quality IN ('稀品', '珍品')",
+                f"holder_id = ? AND quality IN ('{QUALITY_EPIC}', '{QUALITY_RARE}')",
                 (client_id,),
             ),
             "max_weapon_level": max_weapon_level,
@@ -1787,8 +2175,8 @@ class CoreService:
         rules = (
             (10, "初入仙途", "已经创建修仙角色", True),
             (18, "晨钟常客", f"累计签到 {stats['sign_count']} 次", stats["sign_count"] >= 7),
-            (20, "小富即安", "随身源石达到 5 万", stats["source_stones"] >= 50_000),
-            (24, "藏源有道", "源库余额达到 10 万", stats["vault_balance"] >= 100_000),
+            (20, "小富即安", f"随身{currency_name()}达到 5 万", stats["raw_stones"] >= 50_000),
+            (24, "藏源有道", "银行存量达到 10 万", stats["vault_balance"] >= 100_000),
             (28, "财气盈门", "明面资产达到 30 万", stats["total_assets"] >= 300_000),
             (30, "探险常客", explore_regular_reason, explore_regular),
             (34, "山河熟客", f"累计探险 {stats['explore_count']} 次", stats["explore_count"] >= 30),
@@ -2127,7 +2515,7 @@ class CoreService:
 
         if not skill:
             return 0
-        weapon_type = str(weapon.get("weapon_type") if weapon else "")
+        weapon_type = weapon_type_key(weapon.get("weapon_type_key") or weapon.get("weapon_type") if weapon else "")
         type_factor = WEAPON_TYPE_INTERVAL_FACTORS.get(weapon_type, 1.0)
         rate = max(0.6, 1.0 + float(effects.get("interval_rate", 0)))
         interval = round(int(skill["interval"]) * type_factor * rate)
@@ -2157,7 +2545,7 @@ class CoreService:
         高攻击武器会带来一点负重，避免高攻武器同时成为最快技能流。
         """
 
-        weapon_type = str(weapon.get("weapon_type") if weapon else "")
+        weapon_type = weapon_type_key(weapon.get("weapon_type_key") or weapon.get("weapon_type") if weapon else "")
         type_factor = WEAPON_TYPE_INTERVAL_FACTORS.get(weapon_type, 1.0)
         type_speed = (1.0 / max(0.72, type_factor) - 1.0) * 42
         effect_speed = float(effects.get("dodge_bonus", 0)) * 90 + float(effects.get("hit_bonus", 0)) * 45
@@ -2227,7 +2615,7 @@ class CoreService:
 
         if not weapon:
             return "未装备武器，只有基础出手"
-        weapon_type = str(weapon.get("weapon_type") or "")
+        weapon_type = weapon_type_key(weapon.get("weapon_type_key") or weapon.get("weapon_type") or "")
         return WEAPON_TYPE_STYLE_TEXT.get(weapon_type, "通用兵器，打法较均衡")
 
     @staticmethod
@@ -2272,20 +2660,20 @@ class CoreService:
         Boss 略慢一点，但技能更重，给玩家留下反应空间。
         """
 
-        kind = str(kind or "")
+        kind = enemy_kind_key(kind)
         kind_bonus = {
-            "妖": 10,
-            "妖君": 10,
-            "鬼": 8,
-            "游魂": 9,
-            "兽": 2,
-            "龙": 0,
-            "龙影": 0,
-            "魔": 4,
-            "魔将": 2,
-            "兵": -3,
-            "古卫": -8,
-            "傀": -10,
+            "yao": 10,
+            "yaojun": 10,
+            "ghost": 8,
+            "wandering_soul": 9,
+            "beast": 2,
+            "dragon": 0,
+            "dragon_shadow": 0,
+            "demon": 4,
+            "demon_general": 2,
+            "soldier": -3,
+            "ancient_guard": -8,
+            "puppet": -10,
         }.get(kind, 0)
         boss_penalty = -6 if boss else 0
         speed = 88 + min(36, max(1, int(level)) * 0.36) + kind_bonus + boss_penalty
@@ -2299,30 +2687,19 @@ class CoreService:
         所有技能仍使用同一套蓄力条：interval 越小越快，power 越大越重。
         """
 
-        kind = str(kind or "")
+        kind = enemy_kind_key(kind)
         boss_bonus = 0.16 if boss else 0.0
         level_bonus = min(0.18, max(1, int(level)) / 600)
-        configs = {
-            "妖": ("妖影撕咬", 4, 1.12, {"bleed_rate": 0.10}),
-            "妖君": ("妖君裂影", 4, 1.18, {"bleed_rate": 0.12}),
-            "兽": ("蛮兽冲撞", 5, 1.22, {"stun_rate": 0.08}),
-            "龙": ("龙息压顶", 6, 1.30, {"mp_suppress": 0.08}),
-            "龙影": ("龙影吐息", 6, 1.32, {"mp_suppress": 0.10}),
-            "鬼": ("阴魂噬念", 4, 1.08, {"mp_suppress": 0.10}),
-            "游魂": ("游魂缠身", 4, 1.10, {"mp_suppress": 0.08}),
-            "魔": ("魔焰灼心", 5, 1.18, {"burn_rate": 0.12}),
-            "魔将": ("魔将破阵", 5, 1.24, {"pierce_bonus": 0.08}),
-            "兵": ("残兵破甲", 5, 1.16, {"pierce_bonus": 0.06}),
-            "古卫": ("古卫镇压", 6, 1.20, {"damage_reduce": 0.08}),
-            "傀": ("傀儡重压", 6, 1.18, {"damage_reduce": 0.06}),
-        }
-        name, interval, power, effects = configs.get(kind, ("凶煞一击", 5, 1.16, {}))
+        config = ENEMY_SKILL_DEFS.get(kind, DEFAULT_ENEMY_SKILL_DEF)
+        interval = int(config["interval"])
+        power = float(config["power"])
         return {
-            "name": name,
+            "skill_key": str(config["skill_key"]),
+            "name": enemy_skill_label(config["skill_key"]),
             "cost_mp": 0,
             "interval": max(3, int(interval) + (1 if boss and power >= 1.28 else 0)),
             "power": power + boss_bonus + level_bonus,
-            "effects": effects,
+            "effects": dict(config.get("effects") or {}),
         }
 
     @staticmethod
@@ -2435,25 +2812,25 @@ class CoreService:
         return old_level, player["level"]
 
     def add_stones(self, client_id: str, amount: int) -> None:
-        """增加随身源石。"""
+        """增加随身货币。"""
 
         if amount <= 0:
             return
         self.db.execute(
-            "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+            "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
             (amount, client_id),
         )
 
     def spend_stones_conn(self, conn: sqlite3.Connection, client_id: str, amount: int) -> bool:
-        """在事务里扣源石。"""
+        """在事务里扣随身货币。"""
 
         if amount < 0:
             return False
-        row = conn.execute("SELECT source_stones FROM players WHERE client_id = ?", (client_id,)).fetchone()
-        if not row or row["source_stones"] < amount:
+        row = conn.execute("SELECT raw_stones FROM players WHERE client_id = ?", (client_id,)).fetchone()
+        if not row or row["raw_stones"] < amount:
             return False
         conn.execute(
-            "UPDATE players SET source_stones = source_stones - ? WHERE client_id = ?",
+            "UPDATE players SET raw_stones = raw_stones - ? WHERE client_id = ?",
             (amount, client_id),
         )
         return True
@@ -2481,19 +2858,25 @@ class CoreService:
             (ring_item_id,),
         )
 
-    def maybe_upgrade_extreme_book(self, ring_item_id: str, location_name: str, play_bonus: float = 0.0) -> str:
+    def maybe_upgrade_extreme_book(
+        self,
+        ring_item_id: str,
+        location_name: str = "",
+        play_bonus: float = 0.0,
+        location_id: str = "",
+    ) -> str:
         """按城池民生恩赐把普通技能书升级为极版；没有命中时返回原 id。"""
 
         item_id = str(ring_item_id or "")
         if not item_id or item_id.startswith("extreme_"):
             return item_id
         item = self.ring_item_def(item_id)
-        if not item or item.get("category") != "技能书":
+        if not item or ring_category_key(item.get("category_key") or item.get("category")) != RING_CATEGORY_BOOK:
             return item_id
         extreme_id = f"extreme_{item_id}"
         if not self.ring_item_def(extreme_id):
             return item_id
-        chance = self._extreme_book_upgrade_chance(location_name, play_bonus)
+        chance = self._extreme_book_upgrade_chance(location_name, play_bonus, location_id)
         if chance <= 0 or random.random() >= chance:
             return item_id
         return extreme_id
@@ -2501,24 +2884,45 @@ class CoreService:
     def maybe_upgrade_extreme_book_item(
         self,
         item: dict[str, Any] | None,
-        location_name: str,
+        location_name: str = "",
         play_bonus: float = 0.0,
+        location_id: str = "",
     ) -> dict[str, Any] | None:
         """把抽到的技能书行替换为极版行，方便掉落文本直接使用新名字。"""
 
         if not item:
             return None
-        upgraded_id = self.maybe_upgrade_extreme_book(str(item.get("ring_item_id") or ""), location_name, play_bonus)
+        upgraded_id = self.maybe_upgrade_extreme_book(
+            str(item.get("ring_item_id") or ""),
+            location_name,
+            play_bonus,
+            location_id,
+        )
         if upgraded_id == str(item.get("ring_item_id") or ""):
             return item
         return self.ring_item_def(upgraded_id) or item
 
-    def _extreme_book_upgrade_chance(self, location_name: str, play_bonus: float = 0.0) -> float:
+    def _extreme_book_upgrade_chance(
+        self,
+        location_name: str = "",
+        play_bonus: float = 0.0,
+        location_id: str = "",
+    ) -> float:
         """极版技能书概率：民生阶数提供底盘，玩法入口再给少量修正。"""
 
+        stable_id = str(location_id or "").strip()
+        if not stable_id:
+            point = self.db.fetch_one(
+                "SELECT location_id FROM world_locations WHERE name = ?",
+                (str(location_name or ""),),
+            )
+            if point:
+                stable_id = str(point.get("location_id") or "")
+        if not stable_id:
+            return min(0.06, max(0.0, 0.002 + float(play_bonus)))
         row = self.db.fetch_one(
-            "SELECT * FROM city_world_states WHERE location_name = ?",
-            (str(location_name or ""),),
+            "SELECT * FROM city_world_states WHERE location_id = ?",
+            (stable_id,),
         )
         tier = 0
         if row:
@@ -2757,10 +3161,10 @@ class CoreService:
         """判断纳戒物品是否是宝石。"""
 
         row = conn.execute(
-            "SELECT category FROM ring_item_defs WHERE ring_item_id = ?",
+            "SELECT category_key FROM ring_item_defs WHERE ring_item_id = ?",
             (ring_item_id,),
         ).fetchone()
-        return bool(row and row["category"] == "宝石")
+        return bool(row and ring_category_key(row["category_key"]) == RING_CATEGORY_GEM)
 
     def backpack_weight(self, client_id: str) -> int:
         """计算背包负重。"""
@@ -2795,14 +3199,14 @@ class CoreService:
 
         rows = self.db.fetch_all(
             """
-            SELECT r.ring_item_id, r.quantity, e.name, e.category, e.usable, e.effect, NULL AS level
+            SELECT r.ring_item_id, r.quantity, e.name, e.category, e.category_key, e.usable, e.effect, NULL AS level
             FROM ring_items r
             JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
             WHERE r.client_id = ? AND r.quantity > 0
-              AND e.category != '宝石'
+              AND e.category_key != ?
             ORDER BY e.category, e.name
             """,
-            (client_id,),
+            (client_id, RING_CATEGORY_GEM),
         )
         rows.extend(self.gem_rows(client_id))
         return sorted(rows, key=lambda row: (row["category"], row["name"], row.get("level") or 0))
@@ -2813,7 +3217,7 @@ class CoreService:
         return self.db.fetch_all(
             """
             SELECT g.gem_id AS ring_item_id, g.quantity, g.level,
-                   e.name, e.category, e.quality, e.usable, e.effect
+                   e.name, e.category, e.category_key, e.quality, e.usable, e.effect
             FROM gem_items g
             JOIN ring_item_defs e ON e.ring_item_id = g.gem_id
             WHERE g.client_id = ? AND g.quantity > 0
@@ -2886,7 +3290,7 @@ def format_effect(effect_text: Any) -> str:
     if effect.get("random_exp_min") is not None:
         parts.append(f"经验+{effect['random_exp_min']}-{effect['random_exp_max']}")
     if effect.get("random_stones_min") is not None:
-        parts.append(f"源石+{effect['random_stones_min']}-{effect['random_stones_max']}")
+        parts.append(f"{currency_name()}+{effect['random_stones_min']}-{effect['random_stones_max']}")
     if effect.get("random_stones_segments"):
         texts = []
         for segment in effect["random_stones_segments"]:
@@ -2894,7 +3298,7 @@ def format_effect(effect_text: Any) -> str:
                 continue
             texts.append(f"{segment.get('min_level')}-{segment.get('max_level')}级:" f"{segment.get('min')}-{segment.get('max')}")
         if texts:
-            parts.append("源石按等级段随机(" + "；".join(texts) + ")")
+            parts.append(f"{currency_name()}按等级段随机(" + "；".join(texts) + ")")
     if effect.get("hp_delta"):
         parts.append(f"血气+{effect['hp_delta']}")
     if effect.get("mp_delta"):
@@ -2904,7 +3308,7 @@ def format_effect(effect_text: Any) -> str:
     if effect.get("mp_ratio"):
         parts.append(f"精神+{int(effect['mp_ratio'] * 100)}%")
     if effect.get("wash_physique"):
-        parts.append("洗髓体质，大概率升阶，小概率回落")
+        parts.append("体质重塑，大概率升阶，小概率回落")
     if effect.get("enchant_id"):
         parts.append("武器附魔")
     weapon_max_level_delta = effect.get("weapon_max_level_delta")
@@ -2984,7 +3388,17 @@ __all__ = [
     "business_day",
     "choose_one",
     "computed_weapon_attack",
+    "CURRENCY_DEFS",
+    "CURRENCY_RAW_STONES",
+    "currency_amount",
+    "currency_label_overrides",
+    "currency_name",
     "custom_label",
+    "ENEMY_SKILL_DEFS",
+    "enemy_skill_label",
+    "enemy_skill_label_overrides",
+    "ENEMY_SKILL_NAMES_BY_KEY",
+    "enemy_kind_key",
     "dt",
     "dump_json",
     "enchant_label_name",
@@ -2996,12 +3410,32 @@ __all__ = [
     "now",
     "parse_name_level",
     "parse_name_quantity_optional",
+    "PLAYER_LEVEL_DEFS",
+    "player_level_label",
+    "player_level_label_overrides",
+    "QUALITY_COMMON",
+    "QUALITY_DEFS",
+    "QUALITY_EPIC",
+    "QUALITY_GOOD",
+    "QUALITY_KEYS",
+    "QUALITY_LABEL_TO_KEY",
+    "QUALITY_RARE",
     "quality_factor",
+    "quality_is_at_least",
+    "quality_key",
+    "quality_label",
+    "quality_label_overrides",
+    "quality_rank",
     "random",
     "random_quality",
+    "ring_item_display_name",
     "row_value",
     "split_words",
     "sqlite3",
+    "set_quality_label_overrides",
+    "set_currency_label_overrides",
+    "set_enemy_skill_label_overrides",
+    "set_player_level_label_overrides",
     "timedelta",
     "to_int",
     "ts",
@@ -3009,5 +3443,6 @@ __all__ = [
     "weapon_id_label",
     "weapon_attack_value",
     "weapon_label_name",
+    "weapon_type_key",
     "world_state_for_day",
 ]

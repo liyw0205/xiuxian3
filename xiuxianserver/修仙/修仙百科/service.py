@@ -8,10 +8,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..common import computed_weapon_attack, fixed_equipment_label, load_json, weapon_id_label, weapon_label_name
+from ..common import (
+    DEFAULT_WEAPON_TYPE_KEY,
+    RING_CATEGORY_BOOK,
+    RING_CATEGORY_CONSUMABLE,
+    RING_CATEGORY_GEM,
+    RING_CATEGORY_RECOVERY,
+    WEAPON_TYPE_STYLE_TEXT,
+    computed_weapon_attack,
+    fixed_equipment_label,
+    load_json,
+    player_level_label,
+    quality_label,
+    ring_category_key,
+    ring_item_display_name,
+    weapon_id_label,
+    weapon_label_name,
+    weapon_type_key,
+)
 from ..constants import EQUIPMENT_MAX_HOLES, EQUIPMENT_SLOTS
+from ..combat_core import CombatCore
 from ..format_text import T
 from ..sql import db
+from ..world_skin import current_world_entries
 
 
 XIUXIAN_DIR = Path(__file__).resolve().parent.parent
@@ -27,6 +46,8 @@ class KnowledgeEntry:
     body: str
     keywords: tuple[str, ...]
     source: str = ""
+    stable_id: str = ""
+    rule_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -35,8 +56,10 @@ class WeaponProfile:
 
     title: str
     weapon_type: str
+    weapon_type_key: str
     attack: int | None
     source: str
+    skill_id: str
     skill: str
     interval: int | None
     power: float | None
@@ -56,16 +79,19 @@ class PlayerContext:
     max_hp: int = 0
     mp: int = 0
     max_mp: int = 0
-    source_stones: int = 0
+    raw_stones: int = 0
     status: str = ""
     location_name: str = ""
+    weapon_def_id: str = ""
     weapon_name: str = ""
     weapon_type: str = ""
+    weapon_type_key: str = ""
     weapon_quality: str = ""
     weapon_source: str = ""
     weapon_level: int = 0
     weapon_max_level: int = 0
     weapon_attack: int = 0
+    skill_id: str = ""
     skill_name: str = ""
     skill_desc: str = ""
     interval: int | None = None
@@ -141,23 +167,25 @@ class EncyclopediaService:
         if intent not in {"usage", "build", "lookup"} and "怎么用" not in query:
             return []
 
-        if entry.title == "开孔器":
+        if entry.stable_id == "kaikongqi":
             return self._hole_opener_lines(client_id)
-        if entry.title == "洗髓液":
+        if entry.stable_id == "xisuiye":
             return self._wash_item_lines(client_id)
-        if entry.title == "淬锋丹":
+        if entry.stable_id == "cuifengdan":
             return self._temper_item_lines(client_id)
-        if entry.kind == "技能书":
+        if entry.rule_key == RING_CATEGORY_BOOK:
             return self._book_item_lines(client_id, entry)
-        if entry.kind == "宝石":
+        if entry.rule_key == RING_CATEGORY_GEM:
             return self._gem_item_lines(client_id, entry)
-        if entry.kind == "恢复类":
+        if entry.rule_key == RING_CATEGORY_RECOVERY:
             return self._recover_item_lines(client_id, entry)
         return []
 
     def _hole_opener_lines(self, client_id: str) -> list[str]:
         """开孔器专用助手。"""
 
+        item = self._ring_item_def("kaikongqi")
+        item_name = ring_item_display_name(item, "kaikongqi")
         quantity = self._ring_quantity(client_id, "kaikongqi")
         rows = self._equipment_rows(client_id)
         openable = [row for row in rows if int(row.get("hole_count") or 0) < EQUIPMENT_MAX_HOLES]
@@ -165,17 +193,17 @@ class EncyclopediaService:
         target = openable[0] if openable else None
 
         lines = [
-            f"结论：开孔器不走“使用”。它只用来给装备位增加 1 个宝石孔，单件装备最多 {EQUIPMENT_MAX_HOLES} 孔。",
+            f"结论：{item_name}不走“使用”。它只用来给装备位增加 1 个宝石孔，单件装备最多 {EQUIPMENT_MAX_HOLES} 孔。",
             "怎么用：先发“孔位”看哪件装备缺孔，再发“开孔 装备位”；开完后用“镶嵌 装备位 孔位号 宝石名称”放宝石。",
-            f"纳戒库存：开孔器 x{quantity}。",
+            f"纳戒库存：{item_name} x{quantity}。",
         ]
         if not rows:
             lines.append("当前建议：先发“装备”或“孔位”刷新装备位，再决定给哪一件开孔。")
         elif not openable:
-            lines.append("当前建议：你的装备孔位已经全满，开孔器先留着；后续有新装备上限玩法再处理。")
+            lines.append(f"当前建议：你的装备孔位已经全满，{item_name}先留着；后续有新装备上限玩法再处理。")
         elif quantity <= 0:
             labels = "、".join(_equipment_hole_label(row) for row in openable[:3])
-            lines.append(f"当前建议：你缺的是开孔器，不缺目标；可开孔位有 {labels}。先打岁时情劫并领取首领奖励。")
+            lines.append(f"当前建议：你缺的是{item_name}，不缺目标；可开孔位有 {labels}。先打岁时情劫并领取首领奖励。")
         else:
             assert target is not None
             slot = str(target["slot"])
@@ -184,40 +212,44 @@ class EncyclopediaService:
         return lines
 
     def _wash_item_lines(self, client_id: str) -> list[str]:
-        """洗髓液专用助手。"""
+        """体质重塑道具专用助手。"""
 
+        item = self._ring_item_def("xisuiye")
+        item_name = ring_item_display_name(item, "xisuiye")
         quantity = self._ring_quantity(client_id, "xisuiye")
         lines = [
-            "结论：洗髓液不走“使用”。它是重置体质的成长道具，入口只有“洗髓”。",
-            f"纳戒库存：洗髓液 x{quantity}。",
+            f"结论：{item_name}不走“使用”。它是重置体质的成长道具，入口只有“体质重塑”。",
+            f"纳戒库存：{item_name} x{quantity}。",
         ]
         if quantity > 0:
-            lines.append("当前建议：想赌体质就发送“洗髓”；不想换掉当前体质就先留着。")
+            lines.append("当前建议：想赌体质就发送“体质重塑”；不想换掉当前体质就先留着。")
         else:
-            lines.append("当前建议：你现在没有洗髓液，优先打岁时情劫或异界虫洞，再领取对应奖励。")
-        lines.append("提醒：洗髓会立刻替换体质，属于角色成长操作，不是普通恢复药。")
+            lines.append(f"当前建议：你现在没有{item_name}，优先打岁时情劫或异界虫洞，再领取对应奖励。")
+        lines.append("提醒：体质重塑会立刻替换体质，属于角色成长操作，不是普通恢复药。")
         return lines
 
     def _temper_item_lines(self, client_id: str) -> list[str]:
-        """淬锋丹专用助手。"""
+        """武器升限道具专用助手。"""
 
+        item = self._ring_item_def("cuifengdan")
+        item_name = ring_item_display_name(item, "cuifengdan")
         quantity = self._ring_quantity(client_id, "cuifengdan")
         weapon = self._current_weapon(client_id)
         lines = [
-            "结论：淬锋丹不走“使用”。它只提升武器等级上限，默认作用到已装备武器。",
-            f"纳戒库存：淬锋丹 x{quantity}。",
+            f"结论：{item_name}不走“使用”。它只提升武器等级上限，默认作用到已装备武器。",
+            f"纳戒库存：{item_name} x{quantity}。",
         ]
         if not weapon:
-            lines.append("当前建议：先发“武器”确认可培养目标；有目标后发“武器淬锋”或“武器淬锋 武器ID”。")
+            lines.append("当前建议：先发“武器”确认可培养目标；有目标后发“武器升限”或“武器升限 武器ID”。")
         else:
             weapon_text = f"{weapon_id_label(weapon['weapon_id'])} {weapon_label_name(weapon)} Lv{weapon['level']}/{weapon['max_level']}"
             if int(weapon["max_level"]) >= 100:
-                lines.append(f"当前建议：{weapon_text} 已到 100 上限，别把淬锋丹砸在它身上。")
+                lines.append(f"当前建议：{weapon_text} 已到 100 上限，别把{item_name}砸在它身上。")
             elif quantity > 0:
-                lines.append(f"当前建议：默认目标是 {weapon_text}；确认要养它就发送“武器淬锋”。")
+                lines.append(f"当前建议：默认目标是 {weapon_text}；确认要养它就发送“武器升限”。")
             else:
-                lines.append(f"当前目标：{weapon_text}；你缺淬锋丹，去宗门战周期奖励里拿。")
-        lines.append("来源：淬锋丹只来自宗门战奖励，属于来源唯一的专属道具。")
+                lines.append(f"当前目标：{weapon_text}；你缺{item_name}，去宗门大会周期奖励里拿。")
+        lines.append(f"来源：{item_name}只来自宗门大会奖励，属于来源唯一的专属道具。")
         return lines
 
     def _book_item_lines(self, client_id: str, entry: KnowledgeEntry) -> list[str]:
@@ -226,7 +258,9 @@ class EncyclopediaService:
         item = self._ring_item_def(entry.title)
         quantity = self._ring_quantity(client_id, str(item.get("ring_item_id") if item else ""))
         weapon = self._current_weapon(client_id)
-        style = _enchant_style(entry.title) or "特化附魔"
+        effect = _effect_text(item.get("effect") if item else "") or _extract_field(entry.body, "效果")
+        enchant_id = _effect_value(effect, "enchant_id") or entry.stable_id
+        style = _enchant_style(enchant_id, effect) or "特化附魔"
         desc = _last_plain_part(entry.body).rstrip("。")
         lines = [
             f"结论：{entry.title} 是{style}技能书，不走“使用”，要用“附魔武器 武器ID 技能书名”。",
@@ -258,7 +292,8 @@ class EncyclopediaService:
             slot, hole_no = target
             lines.append(f"当前建议：可以先发“镶嵌 {slot} {hole_no} {entry.title}”；同名多等级时在末尾补“等级”。")
         else:
-            lines.append("当前建议：先发“孔位”看有没有空孔；没有空孔就先用开孔器开孔。")
+            hole_name = _special_ring_item_name("kaikongqi")
+            lines.append(f"当前建议：先发“孔位”看有没有空孔；没有空孔就先用{hole_name}开孔。")
         return lines
 
     def _recover_item_lines(self, client_id: str, entry: KnowledgeEntry) -> list[str]:
@@ -283,7 +318,11 @@ class EncyclopediaService:
     def _ring_item_def(self, name: str) -> dict[str, Any] | None:
         """按名称读取纳戒物品定义。"""
 
-        return self.db.fetch_one("SELECT * FROM ring_item_defs WHERE name = ?", (str(name).strip(),))
+        name = str(name).strip()
+        return self.db.fetch_one(
+            "SELECT * FROM ring_item_defs WHERE name = ? OR ring_item_id = ?",
+            (name, name),
+        )
 
     def _backpack_item_def(self, name: str) -> dict[str, Any] | None:
         """按名称读取背包物品定义。"""
@@ -360,7 +399,7 @@ class EncyclopediaService:
 
         return self.db.fetch_one(
             """
-            SELECT pw.*, wd.name, wd.drop_location, wd.base_attack, wd.weapon_type
+            SELECT pw.*, wd.name, wd.drop_location, wd.base_attack, wd.weapon_type, wd.weapon_type_key
             FROM player_weapons AS pw
             JOIN weapon_defs AS wd ON wd.weapon_def_id = pw.weapon_def_id
             WHERE pw.holder_id = ?
@@ -378,7 +417,7 @@ class EncyclopediaService:
 
         player = self.db.fetch_one(
             """
-            SELECT level, hp, max_hp, mp, max_mp, source_stones, status, location_name
+            SELECT level, hp, max_hp, mp, max_mp, raw_stones, status, location_name
             FROM players
             WHERE client_id = ?
             """,
@@ -390,7 +429,7 @@ class EncyclopediaService:
         weapon = self.db.fetch_one(
             """
             SELECT pw.weapon_id, pw.level, pw.max_level, pw.quality, pw.enchant_effects, pw.custom_name,
-                   wd.name, wd.weapon_type, wd.base_attack, wd.drop_location, wd.skill_id,
+                   wd.name, wd.weapon_type, wd.weapon_type_key, wd.base_attack, wd.drop_location, wd.skill_id,
                    ws.name AS skill_name, ws.effect_desc, ws.interval, ws.power, ws.cost_mp
             FROM player_weapons AS pw
             JOIN weapon_defs AS wd ON wd.weapon_def_id = pw.weapon_def_id
@@ -407,7 +446,7 @@ class EncyclopediaService:
             "max_hp": int(player["max_hp"]),
             "mp": int(player["mp"]),
             "max_mp": int(player["max_mp"]),
-            "source_stones": int(player["source_stones"]),
+            "raw_stones": int(player["raw_stones"]),
             "status": str(player["status"]),
             "location_name": str(player["location_name"]),
         }
@@ -432,14 +471,17 @@ class EncyclopediaService:
             ]
             return PlayerContext(
                 **base_context,
+                weapon_def_id=str(weapon["weapon_def_id"] or ""),
                 weapon_name=str(weapon_name),
                 weapon_type=str(weapon["weapon_type"]),
-                weapon_quality=str(weapon["quality"]),
+                weapon_type_key=str(weapon["weapon_type_key"]),
+                weapon_quality=quality_label(weapon["quality"]),
                 weapon_source=str(weapon["drop_location"]),
                 weapon_level=int(weapon["level"]),
                 weapon_max_level=int(weapon["max_level"]),
                 weapon_attack=computed_weapon_attack(weapon),
                 skill_name=skill_name,
+                skill_id=str(weapon["skill_id"] or ""),
                 skill_desc=str(weapon["effect_desc"] or ""),
                 interval=_safe_int(weapon["interval"]),
                 power=_safe_float(weapon["power"]),
@@ -514,7 +556,7 @@ class EncyclopediaService:
 
         rows = self.db.fetch_all(
             """
-            SELECT pw.*, wd.name AS base_name, wd.drop_location, wd.base_attack, wd.skill_id, wd.weapon_type,
+            SELECT pw.*, wd.name AS base_name, wd.drop_location, wd.base_attack, wd.skill_id, wd.weapon_type, wd.weapon_type_key,
                    ws.name AS skill_name, ws.effect_desc, ws.interval, ws.power, ws.cost_mp
             FROM player_weapons AS pw
             JOIN weapon_defs AS wd ON wd.weapon_def_id = pw.weapon_def_id
@@ -532,8 +574,10 @@ class EncyclopediaService:
                 body = _join_parts(
                     f"武器类型：{row.get('weapon_type', '')}",
                     f"当前攻击：{computed_weapon_attack(row)}",
+                    f"武器类型键：{row.get('weapon_type_key', '')}",
                     f"模板基础攻击：{row.get('base_attack', 0)}",
                     f"掉落范围：{row.get('drop_location') or '全地图随机'}",
+                    f"自带技能ID：{row.get('skill_id', '')}",
                     f"自带技能：{row.get('skill_name', '无')}",
                     f"技能节奏：蓄势基准 {row.get('interval', '')}，倍率 {row.get('power', '')}，精神消耗 {row.get('cost_mp', '')}",
                     str(row.get("effect_desc", "")),
@@ -546,6 +590,8 @@ class EncyclopediaService:
                             kind=str(row.get("weapon_type") or "武器"),
                             body=body,
                             keywords=_keywords(custom_name, base_name, row.get("weapon_def_id"), row.get("skill_name")),
+                            stable_id=str(row.get("weapon_def_id") or ""),
+                            rule_key=str(row.get("weapon_type_key") or ""),
                         ),
                         140,
                     )
@@ -574,6 +620,8 @@ class EncyclopediaService:
                             kind="自带技能",
                             body=body,
                             keywords=_keywords(skill_custom, row.get("skill_name"), row.get("skill_id")),
+                            stable_id=str(row.get("skill_id") or ""),
+                            rule_key=str(row.get("skill_id") or ""),
                         ),
                         135,
                     )
@@ -590,11 +638,12 @@ class EncyclopediaService:
                 if not enchant:
                     continue
                 effect = _effect_text(enchant["effect"])
+                style = _enchant_style(str(enchant["enchant_id"]), effect)
                 title = f"{custom}（{enchant['name']}）"
                 body = _join_parts(
                     f"精神消耗修正：{enchant['mp_delta']}",
                     f"效果：{effect}" if effect else "",
-                    _enchant_style(str(enchant["name"])),
+                    style,
                 )
                 matches.append(
                     (
@@ -603,7 +652,9 @@ class EncyclopediaService:
                             group="武器",
                             kind="技能书附魔",
                             body=body,
-                            keywords=_keywords(custom, enchant["name"], enchant_id, effect),
+                            keywords=_keywords(custom, enchant["name"], enchant_id, effect, style),
+                            stable_id=str(enchant_id),
+                            rule_key=str(enchant_id),
                         ),
                         135,
                     )
@@ -694,6 +745,7 @@ class EncyclopediaService:
         entries.extend(self._buyer_entries())
         entries.extend(self._recycle_entries())
         entries.extend(self._seasonal_reward_entries())
+        entries.extend(self._world_skin_entries())
         return entries
 
     def _item_entries(self) -> list[KnowledgeEntry]:
@@ -703,9 +755,13 @@ class EncyclopediaService:
         for table, id_key in (("item_defs", "item_id"), ("ring_item_defs", "ring_item_id")):
             for row in self.db.fetch_all(f"SELECT * FROM {table}"):
                 effect = _effect_text(row.get("effect"))
+                if table == "ring_item_defs":
+                    rule_key = ring_category_key(row.get("category_key") or row.get("category"))
+                else:
+                    rule_key = str(load_json(row.get("effect"), {}).get("world_category_key") or "")
                 body = _join_parts(
                     f"分类：{row.get('category', '')}",
-                    f"品质：{row.get('quality', '')}",
+                    f"品质：{quality_label(row.get('quality', ''))}",
                     f"基础价格：{row.get('base_price', 0)}" if "base_price" in row else "",
                     f"重量：{row.get('weight', 0)}" if "weight" in row else "",
                     f"目标：{row.get('target_type', '')}" if "target_type" in row else "",
@@ -718,7 +774,9 @@ class EncyclopediaService:
                         group="修仙物品",
                         kind=str(row.get("category") or "物品"),
                         body=body,
-                        keywords=_keywords(row.get("name"), row.get(id_key), row.get("category"), effect),
+                        keywords=_keywords(row.get("name"), row.get(id_key), row.get("category"), rule_key, effect),
+                        stable_id=str(row.get(id_key) or ""),
+                        rule_key=rule_key,
                     )
                 )
         return entries
@@ -728,7 +786,7 @@ class EncyclopediaService:
 
         rows = self.db.fetch_all(
             """
-            SELECT w.weapon_def_id, w.name, w.drop_location, w.base_attack, w.weapon_type,
+            SELECT w.weapon_def_id, w.name, w.drop_location, w.base_attack, w.weapon_type, w.weapon_type_key,
                    s.name AS skill_name, s.effect_desc, s.interval, s.power, s.cost_mp
             FROM weapon_defs AS w
             LEFT JOIN weapon_skill_defs AS s ON s.skill_id = w.skill_id
@@ -739,8 +797,10 @@ class EncyclopediaService:
         for row in rows:
             body = _join_parts(
                 f"武器类型：{row.get('weapon_type', '')}",
+                f"武器类型键：{row.get('weapon_type_key', '')}",
                 f"基础攻击：{row.get('base_attack', 0)}",
                 f"掉落范围：{row.get('drop_location') or '全地图随机'}",
+                f"自带技能ID：{row.get('skill_id', '')}",
                 f"自带技能：{row.get('skill_name', '无')}",
                 f"技能节奏：蓄势基准 {row.get('interval', '')}，倍率 {row.get('power', '')}，精神消耗 {row.get('cost_mp', '')}",
                 str(row.get("effect_desc", "")),
@@ -752,6 +812,8 @@ class EncyclopediaService:
                     kind=str(row.get("weapon_type") or "武器"),
                     body=body,
                     keywords=_keywords(row.get("name"), row.get("weapon_def_id"), row.get("weapon_type"), row.get("skill_name")),
+                    stable_id=str(row.get("weapon_def_id") or ""),
+                    rule_key=str(row.get("weapon_type_key") or ""),
                 )
             )
         return entries
@@ -774,6 +836,8 @@ class EncyclopediaService:
                     kind="自带技能",
                     body=body,
                     keywords=_keywords(row.get("name"), row.get("skill_id"), row.get("effect_desc")),
+                    stable_id=str(row.get("skill_id") or ""),
+                    rule_key=str(row.get("skill_id") or ""),
                 )
             )
         return entries
@@ -784,10 +848,12 @@ class EncyclopediaService:
         entries: list[KnowledgeEntry] = []
         for row in self.db.fetch_all("SELECT * FROM weapon_enchants ORDER BY name"):
             effect = _effect_text(row.get("effect"))
+            enchant_id = str(row.get("enchant_id") or "")
+            style = _enchant_style(enchant_id, effect)
             body = _join_parts(
                 f"精神消耗修正：{row.get('mp_delta', 0)}",
                 f"效果：{effect}" if effect else "",
-                _enchant_style(str(row.get("name", ""))),
+                style,
             )
             entries.append(
                 KnowledgeEntry(
@@ -795,7 +861,9 @@ class EncyclopediaService:
                     group="武器",
                     kind="技能书附魔",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("enchant_id"), effect, _enchant_style(str(row.get("name", "")))),
+                    keywords=_keywords(row.get("name"), enchant_id, effect, style),
+                    stable_id=enchant_id,
+                    rule_key=enchant_id,
                 )
             )
         return entries
@@ -827,8 +895,8 @@ class EncyclopediaService:
         for row in self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level, name"):
             body = _join_parts(
                 f"坐标：({row.get('x', 0)},{row.get('y', 0)})",
-                f"推荐等级：{row.get('recommended_level', 0)}",
-                f"怪物等级：{row.get('min_level', 0)}-{row.get('max_level', 0)}",
+                f"推荐等级：{player_level_label(row.get('recommended_level', 1))}",
+                f"怪物等级：{player_level_label(row.get('min_level', 1))}-{player_level_label(row.get('max_level', 1))}",
                 str(row.get("desc", "")),
             )
             entries.append(
@@ -857,7 +925,7 @@ class EncyclopediaService:
         entries: list[KnowledgeEntry] = []
         for row in rows:
             body = _join_parts(
-                f"等级：{row.get('level', 0)}",
+                f"等级：{player_level_label(row.get('level', 1))}",
                 f"类型：{row.get('kind', '')}",
                 f"血气/攻击/防御：{row.get('hp', 0)} / {row.get('attack', 0)} / {row.get('defense', 0)}",
                 f"偏向掉落：{row.get('drop_name') or '无'}，概率 {row.get('drop_chance', 0)}",
@@ -870,6 +938,8 @@ class EncyclopediaService:
                     kind="怪物",
                     body=body,
                     keywords=_keywords(row.get("name"), row.get("monster_id"), row.get("kind"), row.get("drop_name")),
+                    stable_id=str(row.get("monster_id") or ""),
+                    rule_key=str(row.get("kind_key") or ""),
                 )
             )
         return entries
@@ -922,10 +992,12 @@ class EncyclopediaService:
         """首领奖励概率资料。"""
 
         entries: list[KnowledgeEntry] = []
+        hole_name = ring_item_display_name(self._ring_item_def("kaikongqi"), "kaikongqi")
+        wash_name = ring_item_display_name(self._ring_item_def("xisuiye"), "xisuiye")
         for row in self.db.fetch_all("SELECT * FROM seasonal_boss_reward_rates ORDER BY weight_type"):
             body = _join_parts(
                 f"铭刻之羽基础独立概率：{_percent(row.get('feather_chance'))}",
-                f"开孔器/洗髓液：{_percent(row.get('material_chance'))}",
+                f"{hole_name}/{wash_name}：{_percent(row.get('material_chance'))}",
                 f"宝石：{_percent(row.get('gem_chance'))}",
                 f"技能书：{_percent(row.get('book_chance'))}",
                 f"武器：{_percent(row.get('weapon_chance'))}",
@@ -938,7 +1010,30 @@ class EncyclopediaService:
                     group="首领",
                     kind="奖励概率",
                     body=body,
-                    keywords=_keywords(row.get("weight_type"), row.get("desc"), "首领", "铭刻之羽", "开孔器", "洗髓液"),
+                    keywords=_keywords(row.get("weight_type"), row.get("desc"), "首领", "铭刻之羽", hole_name, wash_name),
+                )
+            )
+        return entries
+
+    def _world_skin_entries(self) -> list[KnowledgeEntry]:
+        """当前世界皮肤名录；用于让百科按当前展示名回答。"""
+
+        entries: list[KnowledgeEntry] = []
+        for item in current_world_entries(self.db):
+            body = _join_parts(
+                f"当前皮肤分类：{item.group}",
+                f"稳定ID：{item.stable_id}",
+                item.summary,
+                "说明：这是当前世界皮肤展示名；命令词不跟随皮肤改名。",
+            )
+            entries.append(
+                KnowledgeEntry(
+                    title=item.title or item.stable_id,
+                    group="当前世界",
+                    kind=item.kind,
+                    body=body,
+                    keywords=_keywords(item.stable_id, item.title, item.group, item.kind, *item.keywords),
+                    stable_id=item.stable_id,
                 )
             )
         return entries
@@ -1096,6 +1191,18 @@ def _effect_text(raw: object) -> str:
     return "，".join(parts)
 
 
+def _effect_value(effect: str, key: str) -> str:
+    """从效果短文本里取稳定字段值。"""
+
+    for part in re.split(r"[，,]", str(effect or "")):
+        if "=" not in part:
+            continue
+        item_key, raw_value = [item.strip() for item in part.split("=", 1)]
+        if item_key == key:
+            return raw_value
+    return ""
+
+
 def _human_effect_text(effect: str) -> str:
     """把效果字段翻译成人话。"""
 
@@ -1132,7 +1239,7 @@ def _human_effect_text(effect: str) -> str:
         "damage_reduce": "减伤",
         "counter_rate": "反击",
         "enchant_id": "对应附魔",
-        "wash_physique": "洗髓体质",
+        "wash_physique": "体质重塑",
     }
 
     result: list[str] = []
@@ -1166,51 +1273,138 @@ def _format_effect_value(label: str, raw_value: str, key: str) -> str:
     return f"{label} {sign}{int(value) if value.is_integer() else value:g}"
 
 
-def _enchant_style(name: str) -> str:
-    """根据技能书名给出流派提示。"""
+def _enchant_style(enchant_ref: str = "", effect: str = "") -> str:
+    """根据稳定附魔 ID 和效果给出流派提示。"""
 
-    style_map = {
-        "风刃": "高频连击流派",
-        "沙影": "高频连击流派",
-        "流光": "高频连击流派",
-        "追星": "高频连击流派",
-        "破甲": "重击破防流派",
-        "崩山": "重击破防流派",
-        "穿云": "重击破防流派",
-        "镇岳": "重击破防流派",
-        "灼心": "持续伤害流派",
-        "血雨": "持续伤害流派",
-        "毒云": "持续伤害流派",
-        "残焰": "持续伤害流派",
-        "断念": "压制控制流派",
-        "镇魂": "压制控制流派",
-        "天机": "压制控制流派",
-        "梦雾": "压制控制流派",
-        "回春": "生存续航流派",
-        "玄盾": "生存续航流派",
-        "血契": "生存续航流派",
-        "灵木": "生存续航流派",
-        "反震": "反击护身流派",
-        "归刃": "反击护身流派",
-        "借势": "反击护身流派",
-        "玄曜": "反击护身流派",
-        "无相": "斩杀收割流派",
-        "断海": "斩杀收割流派",
-        "绝影": "斩杀收割流派",
-        "破军": "斩杀收割流派",
-        "星落": "首领协作流派",
-        "乾坤": "首领协作流派",
-        "破阵": "首领协作流派",
-        "玉京": "首领协作流派",
-        "月蚀": "决斗扰乱流派",
-        "镜湖": "决斗扰乱流派",
-        "影叶": "决斗扰乱流派",
-        "清心": "决斗扰乱流派",
+    ref = str(enchant_ref or "").strip()
+    if ref.startswith("extreme_"):
+        ref = ref.removeprefix("extreme_")
+    style_by_id = {
+        "fengren_shu": "高频连击流派",
+        "shaying_shu": "高频连击流派",
+        "liuguang_shu": "高频连击流派",
+        "zhuixing_shu": "高频连击流派",
+        "poxie_shu": "重击破防流派",
+        "bengshan_shu": "重击破防流派",
+        "chuanyun_shu": "重击破防流派",
+        "zhenyue_shu": "重击破防流派",
+        "zhuoxin_shu": "持续伤害流派",
+        "xueyu_shu": "持续伤害流派",
+        "duyun_shu": "持续伤害流派",
+        "canyan_shu": "持续伤害流派",
+        "duannian_shu": "压制控制流派",
+        "zhenhun_shu": "压制控制流派",
+        "tianji_shu": "压制控制流派",
+        "mengwu_shu": "压制控制流派",
+        "huichun_shu": "生存续航流派",
+        "xuandun_shu": "生存续航流派",
+        "xueqi_shu": "生存续航流派",
+        "lingmu_shu": "生存续航流派",
+        "fanzhen_shu": "反击护身流派",
+        "guiren_shu": "反击护身流派",
+        "jieshi_shu": "反击护身流派",
+        "xuanyao_shu": "反击护身流派",
+        "wuxiang_shu": "斩杀收割流派",
+        "duanhai_shu": "斩杀收割流派",
+        "jueying_shu": "斩杀收割流派",
+        "pojun_shu": "斩杀收割流派",
+        "xingluo_shu": "首领协作流派",
+        "qiankun_shu": "首领协作流派",
+        "pozhen_shu": "首领协作流派",
+        "yujing_shu": "首领协作流派",
+        "yueshi_shu": "决斗扰乱流派",
+        "jinghu_shu": "决斗扰乱流派",
+        "yingye_shu": "决斗扰乱流派",
+        "qingxin_shu": "决斗扰乱流派",
     }
-    for key, style in style_map.items():
-        if key in name:
-            return style
+    if ref in style_by_id:
+        return style_by_id[ref]
+
+    return _style_from_effects(_parse_effect_values(effect))
+
+
+def _style_from_effects(effects: dict[str, float]) -> str:
+    """根据稳定效果键给出流派提示。"""
+
+    if effects.get("interval_delta", 0) < 0 or effects.get("combo_bonus", 0) > 0:
+        return "高频连击流派"
+    if any(key in effects for key in ("pierce_bonus", "defense_suppress", "heavy_bonus")):
+        return "重击破防流派"
+    if any(key in effects for key in ("burn_rate", "bleed_rate")):
+        return "持续伤害流派"
+    if any(key in effects for key in ("mp_suppress", "stun_rate")):
+        return "压制控制流派"
+    if any(key in effects for key in ("life_steal", "shield_bonus", "damage_reduce")):
+        return "生存续航流派"
+    if effects.get("counter_rate", 0) > 0:
+        return "反击护身流派"
+    if effects.get("skill_power_bonus", 0) > 0 or effects.get("single_hit_bonus", 0) > 0:
+        return "斩杀收割流派"
+    if effects.get("hit_bonus", 0) > 0 or effects.get("dodge_bonus", 0) > 0:
+        return "决斗扰乱流派"
     return ""
+
+
+def _traits_from_effects(effects: dict[str, float]) -> set[str]:
+    """根据稳定效果键识别玩法特征。"""
+
+    traits: set[str] = set()
+    if effects.get("interval_delta", 0) < 0:
+        traits.add("fast")
+    if effects.get("interval_delta", 0) > 0:
+        traits.add("slow")
+    if any(key in effects for key in ("combo_bonus", "combo_damage_bonus")):
+        traits.add("combo")
+    if any(key in effects for key in ("pierce_bonus", "defense_suppress", "heavy_bonus")):
+        traits.add("pierce")
+    if any(key in effects for key in ("burn_rate", "bleed_rate")):
+        traits.add("dot")
+    if any(key in effects for key in ("mp_suppress", "stun_rate")):
+        traits.add("control")
+    if any(key in effects for key in ("life_steal", "shield_bonus", "damage_reduce")):
+        traits.add("sustain")
+    if effects.get("counter_rate", 0) > 0:
+        traits.add("counter")
+    if any(key in effects for key in ("hit_bonus", "dodge_bonus")):
+        traits.add("accuracy")
+    if effects.get("skill_power_bonus", 0) > 0 or effects.get("single_hit_bonus", 0) > 0:
+        traits.add("execute")
+    if effects.get("combo_damage_bonus", 0) > 0 or effects.get("hit_bonus", 0) > 0:
+        traits.add("boss")
+    return traits
+
+
+def _enchant_display_name(enchant_id: str) -> str:
+    """按当前世界包读取附魔展示名。"""
+
+    ref = str(enchant_id or "").strip()
+    if not ref:
+        return ""
+    row = db.fetch_one("SELECT name FROM weapon_enchants WHERE enchant_id = ?", (ref,))
+    return str(row["name"]) if row else ref
+
+
+def _book_names(*enchant_ids: str) -> str:
+    """把稳定技能书 ID 拼成当前展示名列表。"""
+
+    names = [_enchant_display_name(enchant_id) for enchant_id in enchant_ids if str(enchant_id or "").strip()]
+    return "、".join(dict.fromkeys(name for name in names if name))
+
+
+def _book_pair(*enchant_ids: str) -> str:
+    """两到三本书的短搭配展示。"""
+
+    return "/".join(_enchant_display_name(enchant_id) for enchant_id in enchant_ids if str(enchant_id or "").strip())
+
+
+def _special_ring_item_name(ring_item_id: str) -> str:
+    """按稳定 ID 读取专属纳戒物品当前展示名。"""
+
+    ref = str(ring_item_id or "").strip()
+    if not ref:
+        return "专属纳戒物品"
+    row = db.fetch_one("SELECT * FROM ring_item_defs WHERE ring_item_id = ?", (ref,))
+    return ring_item_display_name(dict(row) if row else None, ref)
 
 
 def _percent(value: object) -> str:
@@ -1254,15 +1448,15 @@ def _answer_buttons(query: str, entries: list[KnowledgeEntry]) -> str:
     elif primary and primary.group == "武器":
         commands.extend(["武器", "修仙信息", "修仙百科 武器流派"])
     elif primary and primary.group == "修仙物品":
-        if primary.title == "开孔器":
+        if primary.stable_id == "kaikongqi":
             commands.extend(["孔位", "开孔 头部", "首领", "纳戒"])
-        elif primary.title == "洗髓液":
-            commands.extend(["洗髓", "纳戒", "首领", "虫洞"])
-        elif primary.title == "淬锋丹":
-            commands.extend(["武器淬锋", "宗门战", "纳戒", "武器"])
-        elif primary.kind == "宝石":
+        elif primary.stable_id == "xisuiye":
+            commands.extend(["体质重塑", "纳戒", "首领", "虫洞"])
+        elif primary.stable_id == "cuifengdan":
+            commands.extend(["武器升限", "宗门大会", "纳戒", "武器"])
+        elif primary.rule_key == RING_CATEGORY_GEM:
             commands.extend(["宝石", "装备", "修仙百科 宝石"])
-        elif primary.kind == "技能书":
+        elif primary.rule_key == RING_CATEGORY_BOOK:
             commands.extend(["武器", "纳戒", "修仙百科 技能书"])
         else:
             commands.extend(["背包", "纳戒", "查看修仙物品"])
@@ -1278,16 +1472,16 @@ def _document_answer_commands(query: str, entries: list[KnowledgeEntry]) -> list
     text = f"{query} {' '.join(entry.group for entry in entries)} {' '.join(entry.title for entry in entries)}"
     if any(word in text for word in ("按钮", "富文本", "帮助", "指南")):
         commands.extend(["指南", "修仙帮助"])
-    if any(word in text for word in ("宗门", "宗门战")):
-        commands.extend(["指南 世界", "宗门", "宗门战"])
+    if any(word in text for word in ("宗门", "宗门大会")):
+        commands.extend(["指南 世界", "宗门", "宗门大会"])
     if any(word in text for word in ("商场", "跑商", "出售", "交易")):
         commands.extend(["指南 交易", "商场推荐", "自动出售"])
     if any(word in text for word in ("探险", "地图", "秘境")):
         commands.extend(["指南 战斗", "地图", "探险列表"])
     if any(word in text for word in ("武器", "装备", "宝石", "纳戒", "背包")):
         commands.extend(["指南 行囊", "武器", "纳戒"])
-    if any(word in text for word in ("玩家", "状态", "休息", "源库", "成长")):
-        commands.extend(["指南 成长", "状态", "源库"])
+    if any(word in text for word in ("玩家", "状态", "休息", "银行", "成长", "货币")):
+        commands.extend(["指南 成长", "状态", "银行"])
     commands.extend(["指南", "修仙帮助"])
     return list(dict.fromkeys(commands))
 
@@ -1317,7 +1511,7 @@ def _smart_answer_lines(
     if personal_entry:
         return _weapon_answer_lines(query, personal_entry, [personal_entry], "build", context)
 
-    topic = _topic_answer_lines(query, entries)
+    topic = _topic_answer_lines(query)
     if topic and _should_answer_as_topic(query, primary):
         return topic
 
@@ -1337,7 +1531,10 @@ def _smart_answer_lines(
             return helped_lines
 
     if primary.group == "修仙物品":
-        return _item_answer_lines(primary, intent)
+        return _item_answer_lines(primary)
+
+    if primary.group == "当前世界":
+        return _world_skin_answer_lines(primary)
 
     if primary.group == "武器" and primary.kind not in {"自带技能", "技能书附魔"}:
         return _weapon_answer_lines(query, primary, entries, intent, context)
@@ -1380,16 +1577,17 @@ def _source_answer_lines(entry: KnowledgeEntry) -> list[str]:
     ]
 
 
-def _item_answer_lines(entry: KnowledgeEntry, intent: str) -> list[str]:
+def _item_answer_lines(entry: KnowledgeEntry) -> list[str]:
     """物品用途类回答。"""
 
     category = entry.kind
+    rule_key = entry.rule_key
     quality = _extract_field(entry.body, "品质")
     effect = _extract_field(entry.body, "效果")
     desc = _last_plain_part(entry.body).rstrip("。")
     effect_text = _human_effect_text(effect)
 
-    if category == "宝石":
+    if rule_key == RING_CATEGORY_GEM:
         lines = [
             f"结论：{entry.title} 是{quality or ''}宝石，核心用途是{desc or '给装备提供额外属性'}。",
             f"实际收益：{effect_text or effect or '看宝石效果字段'}。",
@@ -1402,22 +1600,23 @@ def _item_answer_lines(entry: KnowledgeEntry, intent: str) -> list[str]:
             lines.append("它偏承伤，适合打首领、虫洞或越级探险时补稳定性。")
         return lines
 
-    if category == "恢复类":
+    if rule_key == RING_CATEGORY_RECOVERY:
         return [
             f"结论：{entry.title} 是恢复类物品，主要用于补状态，不该和普通材料混着看。",
             f"效果：{effect_text or desc or effect}。",
             "它一般通过“使用 物品名 数量”消耗，也会被探险自动用药逻辑按开关使用。",
         ]
 
-    if category == "技能书":
-        style = _enchant_style(entry.title) or "特化附魔"
+    if rule_key == RING_CATEGORY_BOOK:
+        enchant_id = _effect_value(effect, "enchant_id") or entry.stable_id
+        style = _enchant_style(enchant_id, effect) or "特化附魔"
         return [
             f"结论：{entry.title} 是技能书，用来附魔武器，不是直接吃的消耗品。",
             f"定位：{style}；{desc or '它会改变武器战斗倾向'}。",
             "同一把武器不能重复附魔同一本技能书；附魔后不可撤销，所以要按武器流派来配。",
         ]
 
-    if category == "消耗品":
+    if rule_key == RING_CATEGORY_CONSUMABLE:
         return [
             f"结论：{entry.title} 是消耗品，作用是{desc or effect_text or effect or '触发对应成长效果'}。",
             "下一步：先查它的专属入口；如果没有明确入口，就发“查看修仙物品 物品名”确认来源和归属，不要直接按普通恢复药处理。",
@@ -1466,8 +1665,8 @@ def _weapon_answer_lines(
 def _enchant_answer_lines(query: str, entry: KnowledgeEntry, context: PlayerContext | None = None) -> list[str]:
     """技能书回答。"""
 
-    style = _enchant_style(entry.title) or "特化附魔"
     effect = _extract_field(entry.body, "效果")
+    style = _enchant_style(entry.rule_key or entry.stable_id, effect) or "特化附魔"
     mp_delta = _extract_field(entry.body, "精神消耗修正")
     effects = _parse_effect_values(effect)
     goal = _goal_from_query(query)
@@ -1499,7 +1698,7 @@ def _skill_answer_lines(entry: KnowledgeEntry) -> list[str]:
     ]
 
 
-def _topic_answer_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
+def _topic_answer_lines(query: str) -> list[str]:
     """玩法主题回答。"""
 
     if "跑商" in query or "商场" in query:
@@ -1509,8 +1708,10 @@ def _topic_answer_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
             "赚不到钱时先查三件事：当前位置是否有货、背包容量和负重是否够、出售地点是否真的有价差。",
         ]
     if "首领" in query or "岁时" in query:
+        hole_name = _special_ring_item_name("kaikongqi")
+        wash_name = _special_ring_item_name("xisuiye")
         return [
-            "结论：首领是珍贵物品主产出玩法，铭刻之羽、开孔器、洗髓液都应重点看首领奖励。",
+            f"结论：首领是珍贵物品主产出玩法，铭刻之羽、{hole_name}、{wash_name}都应重点看首领奖励。",
             "普通日也有首领，但珍贵物品概率较低；节气、传统节日，尤其高权重节日更值得组织挑战。",
             "如果目标是铭刻或装备成长，优先盯首领，而不是普通探险。",
         ]
@@ -1524,7 +1725,7 @@ def _topic_answer_lines(query: str, entries: list[KnowledgeEntry]) -> list[str]:
         return [
             "结论：前期开荒优先选快节奏、低精神消耗、有续航或命中稳定的武器，不要一上来迷信最高攻击。",
             "推荐方向：短剑、飞刃、匕这类高频武器刷图最舒服；万药藤杖这类续航武器适合稳过连续战斗；重斧、重戟更适合后面打硬目标。",
-            "附魔思路：先补风刃书、流光书、追星书提高节奏，血气吃紧再补回春书或玄盾书；早期不建议把栏位全塞慢速爆发书。",
+            f"附魔思路：先补 {_book_names('fengren_shu', 'liuguang_shu', 'zhuixing_shu')} 提高节奏，血气吃紧再补 {_book_pair('huichun_shu', 'xuandun_shu')}；早期不建议把栏位全塞慢速爆发书。",
         ]
     if "武器" in query or "流派" in query:
         return [
@@ -1557,6 +1758,55 @@ def _document_synthesis_lines(query: str, entries: list[KnowledgeEntry]) -> list
     return lines
 
 
+def _world_skin_answer_lines(entry: KnowledgeEntry) -> list[str]:
+    """当前世界皮肤名录回答。"""
+
+    stable_id = _extract_field(entry.body, "稳定ID")
+    skin_group = _extract_field(entry.body, "当前皮肤分类")
+    lines = [
+        f"结论：{entry.title} 是当前世界里的{entry.kind}。",
+    ]
+    if skin_group:
+        lines.append(f"分类：{skin_group}。")
+    if stable_id:
+        lines.append(f"稳定ID：{stable_id}；换皮只改展示名，不改规则和命令。")
+    summary = _world_skin_summary(entry.body)
+    if summary:
+        lines.append(summary)
+    lines.append(_world_skin_next_step(entry))
+    return lines
+
+
+def _world_skin_summary(body: str) -> str:
+    """从当前世界名录正文中拿掉固定解释，保留可读资料。"""
+
+    parts = [part.strip() for part in str(body).split("；") if part.strip()]
+    details = [
+        part
+        for part in parts
+        if not part.startswith(("当前皮肤分类：", "稳定ID：", "说明："))
+    ]
+    return "；".join(details[:3])
+
+
+def _world_skin_next_step(entry: KnowledgeEntry) -> str:
+    """按当前世界资料类型给下一步。"""
+
+    if entry.kind in {"商路城池", "探险地点", "NPC地点"}:
+        return f"下一步：发“地图”看当前位置，或按地点提示使用导航/探险相关命令。"
+    if entry.kind in {"世界物品", "纳戒物品"}:
+        return "下一步：发“背包”或“纳戒”看库存；想知道具体用途可以问“修仙百科 物品名怎么用”。"
+    if entry.kind in {"武器", "武器技能", "技能书附魔"}:
+        return "下一步：发“武器”看持有武器；想搭配就问“修仙百科 武器名怎么玩”。"
+    if entry.kind == "怪物":
+        return "下一步：发“探险列表”或“地图”看相关地点，再按战斗状态决定是否探险。"
+    if entry.kind == "体质":
+        return "下一步：发“状态”看当前体质；想更换体质走“体质重塑”。"
+    if entry.kind == "品质":
+        return "下一步：品质只影响展示、倍率、排序和掉落权重；具体物品还要看它自己的类型。"
+    return "下一步：继续问具体名字或玩法，百科会按当前世界名录和数据库资料回答。"
+
+
 def _dedupe_entries(entries: list[KnowledgeEntry]) -> list[KnowledgeEntry]:
     """按来源和标题去重。"""
 
@@ -1575,6 +1825,7 @@ def _rank_document_sentences(query: str, documents: list[KnowledgeEntry]) -> lis
     """从文档章节中抽取最有用的句子。"""
 
     terms = _query_terms(query)
+    sect_reward_terms = ("周期", "周日", "领取", "奖励", "影响力", "贡献", "成员", "武器升限", "专属道具", _special_ring_item_name("cuifengdan"))
     scored: list[tuple[int, str, str, str]] = []
     for entry in documents:
         source = _document_source_text(entry)
@@ -1599,8 +1850,8 @@ def _rank_document_sentences(query: str, documents: list[KnowledgeEntry]) -> lis
                     score += 12
                 if any(word in sentence for word in ("图片消息", "调试回复", "例外")):
                     score -= 6
-            if "宗门战" in query or ("宗门" in query and "奖励" in query):
-                if any(word in sentence for word in ("周期", "周日", "领取", "奖励", "影响力", "贡献", "淬锋丹", "成员")):
+            if "宗门大会" in query or ("宗门" in query and "奖励" in query):
+                if any(word and word in sentence for word in sect_reward_terms):
                     score += 10
                 if any(word in sentence for word in ("建立宗门", "加入宗门", "退出宗门")):
                     score -= 4
@@ -1662,7 +1913,7 @@ def _sentence_label(sentence: str) -> str:
 def _document_topic(query: str, documents: list[KnowledgeEntry]) -> str:
     """生成文档综合回答的主题短句。"""
 
-    if any(word in query for word in ("宗门", "宗门战")):
+    if any(word in query for word in ("宗门", "宗门大会")):
         return "宗门归属、周期结算、领取制奖励和世界增益之间的关系"
     if any(word in query for word in ("商场", "跑商", "出售", "交易")):
         return "商路交易、自动出售和世界物资流向之间的分工"
@@ -1792,8 +2043,10 @@ def _personal_weapon_entry(
 
     body = _join_parts(
         f"武器类型：{context.weapon_type}",
+        f"武器类型键：{context.weapon_type_key}",
         f"当前攻击：{context.weapon_attack}",
         f"掉落范围：{context.weapon_source or '已拥有'}",
+        f"自带技能ID：{context.skill_id}",
         f"自带技能：{context.skill_name or '无'}",
         f"技能节奏：蓄势基准 {context.interval or ''}，倍率 {context.power or ''}，精神消耗 {context.cost_mp or ''}",
         context.skill_desc,
@@ -1803,7 +2056,9 @@ def _personal_weapon_entry(
         group="武器",
         kind=context.weapon_type or "武器",
         body=body,
-        keywords=_keywords(context.weapon_name, context.skill_name, context.weapon_type),
+        keywords=_keywords(context.weapon_name, context.weapon_def_id, context.skill_name, context.skill_id, context.weapon_type, context.weapon_type_key),
+        stable_id=context.weapon_def_id,
+        rule_key=context.weapon_type_key or weapon_type_key(context.weapon_type),
     )
 
 
@@ -1856,7 +2111,8 @@ def _answer_conclusion(query: str, entries: list[KnowledgeEntry]) -> str:
         return f"结论：{primary.title} 是{weapon_type}，自带技能「{skill}」，来源：{drop}。"
 
     if primary.kind == "技能书附魔":
-        style = _enchant_style(primary.title)
+        effect = _extract_field(primary.body, "效果")
+        style = _enchant_style(primary.rule_key or primary.stable_id, effect)
         return f"结论：{primary.title} 属于{style or '技能书附魔'}，适合给同方向武器补强，不建议当万能书乱塞。"
 
     if primary.kind == "自带技能":
@@ -1940,13 +2196,20 @@ def _weapon_profile(entry: KnowledgeEntry, entries: list[KnowledgeEntry]) -> Wea
     interval = _number_after(tempo, "蓄势基准", int)
     power = _number_after(tempo, "倍率", float)
     cost_mp = _number_after(tempo, "精神消耗", int)
-    style = _style_from_entries(entries) or _style_from_weapon(entry, desc)
+    type_key = entry.rule_key or _extract_field(entry.body, "武器类型键") or weapon_type_key(_extract_field(entry.body, "武器类型") or entry.kind)
+    skill_id = _extract_field(entry.body, "自带技能ID")
+    skill_effects = _weapon_skill_effects(skill_id)
+    style = _style_from_entries(entries) or _style_from_effects(skill_effects) or _style_from_weapon_type(type_key)
     traits = _weapon_traits(entry, desc, interval, power, cost_mp)
+    traits.update(_traits_from_effects(skill_effects))
+    traits.update(_traits_from_weapon_type(type_key))
     return WeaponProfile(
         title=entry.title,
         weapon_type=_extract_field(entry.body, "武器类型") or entry.kind,
+        weapon_type_key=type_key,
         attack=_safe_int(_extract_field(entry.body, "基础攻击")),
         source=_extract_field(entry.body, "掉落范围"),
+        skill_id=skill_id,
         skill=_extract_field(entry.body, "自带技能") or "无",
         interval=interval,
         power=power,
@@ -1987,6 +2250,49 @@ def _safe_float(value: object) -> float | None:
         return None
 
 
+def _weapon_skill_effects(skill_id: str) -> dict[str, float]:
+    """按真实战斗结算表读取自带技能效果。"""
+
+    return dict(CombatCore._weapon_skill_effects({"skill_id": str(skill_id or "").strip()}))
+
+
+def _style_from_weapon_type(type_key: str) -> str:
+    """按武器类型稳定键给出基础流派倾向。"""
+
+    key = weapon_type_key(type_key)
+    if key in {"dagger", "blade", "whisk"}:
+        return "高频连击流派"
+    if key in {"axe", "halberd", "spear", "disc"}:
+        return "重击破防流派"
+    if key in {"bell", "staff"}:
+        return "压制控制流派"
+    if key == "shield_blade":
+        return "反击护身流派"
+    return ""
+
+
+def _traits_from_weapon_type(type_key: str) -> set[str]:
+    """按武器类型稳定键补充基础特征。"""
+
+    key = weapon_type_key(type_key)
+    mapping = {
+        "dagger": {"fast", "combo", "accuracy"},
+        "blade": {"fast", "combo"},
+        "whisk": {"combo", "control"},
+        "bell": {"control", "accuracy"},
+        "staff": {"control", "sustain"},
+        "shield_blade": {"sustain", "counter", "slow"},
+        "spear": {"pierce", "burst"},
+        "halberd": {"pierce", "burst", "slow"},
+        "disc": {"control", "burst", "slow"},
+        "axe": {"burst", "slow"},
+        "crossbow": {"accuracy", "burst"},
+        "saber": {"steady_power"},
+        "sword": {"accuracy", "steady_power"},
+    }
+    return set(mapping.get(key, set()))
+
+
 def _weapon_traits(
     entry: KnowledgeEntry,
     desc: str,
@@ -1996,7 +2302,7 @@ def _weapon_traits(
 ) -> set[str]:
     """识别武器强项和代价。"""
 
-    text = f"{entry.title} {entry.body} {desc}"
+    text = f"{entry.body} {desc}"
     traits: set[str] = set()
     if interval is not None:
         if interval <= 3:
@@ -2017,23 +2323,23 @@ def _weapon_traits(
             traits.add("high_cost")
         elif cost_mp <= 7:
             traits.add("low_cost")
-    if any(word in text for word in ("削弱精神", "压精神", "断念", "镇魂", "摄心", "扰乱", "拖慢", "打断行动条", "压制", "扰神", "压行动条")):
+    if any(word in text for word in ("削弱精神", "压精神", "摄心", "扰乱", "拖慢", "打断行动条", "压制", "扰神", "压行动条")):
         traits.add("control")
     if any(word in text for word in ("灼烧", "流血", "毒", "残火", "燃")):
         traits.add("dot")
-    if any(word in text for word in ("穿透", "破甲", "破防", "压低防御", "压防", "贯日", "破阵")):
+    if any(word in text for word in ("穿透", "破甲", "破防", "压低防御", "压防")):
         traits.add("pierce")
     if any(word in text for word in ("回春", "回血", "回复血气", "吸血", "续航", "护身", "减伤", "承伤")):
         traits.add("sustain")
     if any(word in text for word in ("反击", "反震", "格挡", "借势回击")):
         traits.add("counter")
-    if any(word in text for word in ("连击", "多段", "高频", "双斩", "乱刃", "飞刃", "短刃", "匕")):
+    if any(word in text for word in ("连击", "多段", "高频")):
         traits.add("combo")
     if any(word in text for word in ("命中", "闪避", "身形", "更活")):
         traits.add("accuracy")
     if any(word in text for word in ("一击", "单次爆发", "斩杀", "收割", "点杀")):
         traits.add("execute")
-    if any(word in text for word in ("星落", "玉京", "协作", "贡献")):
+    if any(word in text for word in ("协作", "贡献", "长战")):
         traits.add("boss")
     return traits
 
@@ -2201,50 +2507,62 @@ def _weapon_goal_advice(profile: WeaponProfile, goal: str) -> list[str]:
     """按目标给武器附魔建议。"""
 
     traits = profile.traits
+    quick = _book_names("fengren_shu", "shaying_shu", "liuguang_shu", "zhuixing_shu")
+    quick_pair = _book_pair("fengren_shu", "liuguang_shu")
+    sustain = _book_names("huichun_shu", "xuandun_shu", "lingmu_shu")
+    sustain_pair = _book_pair("huichun_shu", "xuandun_shu")
+    boss = _book_names("pozhen_shu", "yujing_shu", "xingluo_shu")
+    boss_pair = _book_pair("pozhen_shu", "yujing_shu", "xingluo_shu")
+    control = _book_names("duannian_shu", "zhenhun_shu", "tianji_shu", "mengwu_shu", "qingxin_shu")
+    control_pair = _book_pair("duannian_shu", "mengwu_shu")
+    dot = _book_names("zhuoxin_shu", "xueyu_shu", "duyun_shu", "canyan_shu")
+    pierce = _book_names("poxie_shu", "bengshan_shu", "chuanyun_shu", "zhenyue_shu")
+    pvp = _book_names("yueshi_shu", "jinghu_shu", "yingye_shu", "qingxin_shu")
+    burst = _book_names("wuxiang_shu", "duanhai_shu", "pojun_shu")
     if goal == "daily":
         if "control" in traits:
             return [
-                "探险配法：回春书或玄盾书先保证连续战斗，再补断念书、梦雾书这类压制；别把所有栏位都堆控制。",
+                f"探险配法：{sustain_pair} 先保证连续战斗，再补 {control_pair} 这类压制；别把所有栏位都堆控制。",
                 "效率提醒：如果只是平刷低级怪，高频短刃、飞刃、匕类通常会比它更快。",
             ]
         if "fast" in traits or "combo" in traits:
-            return ["探险配法：风刃书、沙影书、流光书、追星书优先，缺生存再补回春书或玄盾书。"]
+            return [f"探险配法：{quick} 优先，缺生存再补 {sustain_pair}。"]
         if "sustain" in traits:
-            return ["探险配法：回春书、玄盾书、灵木书能把稳字拉满；想提速再补风刃书或流光书。"]
+            return [f"探险配法：{sustain} 能把稳字拉满；想提速再补 {quick_pair}。"]
         return ["探险配法：优先补命中、续航和节奏，别为了单次伤害把蓄势堆得太慢。"]
     if goal == "boss":
         if "control" in traits:
             return [
-                "首领虫洞配法：破阵书、玉京书、星落书优先补贡献和稳定命中，镇魂书或天机书保留一格做压制就够。",
+                f"首领虫洞配法：{boss} 优先补贡献和稳定命中，{_book_pair('zhenhun_shu', 'tianji_shu')} 保留一格做压制就够。",
                 "不要只叠断念系：Boss 长战更看穿透、持续伤害、命中和站场时间。",
             ]
         if "dot" in traits:
-            return ["首领虫洞配法：灼心书、血雨书、毒云书、残焰书能把长战收益拉起来，再补玉京书保命中。"]
+            return [f"首领虫洞配法：{dot} 能把长战收益拉起来，再补 {_enchant_display_name('yujing_shu')} 保命中。"]
         if "pierce" in traits or "burst" in traits:
-            return ["首领虫洞配法：破阵书、穿云书、玉京书、星落书优先；精神吃紧时少塞高消耗书。"]
-        return ["首领虫洞配法：优先补破阵书、玉京书、星落书；站不住再补玄盾书或灵木书。"]
+            return [f"首领虫洞配法：{_book_names('pozhen_shu', 'chuanyun_shu', 'yujing_shu', 'xingluo_shu')} 优先；精神吃紧时少塞高消耗书。"]
+        return [f"首领虫洞配法：优先补 {boss}；站不住再补 {_book_pair('xuandun_shu', 'lingmu_shu')}。"]
     if goal == "pvp":
         if "control" in traits:
             return [
-                "决斗抢劫配法：断念书、镇魂书、天机书、梦雾书、清心书最贴合，核心是让对方技能慢、精神亏、出手乱。",
-                "如果你自己容易被秒，玄盾书或镜湖书比继续堆输出更有用。",
+                f"决斗抢劫配法：{control} 最贴合，核心是让对方技能慢、精神亏、出手乱。",
+                f"如果你自己容易被秒，{_book_pair('xuandun_shu', 'jinghu_shu')} 比继续堆输出更有用。",
             ]
         if "burst" in traits or "execute" in traits:
-            return ["决斗抢劫配法：无相书、断海书、破军书打爆发，镜湖书或清心书补稳定。"]
-        return ["决斗抢劫配法：月蚀书、镜湖书、影叶书、清心书能补扰乱和容错。"]
+            return [f"决斗抢劫配法：{burst} 打爆发，{_book_pair('jinghu_shu', 'qingxin_shu')} 补稳定。"]
+        return [f"决斗抢劫配法：{pvp} 能补扰乱和容错。"]
     if "control" in traits:
         return [
-            "分场景配法：日常探险用回春书/玄盾书加一到两本压制书；首领虫洞用破阵书/玉京书/星落书补贡献；决斗抢劫才全力考虑断念书、镇魂书、天机书、梦雾书、清心书。",
+            f"分场景配法：日常探险用 {sustain_pair} 加一到两本压制书；首领虫洞用 {boss_pair} 补贡献；决斗抢劫才全力考虑 {control}。",
             "一句话：它不是刷低级怪的最快答案，但在对战和高压长战里很有特色。",
         ]
     if "fast" in traits or "combo" in traits:
-        return ["分场景配法：日常优先风刃书、沙影书、流光书、追星书；打硬目标再补破甲书或穿云书。"]
+        return [f"分场景配法：日常优先 {quick}；打硬目标再补 {_book_pair('poxie_shu', 'chuanyun_shu')}。"]
     if "dot" in traits:
-        return ["分场景配法：灼心书、血雨书、毒云书、残焰书适合长战；短战想提速可补流光书或玉京书。"]
+        return [f"分场景配法：{dot} 适合长战；短战想提速可补 {_book_pair('liuguang_shu', 'yujing_shu')}。"]
     if "pierce" in traits or "burst" in traits:
-        return ["分场景配法：破甲书、崩山书、穿云书、镇岳书打硬目标；日常探险要防蓄势过慢。"]
+        return [f"分场景配法：{pierce} 打硬目标；日常探险要防蓄势过慢。"]
     if "sustain" in traits:
-        return ["分场景配法：回春书、玄盾书、血契书、灵木书走长战；想打贡献再补破阵书或玉京书。"]
+        return [f"分场景配法：{_book_names('huichun_shu', 'xuandun_shu', 'xueqi_shu', 'lingmu_shu')} 走长战；想打贡献再补 {_book_pair('pozhen_shu', 'yujing_shu')}。"]
     return ["搭配建议：优先强化自带技能方向，再补一个当前最缺的生存、命中或精神续航。"]
 
 
@@ -2374,58 +2692,86 @@ def _weapon_plan(profile: WeaponProfile, goal: str) -> tuple[str, str, str]:
     if goal == "daily":
         if "control" in traits:
             return (
-                "回春书/玄盾书 + 断念书/梦雾书，先稳连续战斗",
-                "风刃书或流光书补节奏",
+                f"{_book_pair('huichun_shu', 'xuandun_shu')} + {_book_pair('duannian_shu', 'mengwu_shu')}，先稳连续战斗",
+                f"{_book_pair('fengren_shu', 'liuguang_shu')} 补节奏",
                 "全堆断念系，清小怪会慢",
             )
         if "fast" in traits or "combo" in traits:
             return (
-                "风刃书 + 沙影书 + 流光书/追星书",
-                "缺生存补回春书或玄盾书",
+                f"{_book_pair('fengren_shu', 'shaying_shu')} + {_book_pair('liuguang_shu', 'zhuixing_shu')}",
+                f"缺生存补 {_book_pair('huichun_shu', 'xuandun_shu')}",
                 "把蓄势堆慢的重击书塞太多",
             )
-        return ("风刃书/流光书 + 回春书/玄盾书", "缺伤害再补破甲书或穿云书", "只看单次爆发")
+        return (
+            f"{_book_pair('fengren_shu', 'liuguang_shu')} + {_book_pair('huichun_shu', 'xuandun_shu')}",
+            f"缺伤害再补 {_book_pair('poxie_shu', 'chuanyun_shu')}",
+            "只看单次爆发",
+        )
     if goal == "boss":
         if "control" in traits:
             return (
-                "破阵书 + 玉京书 + 星落书，保留镇魂书/天机书一格做压制",
-                "穿云书、灼心书、玄盾书按缺口替换",
+                f"{_book_pair('pozhen_shu', 'yujing_shu', 'xingluo_shu')}，保留 {_book_pair('zhenhun_shu', 'tianji_shu')} 一格做压制",
+                f"{_book_names('chuanyun_shu', 'zhuoxin_shu', 'xuandun_shu')} 按缺口替换",
                 "全堆削精神，贡献会虚",
             )
         if "dot" in traits:
             return (
-                "灼心书 + 血雨书 + 毒云书/残焰书",
-                "玉京书补命中，玄盾书补站场",
+                f"{_book_pair('zhuoxin_shu', 'xueyu_shu')} + {_book_pair('duyun_shu', 'canyan_shu')}",
+                f"{_enchant_display_name('yujing_shu')} 补命中，{_enchant_display_name('xuandun_shu')} 补站场",
                 "短战思路，持续伤害没时间滚起来",
             )
         if "pierce" in traits or "burst" in traits:
             return (
-                "破阵书 + 穿云书 + 玉京书/星落书",
-                "精神吃紧时用玄盾书或灵木书替换一格",
+                f"{_book_pair('pozhen_shu', 'chuanyun_shu')} + {_book_pair('yujing_shu', 'xingluo_shu')}",
+                f"精神吃紧时用 {_book_pair('xuandun_shu', 'lingmu_shu')} 替换一格",
                 "高消耗书堆太满导致放不出技能",
             )
-        return ("破阵书 + 玉京书 + 星落书", "玄盾书/灵木书补生存", "只堆控制或只堆回血")
+        return (
+            _book_pair("pozhen_shu", "yujing_shu", "xingluo_shu"),
+            f"{_book_pair('xuandun_shu', 'lingmu_shu')} 补生存",
+            "只堆控制或只堆回血",
+        )
     if goal == "pvp":
         if "control" in traits:
             return (
-                "断念书 + 镇魂书 + 天机书 + 梦雾书/清心书",
-                "怕被秒就用玄盾书或镜湖书替一格",
+                f"{_book_pair('duannian_shu', 'zhenhun_shu')} + {_book_pair('tianji_shu', 'mengwu_shu', 'qingxin_shu')}",
+                f"怕被秒就用 {_book_pair('xuandun_shu', 'jinghu_shu')} 替一格",
                 "照搬首领贡献配法",
             )
         if "burst" in traits or "execute" in traits:
-            return ("无相书 + 断海书 + 破军书", "镜湖书或清心书补稳定", "完全不补命中和容错")
-        return ("月蚀书 + 镜湖书 + 影叶书/清心书", "玄盾书补生存", "只堆刷图提速书")
+            return (
+                _book_pair("wuxiang_shu", "duanhai_shu", "pojun_shu"),
+                f"{_book_pair('jinghu_shu', 'qingxin_shu')} 补稳定",
+                "完全不补命中和容错",
+            )
+        return (
+            f"{_book_pair('yueshi_shu', 'jinghu_shu')} + {_book_pair('yingye_shu', 'qingxin_shu')}",
+            f"{_enchant_display_name('xuandun_shu')} 补生存",
+            "只堆刷图提速书",
+        )
     if "control" in traits:
         return (
             "按目标切换：探险稳，首领补贡献，决斗堆压制",
-            "不确定目标时先回春书/玄盾书保底",
+            f"不确定目标时先 {_book_pair('huichun_shu', 'xuandun_shu')} 保底",
             "一套附魔想通吃所有玩法",
         )
     if "fast" in traits or "combo" in traits:
-        return ("风刃书 + 沙影书 + 流光书/追星书", "破甲书或穿云书补硬目标", "为了面板把节奏拖慢")
+        return (
+            f"{_book_pair('fengren_shu', 'shaying_shu')} + {_book_pair('liuguang_shu', 'zhuixing_shu')}",
+            f"{_book_pair('poxie_shu', 'chuanyun_shu')} 补硬目标",
+            "为了面板把节奏拖慢",
+        )
     if "sustain" in traits:
-        return ("回春书 + 玄盾书 + 灵木书", "破阵书或玉京书补贡献", "只有回血没有输出")
-    return ("围绕自带技能强化，再补一个生存或命中位", "按目标在破阵书、风刃书、玄盾书里选", "只看稀有度")
+        return (
+            _book_pair("huichun_shu", "xuandun_shu", "lingmu_shu"),
+            f"{_book_pair('pozhen_shu', 'yujing_shu')} 补贡献",
+            "只有回血没有输出",
+        )
+    return (
+        "围绕自带技能强化，再补一个生存或命中位",
+        f"按目标在 {_book_names('pozhen_shu', 'fengren_shu', 'xuandun_shu')} 里选",
+        "只看稀有度",
+    )
 
 
 def _enchant_plan_text(style: str, effects: dict[str, float], goal: str) -> str:
@@ -2433,14 +2779,14 @@ def _enchant_plan_text(style: str, effects: dict[str, float], goal: str) -> str:
 
     if "首领协作" in style:
         if goal == "pvp":
-            return "搭配建议：它可以在决斗里客串稳控或减伤，但第一优先仍是月蚀书、镜湖书、影叶书、清心书。"
+            return f"搭配建议：它可以在决斗里客串稳控或减伤，但第一优先仍是 {_book_names('yueshi_shu', 'jinghu_shu', 'yingye_shu', 'qingxin_shu')}。"
         return "搭配建议：优先给打首领、虫洞的武器；日常探险慎用，容易为了贡献牺牲刷图节奏。"
     if "决斗扰乱" in style:
         if goal == "boss":
-            return "搭配建议：打首领时它只能补扰乱或容错，主要贡献仍应靠破阵书、玉京书、星落书。"
+            return f"搭配建议：打首领时它只能补扰乱或容错，主要贡献仍应靠 {_book_names('pozhen_shu', 'yujing_shu', 'xingluo_shu')}。"
         return "搭配建议：优先给决斗、抢劫武器；日常探险和首领贡献都不是它的主场。"
     if "压制控制" in style:
-        return "搭配建议：给断念、镇魂、梦雾这类控制武器最顺；打首领时至少搭一格破阵书、玉京书或星落书补贡献。"
+        return f"搭配建议：给压制控制武器最顺；打首领时至少搭一格 {_book_names('pozhen_shu', 'yujing_shu', 'xingluo_shu')} 补贡献。"
     if "高频连击" in style:
         return "搭配建议：给短刃、飞刃、匕、多段技能武器最舒服；重武器用它主要是补节奏。"
     if "持续伤害" in style:
@@ -2664,36 +3010,20 @@ def _style_from_entries(entries: list[KnowledgeEntry]) -> str:
     return ""
 
 
-def _style_from_weapon(entry: KnowledgeEntry, desc: str) -> str:
-    """根据武器描述推断流派。"""
-
-    text = f"{entry.title} {entry.body} {desc}"
-    if any(word in text for word in ("削弱精神", "压精神", "断念", "镇魂", "扰乱")):
-        return "压制控制流派"
-    if any(word in text for word in ("灼烧", "流血", "毒", "残焰")):
-        return "持续伤害流派"
-    if any(word in text for word in ("连击", "高频", "命中稳定")):
-        return "高频连击流派"
-    if any(word in text for word in ("穿透", "破甲", "贯日", "破防")):
-        return "重击破防流派"
-    if any(word in text for word in ("护身", "回春", "吸血", "减伤")):
-        return "生存续航流派"
-    if any(word in text for word in ("反击", "反震")):
-        return "反击护身流派"
-    if any(word in text for word in ("斩杀", "收割", "无相")):
-        return "斩杀收割流派"
-    return ""
-
-
 def _related_to(primary: KnowledgeEntry, candidate: KnowledgeEntry) -> bool:
     """判断候选资料是否与精确命中项同主题。"""
 
-    primary_text = _normalize(f"{primary.title} {primary.body} {' '.join(primary.keywords)}")
-    candidate_text = _normalize(f"{candidate.title} {candidate.body} {' '.join(candidate.keywords)}")
+    if primary.stable_id and candidate.stable_id and primary.stable_id == candidate.stable_id:
+        return True
+    if primary.rule_key and candidate.rule_key and primary.rule_key == candidate.rule_key:
+        return True
     if primary.group == "武器" and candidate.group == "武器":
-        return any(word in candidate_text and word in primary_text for word in ("断念", "赤霞", "破军", "回春", "反震", "流派"))
+        return bool(
+            {word for word in primary.keywords if word and word.isascii()}
+            & {word for word in candidate.keywords if word and word.isascii()}
+        )
     if primary.group == "修仙物品" and candidate.group == "修仙物品":
-        return primary.kind == candidate.kind and any(word in candidate_text and word in primary_text for word in ("探险", "恢复", "精神", "血气", "跑商"))
+        return bool(primary.rule_key and primary.rule_key == candidate.rule_key)
     return False
 
 
@@ -2732,7 +3062,7 @@ def _answer_entry_rank(entry: KnowledgeEntry, intent: str) -> int:
         return 20
     if entry.group == "武器":
         return 15
-    if entry.group == "修仙物品" and entry.kind == "技能书":
+    if entry.group == "修仙物品" and entry.rule_key == RING_CATEGORY_BOOK:
         return 8
     if intent == "source" and entry.group == "修仙物品":
         return 10

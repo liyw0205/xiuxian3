@@ -1,4 +1,4 @@
-"""宗门战定时任务。"""
+"""宗门大会定时任务。"""
 
 from __future__ import annotations
 

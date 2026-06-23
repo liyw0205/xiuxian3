@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .battle_log_links import battle_log_markdown
+from .common import player_level_label
 
 
 def wants_detail(player: dict[str, Any] | None) -> bool:
@@ -58,7 +59,11 @@ def exploration_brief(
     losses = max(0, len(events) - wins)
     hp_left = int(player.get("hp", 1))
     mp_left = int(player.get("mp", 0))
-    level_text = f"{old_level} → {new_level}" if new_level > old_level else f"{new_level}，未升级"
+    level_text = (
+        f"{player_level_label(old_level)} → {player_level_label(new_level)}"
+        if new_level > old_level
+        else f"{player_level_label(new_level)}，未升级"
+    )
     record_id = int(record["record_id"])
     log_link = battle_log_markdown(f"探险战斗日志〔{record_id}〕", "explore", record_id, detail=detail)
 
@@ -84,7 +89,6 @@ def exploration_brief(
 def boss_brief(
     *,
     title: str,
-    subtitle: str = "",
     boss_name: str,
     boss_label: str,
     player: dict[str, Any],

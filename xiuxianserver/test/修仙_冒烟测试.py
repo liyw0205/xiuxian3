@@ -62,7 +62,7 @@ from 修仙.wormhole_service import WormholeService
 from 修仙.探险.service import ExplorationService
 from 修仙.二手市场.service import SecondHandService
 from 修仙.武器.service import WeaponService
-from 修仙.源库.service import SourceVaultService
+from 修仙.银行.service import BankService
 from 修仙.修仙帮助.service import HelpService
 from 修仙.修仙百科.service import EncyclopediaService
 from 修仙.玩家.service import PlayerService
@@ -72,6 +72,7 @@ from 修仙.保险箱.service import InsuranceBoxService
 from 修仙.装备.service import EquipmentService
 from 修仙.铭刻.service import InscriptionService
 from 修仙.首领.service import BOSS_DEFS, DAILY_BOSS_DEFS, SeasonalBossService
+from 修仙.首领.seasonal_package import SEASONAL_BOSS_KIND, SEASONAL_SKILL_TEMPLATES, seasonal_skill_for_event
 from 修仙.修仙界历史.service import XiuxianHistoryService
 
 combat_core_module = import_module("修仙.combat_core")
@@ -140,7 +141,7 @@ def _build_services(db: XiuxianDB) -> dict[str, object]:
         "sect": SectService(db),
         "help": HelpService(db),
         "encyclopedia": EncyclopediaService(db),
-        "vault": SourceVaultService(db),
+        "bank": BankService(db),
         "ring": RingService(db),
         "insurance": InsuranceBoxService(db),
         "equipment": EquipmentService(db),
@@ -163,7 +164,7 @@ def _check_encyclopedia(services: dict[str, object]) -> None:
 
     encyclopedia: EncyclopediaService = services["encyclopedia"]  # type: ignore[assignment]
     encyclopedia.load()
-    sect_answer = encyclopedia.ask("u1", "宗门战奖励机制")
+    sect_answer = encyclopedia.ask("u1", "宗门大会奖励机制")
     _must_contain(sect_answer, "综合")
     _must_contain(sect_answer, "参考：")
     _must_contain(sect_answer, "宗门")
@@ -423,11 +424,11 @@ def _check_weapon_interval_rules() -> None:
 
 
 def _check_player(services: dict[str, object]) -> None:
-    """检查玩家、签到、新手礼包和源库。"""
+    """检查玩家、签到、新手礼包和银行。"""
 
     player: PlayerService = services["player"]  # type: ignore[assignment]
     help_service: HelpService = services["help"]  # type: ignore[assignment]
-    vault: SourceVaultService = services["vault"]  # type: ignore[assignment]
+    bank: BankService = services["bank"]  # type: ignore[assignment]
 
     _check_bank_interest_caps()
     _must_contain(help_service.command_guide(), "<指南 战斗:探险战斗>")
@@ -483,19 +484,19 @@ def _check_player(services: dict[str, object]) -> None:
     _must_contain(player.profile("u1"), "气运：")
     _must_contain(player.newbie_gift("u1"), "新手礼包领取成功")
     _must_contain(player.newbie_gift("u1"), "新手礼包已经领取过了")
-    _must_contain(vault.info("u1"), "源库")
+    _must_contain(bank.info("u1"), "银行")
     player.add_stones("u1", 10_000)
-    _must_contain(vault.deposit("u1", 1000), "已存入源石")
-    _must_contain(vault.withdraw("u1", 100), "已取出源石")
+    _must_contain(bank.deposit("u1", 1000), "已存入：原石")
+    _must_contain(bank.withdraw("u1", 100), "已取出：原石")
     player.db.execute(
         """
-        UPDATE source_vaults
+        UPDATE bank_accounts
         SET last_interest_day = ?, daily_interest_claimed = 999
         WHERE client_id = ?
         """,
         ((date.fromisoformat(business_day()) - timedelta(days=1)).isoformat(), "u1"),
     )
-    _must_contain(vault.info("u1"), "今日利息：**0/8000**")
+    _must_contain(bank.info("u1"), "今日利息：**原石 0/8000**")
     player.db.execute("UPDATE players SET hp = 0, mp = 0, status = '空闲' WHERE client_id = 'u1'")
     _must_contain(player.rest("u1"), "满 1 分钟")
     _must_contain(player.end_rest("u1"), "至少需要休息")
@@ -571,7 +572,7 @@ def _check_player(services: dict[str, object]) -> None:
 
 
 def _check_bank_interest_caps() -> None:
-    """源库日上限覆盖满库存 24 小时利息，并保持高星级总量更高。"""
+    """银行日上限覆盖满库存 24 小时利息，并保持高星级总量更高。"""
 
     last_cap = 0
     last_cap_rate = 1.0
@@ -623,7 +624,7 @@ def _check_sect(services: dict[str, object]) -> None:
     _must_contain(visitor_text, "宗主：青衫客")
     _must_contain(visitor_text, "<加入宗门 青云宗>")
     _must_contain(visitor_text, "<宗门成员 青云宗:成员名册>")
-    _must_contain(visitor_text, "<宗门战>")
+    _must_contain(visitor_text, "<宗门大会>")
     _must_contain(visitor_text, "<宗门><地图>")
     _must_contain(sect.join("sect_u2", ""), "加入宗门 青云宗")
     _must_contain(sect.join("sect_u2", "青云宗"), "已加入宗门：青云宗")
@@ -635,9 +636,9 @@ def _check_sect(services: dict[str, object]) -> None:
     members_text = sect.members("sect_u2", "")
     _must_contain(members_text, "宗门成员")
     _must_contain(members_text, "宗门：青云宗｜成员 2 人")
-    _must_contain(members_text, "宗主：青衫客·初入仙途 Lv.1")
-    _must_contain(members_text, "1. 青衫客·初入仙途 Lv.1｜宗主｜本期贡献 0（0.0%）")
-    _must_contain(members_text, "白鹿客·无 Lv.1｜成员｜本期贡献 0（0.0%）")
+    _must_contain(members_text, "宗主：青衫客·初入仙途 LV1")
+    _must_contain(members_text, "1. 青衫客·初入仙途 LV1｜宗主｜本期贡献 0（0.0%）")
+    _must_contain(members_text, "白鹿客·无 LV1｜成员｜本期贡献 0（0.0%）")
     _must_contain(sect.create("sect_u2", "-48 -49 紫霄宗"), "你已经有宗门")
 
     player.create("sect_u3", "白石客")
@@ -662,16 +663,16 @@ def _check_inventory(services: dict[str, object]) -> None:
 
     with ring.db.transaction() as conn:
         ring.add_ring_conn(conn, "u1", "fudai", 1)
-    before_stones = player.player("u1")["source_stones"]  # type: ignore[index]
-    _must_contain(ring.use_item("u1", "福袋"), "源石+")
-    after_stones = player.player("u1")["source_stones"]  # type: ignore[index]
+    before_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
+    _must_contain(ring.use_item("u1", "福袋"), "原石 ")
+    after_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
     assert 10_000 <= after_stones - before_stones <= 30_000
 
     with ring.db.transaction() as conn:
         ring.add_ring_conn(conn, "u1", "fudai", 3)
-    before_stones = player.player("u1")["source_stones"]  # type: ignore[index]
+    before_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
     _must_contain(ring.use_item("u1", "福袋 3"), "使用 福袋 x3 成功")
-    after_stones = player.player("u1")["source_stones"]  # type: ignore[index]
+    after_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
     assert 30_000 <= after_stones - before_stones <= 90_000
     assert not ring.db.fetch_one(
         "SELECT 1 FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
@@ -680,9 +681,9 @@ def _check_inventory(services: dict[str, object]) -> None:
 
     with ring.db.transaction() as conn:
         ring.add_ring_conn(conn, "u1", "fudai", 2)
-    before_stones = player.player("u1")["source_stones"]  # type: ignore[index]
+    before_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
     _must_contain(ring.use_item("u1", "福袋 3"), "纳戒里没有足够的 福袋 x3")
-    after_stones = player.player("u1")["source_stones"]  # type: ignore[index]
+    after_stones = player.player("u1")["raw_stones"]  # type: ignore[index]
     assert after_stones == before_stones
     row = ring.db.fetch_one(
         "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
@@ -695,7 +696,7 @@ def _check_inventory(services: dict[str, object]) -> None:
         ring.add_ring_conn(conn, "u1", "fengren_shu", 1)
     _must_contain(ring.use_item("u1", "洗髓液"), "不能直接使用")
     _must_contain(ring.use_item("u1", "风刃书"), "不能直接使用")
-    _must_contain(ring.wash("u1"), "洗髓")
+    _must_contain(ring.remold_physique("u1"), "体质重塑")
     row = player.player("u1")
     assert row and row["physique_id"]
     physique = player.db.fetch_one(
@@ -800,7 +801,7 @@ def _check_equipment(services: dict[str, object]) -> None:
     trade: TradeService = services["trade"]  # type: ignore[assignment]
 
     with equipment.db.transaction() as conn:
-        conn.execute("UPDATE players SET source_stones = source_stones + 50000 WHERE client_id = ?", ("u1",))
+        conn.execute("UPDATE players SET raw_stones = raw_stones + 50000 WHERE client_id = ?", ("u1",))
         equipment.add_ring_conn(conn, "u1", "huxinyu", 1)
         equipment.add_ring_conn(conn, "u1", "huxinyu", 1)
         equipment.add_ring_conn(conn, "u1", "jucai zijing", 1)
@@ -835,11 +836,11 @@ def _check_equipment(services: dict[str, object]) -> None:
     _must_contain(equipment.inlay("u1", "头部 1 护心玉 2级"), "护心玉 2级")
     with equipment.db.transaction() as conn:
         equipment.add_gem_conn(conn, "u1", "huxinyu", 2, 2)
-    before_recycle = equipment.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_recycle = equipment.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     _must_contain(trade.sell_any("u1", "护心玉 2级 1"), "回收成功")
-    after_recycle = equipment.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_recycle = equipment.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_recycle and after_recycle
-    gained = int(after_recycle["source_stones"]) - int(before_recycle["source_stones"])
+    gained = int(after_recycle["raw_stones"]) - int(before_recycle["raw_stones"])
     assert gained > 0
     gem_left = equipment.db.fetch_one(
         "SELECT quantity FROM gem_items WHERE client_id = ? AND gem_id = ? AND level = ?",
@@ -855,13 +856,13 @@ def _check_equipment(services: dict[str, object]) -> None:
         equipment.add_gem_conn(conn, "u1", "huxinyu", 1, 2)
         equipment.add_gem_conn(conn, "u1", "xuangui shi", 1, 1)
         equipment.add_gem_conn(conn, "u1", "huxinyu", 2, 1)
-    before_gem_batch = equipment.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_gem_batch = equipment.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     gem_batch_text = trade.sell_all("u1", "宝石")
     _must_contain(gem_batch_text, "宝石批量回收")
     _must_contain(gem_batch_text, "护心玉 2级")
-    after_gem_batch = equipment.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_gem_batch = equipment.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_gem_batch and after_gem_batch
-    assert int(after_gem_batch["source_stones"]) > int(before_gem_batch["source_stones"])
+    assert int(after_gem_batch["raw_stones"]) > int(before_gem_batch["raw_stones"])
     assert not equipment.db.fetch_one("SELECT 1 FROM gem_items WHERE client_id = ?", ("u1",))
     equipment.db.execute(
         "UPDATE players SET location_name = '天枢城', x = 0, y = 0 WHERE client_id = ?",
@@ -971,16 +972,16 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(detail_duel_result, "武器经验")
     _must_contain(player.battle_log("u2", "关闭"), "简要")
 
-    before = player.player("u1")["source_stones"]  # type: ignore[index]
+    before = player.player("u1")["raw_stones"]  # type: ignore[index]
     _must_contain(duel.duel("u1", "白衣客 500"), "发起决斗")
-    frozen = player.player("u1")["source_stones"]  # type: ignore[index]
+    frozen = player.player("u1")["raw_stones"]  # type: ignore[index]
     assert before - frozen == 500
     duel.db.execute(
         "UPDATE duel_requests SET expires_at = ? WHERE status = '等待'",
         ("2000-01-01 00:00:00",),
     )
     _must_contain(duel.accept_duel("u2", "青衫客"), "没有找到待接受")
-    refunded = player.player("u1")["source_stones"]  # type: ignore[index]
+    refunded = player.player("u1")["raw_stones"]  # type: ignore[index]
     assert refunded == before
 
     _must_contain(duel.spar("u1", "白衣客"), "发起切磋")
@@ -1119,7 +1120,7 @@ def _check_duel(services: dict[str, object]) -> None:
             VALUES ('u1', '青岚坊', '已领取', '2000-01-01T00:00:00', '2000-01-01T00:30:00', '2000-01-01T00:40:00', '{}', 1)
             """
         )
-        conn.execute("INSERT INTO source_vaults (client_id, last_settle_at) VALUES ('deleted_user', '2000-01-01T00:00:00')")
+        conn.execute("INSERT INTO bank_accounts (client_id, last_settle_at) VALUES ('deleted_user', '2000-01-01T00:00:00')")
         conn.execute("INSERT INTO ring_items (client_id, ring_item_id, quantity) VALUES ('deleted_user', 'xueqidan', 1)")
         conn.execute("INSERT INTO fixed_equipment (client_id, slot, level) VALUES ('deleted_user', '头部', 0)")
         conn.execute(
@@ -1164,7 +1165,7 @@ def _check_duel(services: dict[str, object]) -> None:
     assert not duel.db.fetch_one("SELECT 1 FROM duel_records WHERE summary = '旧决斗'")
     assert not duel.db.fetch_one("SELECT 1 FROM robbery_records WHERE loot_text = '旧抢劫'")
     assert not duel.db.fetch_one("SELECT 1 FROM exploration_records WHERE result = '{}'")
-    assert not duel.db.fetch_one("SELECT 1 FROM source_vaults WHERE client_id = 'deleted_user'")
+    assert not duel.db.fetch_one("SELECT 1 FROM bank_accounts WHERE client_id = 'deleted_user'")
     assert not duel.db.fetch_one("SELECT 1 FROM ring_items WHERE client_id = 'deleted_user'")
     assert not duel.db.fetch_one("SELECT 1 FROM fixed_equipment WHERE client_id = 'deleted_user'")
     assert not duel.db.fetch_one("SELECT 1 FROM fixed_equipment_inlays WHERE client_id = 'deleted_user'")
@@ -1291,7 +1292,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     _must_contain(location_text, "特殊秘境")
     _must_contain(location_text, "星陨墟")
     _must_contain(location_text, "太虚秘境")
-    _must_contain(location_text, "按你 **Lv.")
+    _must_contain(location_text, "动态映身｜怪物随进入者变化")
     _must_not_contain(location_text, "太虚秘境 (-6,-49)｜动态映身｜推荐")
     _must_contain(location_text, "<导航 天枢城>")
     for row in explore.db.fetch_all("SELECT name FROM exploration_locations"):
@@ -1316,7 +1317,7 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     assert before_default_upgrade is not None
     before_level = int(before_default_upgrade["level"])
     weapon.db.execute(
-        "UPDATE players SET source_stones = source_stones + 100000 WHERE client_id = ?",
+        "UPDATE players SET raw_stones = raw_stones + 100000 WHERE client_id = ?",
         ("u1",),
     )
     default_upgrade_text = weapon.upgrade("u1", "")
@@ -1332,28 +1333,28 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     )
     assert switched_weapon and int(switched_weapon["equipped"]) == 1
     _must_contain(weapon.switch("u1", f"武器#{first_weapon['weapon_id']}"), "已切换武器")
-    before_recycle = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_recycle = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     _must_contain(trade.sell_any("u1", f"{recycle_weapon_id} 1"), "回收成功")
-    after_recycle = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_recycle = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_recycle and after_recycle
-    assert int(after_recycle["source_stones"]) > int(before_recycle["source_stones"])
+    assert int(after_recycle["raw_stones"]) > int(before_recycle["raw_stones"])
     assert weapon.weapon("u1", recycle_weapon_id) is None
     record = weapon.db.fetch_one(
         "SELECT total_price FROM weapon_recycle_records WHERE client_id = ? AND business_day = ?",
         ("u1", business_day()),
     )
-    assert record and int(record["total_price"]) == int(after_recycle["source_stones"]) - int(before_recycle["source_stones"])
+    assert record and int(record["total_price"]) == int(after_recycle["raw_stones"]) - int(before_recycle["raw_stones"])
 
     batch_weapon_id_1 = weapon.create_weapon("u1", "qinglan_duanjian", "良品", 45, equipped=False)
     batch_weapon_id_2 = weapon.create_weapon("u1", "pojun_qiang", "凡品", 40, equipped=False)
-    before_batch = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_batch = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     batch_text = trade.sell_all("u1", "武器")
     _must_contain(batch_text, "武器批量回收")
     _must_contain(batch_text, weapon_id_label(batch_weapon_id_1))
     _must_contain(batch_text, weapon_id_label(batch_weapon_id_2))
-    after_batch = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_batch = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_batch and after_batch
-    assert int(after_batch["source_stones"]) > int(before_batch["source_stones"])
+    assert int(after_batch["raw_stones"]) > int(before_batch["raw_stones"])
     assert weapon.weapon("u1", batch_weapon_id_1) is None
     assert weapon.weapon("u1", batch_weapon_id_2) is None
 
@@ -1375,16 +1376,16 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
         (weapon_exp_for_level(10), "u1", split_ref_weapon_id),
     )
     _must_contain(weapon.enchant("u1", f"武器 {split_ref_weapon_id} 风刃书"), "附魔成功")
-    before_book_recycle = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_book_recycle = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     before_book = weapon.db.fetch_one(
         "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
         ("u1", "fengren_shu"),
     )
     before_book_quantity = int(before_book["quantity"]) if before_book else 0
     _must_contain(trade.sell_any("u1", "风刃书 1"), "回收成功")
-    after_book_recycle = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_book_recycle = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_book_recycle and after_book_recycle
-    book_gained = int(after_book_recycle["source_stones"]) - int(before_book_recycle["source_stones"])
+    book_gained = int(after_book_recycle["raw_stones"]) - int(before_book_recycle["raw_stones"])
     assert book_gained > 0
     book_left = weapon.db.fetch_one(
         "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
@@ -1404,19 +1405,19 @@ def _check_weapon_and_explore(services: dict[str, object]) -> None:
     with weapon.db.transaction() as conn:
         weapon.add_ring_conn(conn, "u1", "fengren_shu", 1)
         weapon.add_ring_conn(conn, "u1", "poxie_shu", 2)
-    before_book_batch = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    before_book_batch = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     book_batch_text = trade.sell_all("u1", "技能书")
     _must_contain(book_batch_text, "技能书批量回收")
     _must_contain(book_batch_text, "破甲书")
-    after_book_batch = weapon.db.fetch_one("SELECT source_stones FROM players WHERE client_id = ?", ("u1",))
+    after_book_batch = weapon.db.fetch_one("SELECT raw_stones FROM players WHERE client_id = ?", ("u1",))
     assert before_book_batch and after_book_batch
-    assert int(after_book_batch["source_stones"]) > int(before_book_batch["source_stones"])
+    assert int(after_book_batch["raw_stones"]) > int(before_book_batch["raw_stones"])
     assert not weapon.db.fetch_one(
         """
         SELECT 1
         FROM ring_items r
         JOIN ring_item_defs e ON e.ring_item_id = r.ring_item_id
-        WHERE r.client_id = ? AND e.category = '技能书'
+        WHERE r.client_id = ? AND e.category_key = 'book'
         """,
         ("u1",),
     )
@@ -1728,10 +1729,10 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO trade_buy_locks
-            (client_id, item_id, location_name, last_buy_at, last_buy_price)
-            VALUES (?, ?, ?, ?, ?)
+            (client_id, item_id, location_name, location_id, last_buy_at, last_buy_price)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ("u1", normal_item["item_id"], "天枢城", "2000-01-01T00:00:00", normal_buy),
+            ("u1", normal_item["item_id"], "天枢城", "city_tianshu", "2000-01-01T00:00:00", normal_buy),
         )
         hot_state = trade._trade_market_state_conn(conn, "u1")
         expected_normal_used = market_state["player_used"] + market_state["player_soft_line"] * 8
@@ -1751,7 +1752,7 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
     _must_contain(loot_text, "归属：战利品 / 妖类")
     _must_contain(loot_text, "流向：出售/自动出售，流入特殊收购与战备蓄能")
     _must_contain(treasure.info("u1", "福袋"), "存放：纳戒")
-    _must_contain(treasure.info("u1", "淬锋丹"), "纳戒专属命令：武器淬锋")
+    _must_contain(treasure.info("u1", "淬锋丹"), "纳戒专属命令：武器升限")
     _must_contain(treasure.info("u1", "青岚短剑"), "武器模板")
     _must_contain(treasure.info("u1", "风刃斩"), "武器自带技能")
     _must_contain(treasure.info("u1", "风刃书"), "附魔效果")
@@ -1851,13 +1852,13 @@ def _check_level_cap_discards(services: dict[str, object]) -> None:
         assert int(sect_stats["influence_merit"]) >= 999999
 
         conn.execute(
-            "UPDATE city_world_states SET city_level = 107, build_exp = 123456 WHERE location_name = ?",
-            ("天枢城",),
+            "UPDATE city_world_states SET city_level = 107, build_exp = 123456 WHERE location_id = ?",
+            ("city_tianshu",),
         )
         trade.add_backpack_conn(conn, "u1", "world_build_jichu_1", 1)
 
     _must_contain(trade.sell_any("u1", "古城砖 1"), "城池吸收")
-    city = trade.db.fetch_one("SELECT city_level, build_exp FROM city_world_states WHERE location_name = ?", ("天枢城",))
+    city = trade.db.fetch_one("SELECT city_level, build_exp FROM city_world_states WHERE location_id = ?", ("city_tianshu",))
     assert int(city["city_level"]) == 107
     assert int(city["build_exp"]) == 0
 
@@ -1913,8 +1914,11 @@ def _check_wormhole(services: dict[str, object]) -> None:
         "UPDATE players SET location_name = ?, x = ?, y = ?, hp = max_hp, mp = max_mp, status = '探险中' WHERE client_id = ?",
         (event["location_name"], event["x"], event["y"], "u1"),
     )
-    _must_contain(wormhole.status("u1"), "异界虫洞")
-    _must_contain(wormhole.status("u1"), "今日出现")
+    wormhole_status_text = wormhole.status("u1")
+    _must_contain(wormhole_status_text, "异界虫洞")
+    _must_contain(wormhole_status_text, "世界平均水平")
+    _must_contain(wormhole_status_text, "今日出现")
+    _must_not_contain(wormhole_status_text, "等级：")
     _must_contain(wormhole.ranking("u1"), "暂无挑战记录")
     _must_contain(wormhole.challenge("u1"), "行商化身")
     wormhole.db.execute("UPDATE players SET status = '空闲' WHERE client_id = ?", ("u1",))
@@ -2068,6 +2072,36 @@ def _check_seasonal_boss(services: dict[str, object]) -> None:
     assert float(daily_rates["feather_chance"]) < 0.05
     assert float(daily_rates["weapon_chance"]) < 0.02
     event = seasonal_boss._open_event(date(2099, 2, 4), BOSS_DEFS["lichun"], "二十四节气", "普通节气")
+    seasonal_skill = seasonal_skill_for_event(event)
+    seasonal_skill_names = {str(config["name"]) for config in SEASONAL_SKILL_TEMPLATES.values()}
+    common_boss_skill_names = {"妖影撕咬", "游魂缠身", "阴魂噬念", "魔焰灼心", "古卫镇压"}
+    assert seasonal_skill["name"] in seasonal_skill_names
+    assert seasonal_skill["name"] not in common_boss_skill_names
+    captured_boss_call: dict[str, Any] = {}
+    original_fight_boss = seasonal_boss_service_module.combat_service.fight_boss
+    try:
+        def _capture_seasonal_boss_fight(player_arg: dict, _event_arg: dict, **kwargs: Any) -> dict[str, Any]:
+            captured_boss_call.update(kwargs)
+            return {
+                "damage": 1,
+                "hp_left": int(player_arg["hp"]),
+                "mp_left": int(player_arg["mp"]),
+                "skill_times": 0,
+                "boss_skill_times": 0,
+                "weapon_id": 0,
+                "weapon_exp": 0,
+                "highest_damage": 0,
+                "actions": [],
+            }
+
+        seasonal_boss_service_module.combat_service.fight_boss = _capture_seasonal_boss_fight  # type: ignore[method-assign]
+        player_row = seasonal_boss.player("u1")
+        assert player_row is not None
+        seasonal_boss._fight_boss(player_row, event)
+    finally:
+        seasonal_boss_service_module.combat_service.fight_boss = original_fight_boss  # type: ignore[method-assign]
+    assert captured_boss_call["boss_kind"] == SEASONAL_BOSS_KIND
+    assert captured_boss_call["enemy_skill"]["name"] == seasonal_skill["name"]
     seasonal_boss.db.execute(
         "UPDATE seasonal_boss_events SET business_day = ?, hp = 1 WHERE event_id = ?",
         (seasonal_boss._business_date().isoformat(), event["event_id"]),
@@ -2077,7 +2111,10 @@ def _check_seasonal_boss(services: dict[str, object]) -> None:
         ("u1",),
     )
 
-    _must_contain(seasonal_boss.status("u1"), "折柳青郎")
+    seasonal_status_text = seasonal_boss.status("u1")
+    _must_contain(seasonal_status_text, "折柳青郎")
+    _must_contain(seasonal_status_text, "世界平均水平")
+    _must_not_contain(seasonal_status_text, "等级：")
     _must_contain(seasonal_boss.ranking("u1"), "暂无挑战记录")
     _must_contain(seasonal_boss.challenge("u1"), "行商化身")
     seasonal_boss.db.execute("UPDATE players SET status = '空闲' WHERE client_id = ?", ("u1",))

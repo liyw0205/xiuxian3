@@ -30,9 +30,9 @@ def test_inline_command_link_is_auto_send() -> None:
     assert _link("状态", "状态") == (
         "[状态](mqqapi://aio/inlinecmd?command=%E7%8A%B6%E6%80%81&enter=true&reply=false)"
     )
-    assert _link("领取宗门战奖励", "领取宗门战奖励") == (
-        "[领取宗门战奖励]"
-        "(mqqapi://aio/inlinecmd?command=%E9%A2%86%E5%8F%96%E5%AE%97%E9%97%A8%E6%88%98%E5%A5%96%E5%8A%B1&enter=true&reply=false)"
+    assert _link("领取宗门大会奖励", "领取宗门大会奖励") == (
+        "[领取宗门大会奖励]"
+        "(mqqapi://aio/inlinecmd?command=%E9%A2%86%E5%8F%96%E5%AE%97%E9%97%A8%E5%A4%A7%E4%BC%9A%E5%A5%96%E5%8A%B1&enter=true&reply=false)"
     )
 
 
@@ -46,7 +46,7 @@ class FakeDB:
             return {"last_sign_date": business_day()}
         if "SELECT newbie_claimed" in sql:
             return {"newbie_claimed": 1}
-        if "FROM source_vaults" in sql:
+        if "FROM bank_accounts" in sql:
             return None
         if "FROM players" in sql:
             return {
@@ -80,7 +80,7 @@ class NoticeDB(FakeDB):
             return {"last_sign_date": None}
         if "SELECT newbie_claimed" in sql:
             return {"newbie_claimed": 0}
-        if "FROM source_vaults" in sql:
+        if "FROM bank_accounts" in sql:
             return {
                 "star_level": 1,
                 "balance": 100_000,
@@ -180,7 +180,7 @@ def _seed_notice_player(db: XiuxianDB, client_id: str = "notice_ws") -> None:
         """
         INSERT INTO players
         (client_id, display_name, level, exp, hp, max_hp, mp, max_mp, physique_id,
-         physique_value, base_attack, defense, source_stones, status, location_name,
+         physique_value, base_attack, defense, raw_stones, status, location_name,
          x, y, backpack_limit, weight_limit, last_sign_date, created_at)
         VALUES (?, '听雪客', 12, 0, 0, 100, 0, 60, 'fanti',
                 0, 5, 0, 0, '空闲', '天枢城',
@@ -253,10 +253,10 @@ def test_button_tags_to_markdown() -> None:
 def test_button_tags_keep_command_text() -> None:
     """尖括号里的内容原样作为按钮命令，是否可用由业务自己决定。"""
 
-    message = markdown_message_from_text("源石不足。\n请先<存入源石 数量>")
+    message = markdown_message_from_text("原石不足。\n请先<存入货币 数量>")
     assert message is not None
     rows = message["keyboard"]["content"]["rows"]
-    assert rows[0]["buttons"][0]["action"]["data"] == "存入源石 数量"
+    assert rows[0]["buttons"][0]["action"]["data"] == "存入货币 数量"
 
 
 def test_reply_text_with_button_tags_to_markdown() -> None:
@@ -268,7 +268,7 @@ def test_reply_text_with_button_tags_to_markdown() -> None:
         FakeDB(),
     )
     assert payload["type"] == "markdown"
-    assert "【青衫客·试剑人 Lv.19】" in payload["message"]["content"]
+    assert "【青衫客·试剑人 LV19】" in payload["message"]["content"]
     assert "<探险状态>" not in payload["message"]["content"]
     rows = payload["message"]["keyboard"]["content"]["rows"]
     commands = [item["action"]["data"] for row in rows for item in row["buttons"]]
@@ -296,7 +296,7 @@ def test_reply_header_notice_line_is_second_line() -> None:
         NoticeDB(),
     )
     lines = _payload_lines(payload)
-    assert lines[0] == "【青衫客·试剑人 Lv.19】"
+    assert lines[0] == "【青衫客·试剑人 LV19】"
     assert lines[1] == "🔴 通知：" + "｜".join(
         [
             _link("结束休息", "结束休息"),
@@ -341,7 +341,7 @@ def test_reply_header_system_line_before_personal_notice() -> None:
             db,
         )
         lines = _payload_lines(payload)
-        assert lines[0] == "【听雪客·无 Lv.12】"
+        assert lines[0] == "【听雪客·无 LV12】"
         assert lines[1] == "🔴 系统：" + _link("战备虫洞·青岚坊", "虫洞状态")
         assert lines[2] == "🔴 通知：" + _link("重伤休息", "休息")
         assert lines[3] == "查看状态"
@@ -476,7 +476,7 @@ def test_daily_sign_notice_is_low_priority() -> None:
     """低优先级日常会进个人通知，但不能挤掉更急的三条队首。"""
 
     full_line = notification_line("player_ws", NoticeDB(), limit=10)
-    assert _link("源库结息", "源库结息") in full_line
+    assert _link("银行结息", "银行结息") in full_line
     assert _link("新手礼包", "新手礼包") in full_line
     assert _link("今日签到", "签到") in full_line
 
@@ -559,23 +559,23 @@ def test_low_priority_daily_notices_from_real_tables() -> None:
         line = notification_line("notice_ws", db, limit=10)
         assert "今日签到" not in line
         assert _link("新手礼包", "新手礼包") in line
-        assert "源库结息" not in line
+        assert "银行结息" not in line
 
         db.execute(
             """
-            INSERT INTO source_vaults
+            INSERT INTO bank_accounts
             (client_id, star_level, balance, last_settle_at, last_interest_day, daily_interest_claimed)
             VALUES (?, 1, 100000, ?, NULL, 0)
             """,
             ("notice_ws", ts(now() - timedelta(hours=2))),
         )
-        assert "源库结息" not in notification_line("notice_ws", db, limit=10)
+        assert "银行结息" not in notification_line("notice_ws", db, limit=10)
 
         db.execute(
-            "UPDATE source_vaults SET last_settle_at = ? WHERE client_id = ?",
+            "UPDATE bank_accounts SET last_settle_at = ? WHERE client_id = ?",
             (ts(now() - timedelta(hours=24)), "notice_ws"),
         )
-        assert _link("源库结息", "源库结息") in notification_line("notice_ws", db, limit=10)
+        assert _link("银行结息", "银行结息") in notification_line("notice_ws", db, limit=10)
 
         db.execute("UPDATE players SET newbie_claimed = 1 WHERE client_id = ?", ("notice_ws",))
         assert "新手礼包" not in notification_line("notice_ws", db, limit=10)
@@ -595,7 +595,7 @@ def test_reply_header_notice_failure_is_silent() -> None:
         BrokenNoticeDB(),
     )
     content = _payload_content(payload)
-    assert "【青衫客·试剑人 Lv.19】" in content
+    assert "【青衫客·试剑人 LV19】" in content
     assert "🔴 通知：" not in content
     assert content.endswith("普通提示。")
 
@@ -633,7 +633,7 @@ def test_reply_header_notice_from_real_tables() -> None:
             db,
         )
         lines = _payload_lines(payload)
-        assert lines[0] == "【听雪客·无 Lv.12】"
+        assert lines[0] == "【听雪客·无 LV12】"
         assert lines[1] == "🔴 通知：" + "｜".join(
             [
                 _link("重伤休息", "休息"),

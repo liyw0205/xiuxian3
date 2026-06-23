@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 
-SCHEMA_VERSION = 2026062001
+SCHEMA_VERSION = 2026062309
 DAY_RESET_HOUR = 4
 MAX_LEVEL = 100
 SECT_LEVEL_MAX = 100
@@ -56,6 +56,7 @@ BOOK_RECYCLE_PRESSURE_FACTOR = 0.65
 # ----------------------------
 
 
+DEFAULT_LOCATION_ID = "city_tianshu"
 DEFAULT_LOCATION = "天枢城"
 DEFAULT_BACKPACK_LIMIT = 80
 DEFAULT_WEIGHT_LIMIT = 500
@@ -66,12 +67,12 @@ WORLD_COORD_MAX = 100
 
 
 # ----------------------------
-# 源库
+# 银行
 # ----------------------------
 
 
 # 低星级给更高收益比例，让前期存钱有体感；高星级给更高收益总量，
-# 但比例逐步降低，避免后期只靠源库被动收益压过主动玩法。
+# 但比例逐步降低，避免后期只靠银行被动收益压过主动玩法。
 BANK_LEVELS = {
     1: {"name": "一星", "limit": 100_000, "cost": 0, "daily_interest_limit": 8_000, "hour_rate": 0.0033},
     2: {"name": "二星", "limit": 300_000, "cost": 50_000, "daily_interest_limit": 18_000, "hour_rate": 0.0025},
@@ -160,19 +161,19 @@ WORMHOLE_DAILY_MAX_LIMIT = 8
 SEASONAL_BOSS_CHALLENGE_COOLDOWN_MINUTES = 30
 SEASONAL_BOSS_MAX_CHALLENGES = 5
 WEAPON_TYPE_INTERVAL_FACTORS = {
-    "匕": 0.78,
-    "飞刃": 0.82,
-    "剑": 0.93,
-    "铃": 0.9,
-    "刀": 1.0,
-    "弩": 1.04,
-    "拂尘": 1.0,
-    "杖": 1.08,
-    "枪": 1.12,
-    "盾刃": 1.15,
-    "戟": 1.22,
-    "盘": 1.24,
-    "斧": 1.3,
+    "dagger": 0.78,
+    "blade": 0.82,
+    "sword": 0.93,
+    "bell": 0.9,
+    "saber": 1.0,
+    "crossbow": 1.04,
+    "whisk": 1.0,
+    "staff": 1.08,
+    "spear": 1.12,
+    "shield_blade": 1.15,
+    "halberd": 1.22,
+    "disc": 1.24,
+    "axe": 1.3,
 }
 
 
@@ -191,6 +192,7 @@ __all__ = [
     "CITY_MAX_LEVEL",
     "DAY_RESET_HOUR",
     "DEFAULT_BACKPACK_LIMIT",
+    "DEFAULT_LOCATION_ID",
     "DEFAULT_LOCATION",
     "DEFAULT_WEIGHT_LIMIT",
     "DIRECT_FLOW_RETENTION_DAYS",

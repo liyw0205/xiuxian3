@@ -13,8 +13,28 @@ from typing import Any
 
 from . import combat_log_text
 from .combat_core import service as combat_service
-from .common import CoreService, business_day, dt, dump_json, load_json, money, now, random_quality, ts, weapon_id_label
+from .common import (
+    CoreService,
+    RING_CATEGORY_BOOK,
+    RING_CATEGORY_GEM,
+    RING_CATEGORY_RECOVERY,
+    business_day,
+    currency_amount,
+    dt,
+    dump_json,
+    enemy_kind_key,
+    load_json,
+    money,
+    now,
+    player_level_label,
+    quality_label,
+    random_quality,
+    ts,
+    weapon_id_label,
+    weapon_type_key,
+)
 from .constants import (
+    DEFAULT_LOCATION_ID,
     MAX_LEVEL,
     WORMHOLE_ACTIVE_WINDOW_DAYS,
     WORMHOLE_CHALLENGE_COOLDOWN_MINUTES,
@@ -31,46 +51,90 @@ from .sect_war import record_sect_merit_conn, sect_direction_bonus_conn
 from .sql import db
 from .weapon_core import WeaponCore
 from .world_materials import WorldMaterialService
+from .world_skin import skin_name
 
 BOSS_POOL = (
-    ("千刃界游王", "刃影", 0.98),
-    ("陨炉泰坦", "泰坦", 1.18),
-    ("赤瘟炼狱君", "毒焰", 1.08),
-    ("缄魂巫皇", "巫皇", 1.06),
-    ("苍根不死王", "不死", 1.10),
-    ("回盾镜魔", "镜魔", 1.12),
-    ("断星斩王", "斩王", 1.15),
-    ("星环仲裁者", "星械", 1.20),
+    ("worm_boss_01", "千刃界游王", "刃影", 0.98),
+    ("worm_boss_02", "陨炉泰坦", "泰坦", 1.18),
+    ("worm_boss_03", "赤瘟炼狱君", "毒焰", 1.08),
+    ("worm_boss_04", "缄魂巫皇", "巫皇", 1.06),
+    ("worm_boss_05", "苍根不死王", "不死", 1.10),
+    ("worm_boss_06", "回盾镜魔", "镜魔", 1.12),
+    ("worm_boss_07", "断星斩王", "斩王", 1.15),
+    ("worm_boss_08", "星环仲裁者", "星械", 1.20),
 )
+WORMHOLE_BOSS_NAMES_BY_KEY = {key: name for key, name, _kind, _factor in BOSS_POOL}
 
-BOSS_FLOW_TEXT = {
-    "千刃界游王": "高频连击",
-    "陨炉泰坦": "重击破防",
-    "赤瘟炼狱君": "持续伤害",
-    "缄魂巫皇": "压制控制",
-    "苍根不死王": "生存续航",
-    "回盾镜魔": "反击护身",
-    "断星斩王": "斩杀收割",
-    "星环仲裁者": "首领协作",
+WORMHOLE_COMBAT_PROFILES = (
+    ("swift", "worm_flow_swift", "高频连击", ("yao", "yaojun", "wandering_soul")),
+    ("heavy", "worm_flow_heavy", "重击破防", ("beast", "soldier", "demon_general")),
+    ("dot", "worm_flow_dot", "持续伤害", ("demon", "yao", "demon_general")),
+    ("control", "worm_flow_control", "压制控制", ("ghost", "wandering_soul", "dragon_shadow")),
+    ("survival", "worm_flow_survival", "生存续航", ("dragon", "ancient_guard", "puppet")),
+    ("counter", "worm_flow_counter", "反击护身", ("ancient_guard", "puppet", "beast")),
+    ("execute", "worm_flow_execute", "斩杀收割", ("soldier", "demon_general", "yaojun")),
+    ("leader", "worm_flow_leader", "首领协作", ("dragon", "dragon_shadow", "demon_general")),
+)
+WORMHOLE_FLOW_NAMES_BY_KEY = {flow_key: flow for _profile_key, flow_key, flow, _kinds in WORMHOLE_COMBAT_PROFILES}
+WORMHOLE_COMBAT_KIND_POOL = tuple(
+    dict.fromkeys(kind for _profile_key, _flow_key, _flow, kinds in WORMHOLE_COMBAT_PROFILES for kind in kinds)
+)
+LOOT_SUBTYPE_KEYS = {
+    "yao": "yao",
+    "mo": "mo",
+    "gui": "gui",
+    "long": "long",
+    "shou": "shou",
+    "bing": "bing",
 }
 
 WAR_PREP_BOSS_POOL = {
-    "镇妖司": (("百臂青妖王", "妖刃", 1.14), ("裂巢迅影后", "妖影", 1.12), ("万爪潮主", "妖潮", 1.20)),
-    "伏魔殿": (("黑铠破界魔", "魔铠", 1.20), ("焚契魔侯", "魔焰", 1.18), ("坠岳魔君", "魔君", 1.22)),
-    "鬼市": (("无灯冥契主", "鬼契", 1.16), ("缚魂夜巫", "魂巫", 1.14), ("纸城鬼王", "鬼王", 1.18)),
-    "龙渊阁": (("逆鳞界龙君", "龙君", 1.22), ("潮骸古蛟", "蛟魂", 1.20), ("星渊断角龙", "龙裔", 1.24)),
-    "万兽盟": (("荒骨兽神", "兽神", 1.20), ("苍鬃不死兽", "兽王", 1.18), ("万蹄裂阵王", "兽潮", 1.16)),
-    "破军营": (("星甲破阵帅", "星甲", 1.20), ("断旗兵主", "兵主", 1.18), ("铁潮军魂王", "军魂", 1.22)),
+    "buyer_zhenyaosi": (
+        ("war_boss_zhenyaosi_01", "百臂青妖王", "妖刃", 1.14),
+        ("war_boss_zhenyaosi_02", "裂巢迅影后", "妖影", 1.12),
+        ("war_boss_zhenyaosi_03", "万爪潮主", "妖潮", 1.20),
+    ),
+    "buyer_fumodian": (
+        ("war_boss_fumodian_01", "黑铠破界魔", "魔铠", 1.20),
+        ("war_boss_fumodian_02", "焚契魔侯", "魔焰", 1.18),
+        ("war_boss_fumodian_03", "坠岳魔君", "魔君", 1.22),
+    ),
+    "buyer_guishi": (
+        ("war_boss_guishi_01", "无灯冥契主", "鬼契", 1.16),
+        ("war_boss_guishi_02", "缚魂夜巫", "魂巫", 1.14),
+        ("war_boss_guishi_03", "纸城鬼王", "鬼王", 1.18),
+    ),
+    "buyer_longyuan": (
+        ("war_boss_longyuan_01", "逆鳞界龙君", "龙君", 1.22),
+        ("war_boss_longyuan_02", "潮骸古蛟", "蛟魂", 1.20),
+        ("war_boss_longyuan_03", "星渊断角龙", "龙裔", 1.24),
+    ),
+    "buyer_wanshou": (
+        ("war_boss_wanshou_01", "荒骨兽神", "兽神", 1.20),
+        ("war_boss_wanshou_02", "苍鬃不死兽", "兽王", 1.18),
+        ("war_boss_wanshou_03", "万蹄裂阵王", "兽潮", 1.16),
+    ),
+    "buyer_pojun": (
+        ("war_boss_pojun_01", "星甲破阵帅", "星甲", 1.20),
+        ("war_boss_pojun_02", "断旗兵主", "兵主", 1.18),
+        ("war_boss_pojun_03", "铁潮军魂王", "军魂", 1.22),
+    ),
+}
+WAR_PREP_BOSS_NAMES_BY_KEY = {
+    key: name
+    for entries in WAR_PREP_BOSS_POOL.values()
+    for key, name, _kind, _factor in entries
 }
 
 WAR_PREP_AFFIXES = (
-    "残巢已露",
-    "旧门半开",
-    "战痕回涌",
-    "余烬未冷",
-    "群敌聚形",
-    "裂口不稳",
+    ("war_prep_affix_exposed_nest", "残巢已露"),
+    ("war_prep_affix_half_open_gate", "旧门半开"),
+    ("war_prep_affix_war_marks", "战痕回涌"),
+    ("war_prep_affix_warm_embers", "余烬未冷"),
+    ("war_prep_affix_gathering_enemies", "群敌聚形"),
+    ("war_prep_affix_unstable_rift", "裂口不稳"),
 )
+WAR_PREP_AFFIX_NAMES_BY_KEY = {key: name for key, name in WAR_PREP_AFFIXES}
 
 
 DISCOVERY_CHANCES = {
@@ -90,30 +154,30 @@ WORMHOLE_LOW_CONTRIBUTION_FLOORS = {
 }
 
 WAR_PREP_REWARD_PROFILES = {
-    "镇妖司": {
-        "weapon_types": ("匕", "飞刃", "剑", "刀"),
+    "buyer_zhenyaosi": {
+        "weapon_types": ("dagger", "blade", "sword", "saber"),
         "book_effects": ("hit_bonus", "dodge_bonus", "pierce_bonus"),
     },
-    "伏魔殿": {
-        "weapon_types": ("枪", "戟", "斧", "刀"),
+    "buyer_fumodian": {
+        "weapon_types": ("spear", "halberd", "axe", "saber"),
         "book_effects": ("pierce_bonus", "defense_suppress", "heavy_bonus"),
     },
-    "鬼市": {
-        "weapon_types": ("铃", "杖", "匕"),
+    "buyer_guishi": {
+        "weapon_types": ("bell", "staff", "dagger"),
         "book_effects": ("mp_suppress", "stun_rate", "defense_suppress"),
     },
-    "龙渊阁": {
-        "weapon_types": ("剑", "枪", "戟", "盘"),
+    "buyer_longyuan": {
+        "weapon_types": ("sword", "spear", "halberd", "disc"),
         "book_effects": ("single_hit_bonus", "skill_power_bonus", "pierce_bonus"),
         "max_level_floor_chance": 0.35,
         "max_level_floor": 82,
     },
-    "万兽盟": {
-        "weapon_types": ("斧", "盾刃", "戟", "杖"),
+    "buyer_wanshou": {
+        "weapon_types": ("axe", "shield_blade", "halberd", "staff"),
         "book_effects": ("life_steal", "damage_reduce", "shield_bonus", "heavy_bonus"),
     },
-    "破军营": {
-        "weapon_types": ("枪", "弩", "戟", "刀", "斧"),
+    "buyer_pojun": {
+        "weapon_types": ("spear", "crossbow", "halberd", "saber", "axe"),
         "book_effects": ("pierce_bonus", "single_hit_bonus", "combo_damage_bonus", "skill_power_bonus"),
     },
 }
@@ -169,7 +233,7 @@ class WormholeService(CoreService):
             return T.hint(f"{event['boss_name']} 已经{event['status']}，不能继续挑战。", "发送：虫洞奖励 查看是否可以领取奖励。<虫洞奖励>")
         if player["status"] != "空闲":
             return self._busy_challenge_hint(player["status"])
-        if player["location_name"] != event["location_name"]:
+        if not self._same_location(player, event):
             return T.hint(
                 f"虫洞位于 {event['location_name']}，你当前在 {player['location_name']}。",
                 f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞"+ f"<导航 {event['location_name']}><挑战虫洞><虫洞奖励>",
@@ -192,14 +256,14 @@ class WormholeService(CoreService):
             if not fresh:
                 return T.hint("异界虫洞已经关闭。", "发送：虫洞奖励 查看是否可以领取奖励。<虫洞奖励>")
             fresh_player = conn.execute(
-                "SELECT status, location_name, hp FROM players WHERE client_id = ?",
+                "SELECT status, location_name, location_id, x, y, hp FROM players WHERE client_id = ?",
                 (client_id,),
             ).fetchone()
             if not fresh_player:
                 return T.hint("你还没有创建用户。", "发送：创建用户 名称，例如：创建用户 青衫客")
             if str(fresh_player["status"]) != "空闲":
                 return self._busy_challenge_hint(str(fresh_player["status"]))
-            if str(fresh_player["location_name"]) != str(fresh["location_name"]):
+            if not self._same_location(dict(fresh_player), dict(fresh)):
                 return T.hint(
                     f"虫洞位于 {fresh['location_name']}，你当前在 {fresh_player['location_name']}。",
                     f"发送：导航 {fresh['location_name']}，到达后发送：挑战虫洞"
@@ -320,8 +384,6 @@ class WormholeService(CoreService):
             killed_text="Boss 已被击杀，可以领取虫洞奖励。",
             alive_text=f"再次挑战需等待 {WORMHOLE_CHALLENGE_COOLDOWN_MINUTES} 分钟。",
             hurt_text="你被虫洞反震重伤，建议先休息。",
-            reward_command="虫洞奖励",
-            challenge_command="挑战虫洞",
             log_kind="wormhole",
             record_id=challenge_record_id,
         )
@@ -383,7 +445,7 @@ class WormholeService(CoreService):
 
             old_level, new_level = self.add_exp_conn(conn, client_id, reward["exp"])
             conn.execute(
-                "UPDATE players SET source_stones = source_stones + ? WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + ? WHERE client_id = ?",
                 (reward["stones"], client_id),
             )
             for item_id, quantity in reward["ring_items"]:
@@ -408,12 +470,12 @@ class WormholeService(CoreService):
                     drop["max_level"],
                     equipped=False,
                 )
-                weapon_text = f"获得武器 {weapon_id_label(weapon_id)} {drop['name']}[{drop['quality']}] 上限{drop['max_level']}"
+                weapon_text = f"获得武器 {weapon_id_label(weapon_id)} {drop['name']}[{quality_label(drop['quality'])}] 上限{drop['max_level']}"
 
             lines = [
                 f"虫洞奖励：{event['boss_name']}",
                 f"结果：{event['status']}｜贡献：{reward['contribution']:.1%}，排名：{reward['rank']}",
-                f"源石+{money(reward['stones'])}，经验+{reward['exp']}",
+                f"{currency_amount(reward['stones'])}，经验+{reward['exp']}",
             ]
             meta = reward.get("metadata") or {}
             if isinstance(meta, dict) and meta.get("event_type") == "war_prep":
@@ -426,7 +488,7 @@ class WormholeService(CoreService):
             elif isinstance(meta, dict) and meta.get("boss_flow"):
                 lines.append(f"异界法则：{meta.get('boss_flow')}")
             if new_level > old_level:
-                lines.append(f"等级提升：{old_level} → {new_level}")
+                lines.append(f"等级提升：{player_level_label(old_level)} → {player_level_label(new_level)}")
             lines.extend(reward["item_texts"])
             if weapon_text:
                 lines.append(weapon_text)
@@ -460,7 +522,7 @@ class WormholeService(CoreService):
             )
         return text
 
-    def try_discover(self, client_id: str, source: str, location_name: str) -> str:
+    def try_discover(self, client_id: str, source: str, location_name: str, location_id: str = "") -> str:
         """跑商动作后尝试发现虫洞；没有触发时返回空文本。"""
 
         self._close_expired_events()
@@ -482,7 +544,7 @@ class WormholeService(CoreService):
         chance = self._discovery_chance(source, snapshot["active_count"], opened_today, daily_limit)
         if random.random() >= chance:
             return ""
-        event = self._open_event(client_id, source, location_name)
+        event = self._open_event(client_id, source, location_name, location_id)
         return self.notice(client_id, event, force=True)
 
     def notice(self, client_id: str, event: dict[str, Any] | None = None, force: bool = False) -> str:
@@ -523,12 +585,13 @@ class WormholeService(CoreService):
             text = f"\n异界虫洞撕开：{event['boss_name']} 出现在 {event['location_name']}。"
         return T.attach(text, f"发送：导航 {event['location_name']}，再发送：挑战虫洞" + f"<导航 {event['location_name']}><挑战虫洞>")
 
-    def _open_event(self, opened_by: str, source: str, location_name: str) -> dict[str, Any]:
+    def _open_event(self, opened_by: str, source: str, location_name: str, location_id: str = "") -> dict[str, Any]:
         """按当前服务器生态生成一只动态 Boss。"""
 
-        point = self._location_point(location_name)
+        point = self._location_point(location_name, location_id)
         snapshot = self._world_snapshot()
-        boss_name, boss_kind, boss_factor = random.choice(BOSS_POOL)
+        boss_key, boss_name, boss_kind, boss_factor = random.choice(BOSS_POOL)
+        boss_name = self._wormhole_name(("wormhole", "bosses"), boss_key, boss_name)
         level = max(3, min(MAX_LEVEL, snapshot["median_level"] + random.randint(-3, 8)))
         median_attack = max(10, snapshot["median_attack"])
         median_hp = max(120, snapshot["median_hp"])
@@ -541,22 +604,24 @@ class WormholeService(CoreService):
         max_hp = max(320, int(one_damage * expected_players * expected_attempts * difficulty))
         opened_at = now()
         closes_at = opened_at + timedelta(minutes=WORMHOLE_DURATION_MINUTES)
-        metadata = {"event_type": "normal", "source": source, "boss_flow": BOSS_FLOW_TEXT.get(boss_name, "异界法则")}
+        metadata = {"event_type": "normal", "source": source, "boss_key": boss_key}
+        metadata.update(self._random_combat_profile_meta())
 
         with self.db.transaction() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO wormholes (
-                    boss_name, boss_kind, location_name, x, y,
+                    boss_name, boss_kind, location_name, location_id, x, y,
                     level, max_hp, hp, attack, defense, difficulty,
                     opened_by, source, status, opened_at, closes_at, result
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '开启', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '开启', ?, ?, ?)
                 """,
                 (
                     boss_name,
                     boss_kind,
                     point["name"],
+                    str(point.get("location_id") or ""),
                     point["x"],
                     point["y"],
                     level,
@@ -581,11 +646,17 @@ class WormholeService(CoreService):
         """用特殊收购战备牵引一个定向虫洞。"""
 
         buyer_name = str(war_prep["buyer_name"])
-        point = self._location_point(buyer_name)
+        buyer_id = str(war_prep.get("location_id") or "")
+        point = self._location_point(buyer_name, buyer_id)
+        if not buyer_id:
+            buyer_id = str(point.get("location_id") or "")
         snapshot = self._world_snapshot()
-        boss_name, boss_kind, boss_factor = random.choice(WAR_PREP_BOSS_POOL.get(buyer_name, BOSS_POOL))
+        boss_key, boss_name, boss_kind, boss_factor = random.choice(WAR_PREP_BOSS_POOL.get(buyer_id, BOSS_POOL))
+        boss_name = self._wormhole_name(("wormhole", "war_prep_bosses"), boss_key, boss_name)
         affix_count = random.choice((1, 1, 2))
-        affixes = random.sample(WAR_PREP_AFFIXES, k=affix_count)
+        affix_entries = random.sample(WAR_PREP_AFFIXES, k=affix_count)
+        affix_keys = [key for key, _name in affix_entries]
+        affixes = [self._wormhole_name(("wormhole", "war_prep_affixes"), key, name) for key, name in affix_entries]
         level = max(5, min(MAX_LEVEL, snapshot["median_level"] + random.randint(0, 10)))
         median_attack = max(10, snapshot["median_attack"])
         median_hp = max(120, snapshot["median_hp"])
@@ -595,16 +666,16 @@ class WormholeService(CoreService):
         expected_players = max(1, min(24, round(snapshot["active_count"] * 0.32)))
         expected_attempts = 4
         difficulty = random.uniform(1.0, 1.18) * boss_factor
-        hp_factor = 1.35 if "群敌聚形" in affixes else 1.15
+        hp_factor = 1.35 if "war_prep_affix_gathering_enemies" in affix_keys else 1.15
         max_hp = max(420, int(one_damage * expected_players * expected_attempts * difficulty * hp_factor))
         reward_multiplier = 1.20
-        if "群敌聚形" in affixes:
+        if "war_prep_affix_gathering_enemies" in affix_keys:
             reward_multiplier += 0.15
-        if "裂口不稳" in affixes:
+        if "war_prep_affix_unstable_rift" in affix_keys:
             reward_multiplier += 0.10
         reward_multiplier = min(1.50, reward_multiplier)
         duration_minutes = WORMHOLE_DURATION_MINUTES
-        if "裂口不稳" in affixes:
+        if "war_prep_affix_unstable_rift" in affix_keys:
             duration_minutes = max(20, int(duration_minutes * 0.7))
         opened_at = now()
         closes_at = opened_at + timedelta(minutes=duration_minutes)
@@ -612,30 +683,34 @@ class WormholeService(CoreService):
         metadata = {
             "event_type": "war_prep",
             "force": buyer_name,
+            "force_id": buyer_id,
             "war_prep_name": str(war_prep["prep_name"]),
             "loot_subtype": str(war_prep["loot_subtype"]),
+            "boss_key": boss_key,
+            "affix_keys": affix_keys,
             "affixes": affixes,
-            "boss_flow": self._war_prep_force_flow(buyer_name),
             "reward_multiplier": reward_multiplier,
-            "reward_tendency": self._war_prep_reward_tendency(buyer_name),
+            "reward_tendency": self._war_prep_reward_tendency(buyer_id),
             "war_prep_cost": threshold,
             "source": source,
         }
+        metadata.update(self._random_combat_profile_meta())
 
         with self.db.transaction() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO wormholes (
-                    boss_name, boss_kind, location_name, x, y,
+                    boss_name, boss_kind, location_name, location_id, x, y,
                     level, max_hp, hp, attack, defense, difficulty,
                     opened_by, source, status, opened_at, closes_at, result
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '开启', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '开启', ?, ?, ?)
                 """,
                 (
                     boss_name,
                     boss_kind,
                     point["name"],
+                    str(point.get("location_id") or ""),
                     point["x"],
                     point["y"],
                     level,
@@ -752,13 +827,14 @@ class WormholeService(CoreService):
         return T.hint(f"当前状态为 {status}，不能挑战虫洞。", "先结束当前状态，再发送：挑战虫洞")
 
     def _fight_boss(self, player: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-        """结算一次虫洞挑战；只算数值和逐次出手日志，不写数据库。"""
+        """只计算一次战斗并返回逐次出手结果；数据库记录由外层 challenge() 写入。"""
 
         action_limit = 10 + min(4, int(player["level"]) // 25)
+        combat_kind = self._combat_kind_for_event(event)
         return combat_service.fight_boss(
             player,
             event,
-            boss_kind=str(event["boss_kind"]),
+            boss_kind=combat_kind,
             action_limit=action_limit,
         )
 
@@ -776,8 +852,6 @@ class WormholeService(CoreService):
         killed_text: str,
         alive_text: str,
         hurt_text: str,
-        reward_command: str,
-        challenge_command: str,
         log_kind: str = "",
         record_id: int = 0,
     ) -> str | dict:
@@ -829,38 +903,43 @@ class WormholeService(CoreService):
         gems: list[tuple[str, int, int]] = []
         item_texts: list[str] = []
 
-        recover = self._random_equipment_item("恢复类")
+        recover = self._random_equipment_item(RING_CATEGORY_RECOVERY)
         if recover:
             ring_items.append((recover["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {recover['name']} x1")
 
-        affixes = set(meta.get("affixes") if isinstance(meta.get("affixes"), list) else [])
-        if random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["xisuiye"] + contribution * 0.25 + influence_bonus * 0.4 + (0.04 if "旧门半开" in affixes else 0):
+        affix_keys = set(meta.get("affix_keys") if isinstance(meta.get("affix_keys"), list) else [])
+        if random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["xisuiye"] + contribution * 0.25 + influence_bonus * 0.4 + (0.04 if "war_prep_affix_half_open_gate" in affix_keys else 0):
             special = self.ring_item_def("xisuiye")
             if special:
                 ring_items.append((special["ring_item_id"], 1))
                 item_texts.append(f"纳戒获得 {special['name']} x1")
 
-        gem = self._random_equipment_item("宝石")
+        gem = self._random_equipment_item(RING_CATEGORY_GEM)
         if gem and random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["gem"] + contribution * 0.3:
             level = 1 + (1 if random.random() < min(0.22, contribution) else 0)
             gems.append((gem["ring_item_id"], level, 1))
             item_texts.append(f"宝石获得 {gem['name']} {level}级 x1")
 
-        book = self._random_war_prep_book(meta) if meta.get("event_type") == "war_prep" else self._random_equipment_item("技能书")
-        if book and random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["book"] + contribution * 0.22 + influence_bonus * 0.6 + (0.04 if "余烬未冷" in affixes else 0):
+        book = self._random_war_prep_book(meta) if meta.get("event_type") == "war_prep" else self._random_equipment_item(RING_CATEGORY_BOOK)
+        if book and random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["book"] + contribution * 0.22 + influence_bonus * 0.6 + (0.04 if "war_prep_affix_warm_embers" in affix_keys else 0):
             book_bonus = 0.010 if meta.get("event_type") == "war_prep" else 0.008
-            book = self.maybe_upgrade_extreme_book_item(book, str(event["location_name"]), book_bonus)
+            book = self.maybe_upgrade_extreme_book_item(
+                book,
+                str(event["location_name"]),
+                book_bonus,
+                str(event.get("location_id") or ""),
+            )
             ring_items.append((book["ring_item_id"], 1))
             item_texts.append(f"纳戒获得 {book['name']} x1")
 
         weapon = None
-        if random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["weapon"] + contribution * 0.16 + influence_bonus * 0.4 + (0.04 if "战痕回涌" in affixes else 0):
+        if random.random() < WORMHOLE_LOW_CONTRIBUTION_FLOORS["weapon"] + contribution * 0.16 + influence_bonus * 0.4 + (0.04 if "war_prep_affix_war_marks" in affix_keys else 0):
             weapon = self._random_war_prep_weapon(meta) if meta.get("event_type") == "war_prep" else self.weapon_core.roll_weapon_drop()
 
-        loot_subtype = str(meta.get("loot_subtype") or "")
+        loot_subtype = self._loot_subtype_key(meta.get("loot_subtype"))
         loot_floor = 0.18 if meta.get("event_type") == "war_prep" else 0.12
-        if loot_subtype and random.random() < loot_floor + contribution * 0.18 + influence_bonus * 0.5 + (0.08 if "残巢已露" in affixes else 0):
+        if loot_subtype and random.random() < loot_floor + contribution * 0.18 + influence_bonus * 0.5 + (0.08 if "war_prep_affix_exposed_nest" in affix_keys else 0):
             loot = self._random_world_loot(loot_subtype)
             if loot:
                 backpack_items.append((loot["item_id"], 1))
@@ -887,7 +966,7 @@ class WormholeService(CoreService):
             """
             SELECT *
             FROM ring_item_defs
-            WHERE category = ?
+            WHERE category_key = ?
               AND ring_item_id != 'kaikongqi'
               AND ring_item_id != 'cuifengdan'
               AND ring_item_id NOT LIKE 'extreme_%'
@@ -897,7 +976,7 @@ class WormholeService(CoreService):
         return random.choice(rows) if rows else None
 
     def _public_battle_reward_bonus(self, client_id: str) -> float:
-        """宗门影响力给虫洞珍贵掉落小幅修正，不影响源石和经验。"""
+        """宗门影响力给虫洞珍贵掉落小幅修正，不影响货币和经验。"""
 
         with self.db.transaction() as conn:
             return min(0.08, max(0.0, sect_direction_bonus_conn(conn, client_id, "influence") * 0.12))
@@ -905,14 +984,14 @@ class WormholeService(CoreService):
     def _random_war_prep_book(self, meta: dict[str, Any]) -> dict[str, Any] | None:
         """按战备势力偏向抽技能书；无匹配时退回普通技能书池。"""
 
-        force = str(meta.get("force") or "")
+        force = str(meta.get("force_id") or meta.get("force") or "")
         profile = WAR_PREP_REWARD_PROFILES.get(force, {})
         preferred_effects = set(profile.get("book_effects") or ())
         rows = self.db.fetch_all(
             """
             SELECT *
             FROM ring_item_defs
-            WHERE category = '技能书'
+            WHERE category_key = 'book'
               AND ring_item_id NOT LIKE 'extreme_%'
             """
         )
@@ -936,12 +1015,16 @@ class WormholeService(CoreService):
     def _random_war_prep_weapon(self, meta: dict[str, Any]) -> dict[str, Any]:
         """按战备势力偏向抽武器，并给特定势力小概率高上限。"""
 
-        force = str(meta.get("force") or "")
+        force = str(meta.get("force_id") or meta.get("force") or "")
         profile = WAR_PREP_REWARD_PROFILES.get(force, {})
         preferred_types = set(profile.get("weapon_types") or ())
         rows = self.db.fetch_all("SELECT * FROM weapon_defs")
         if preferred_types:
-            preferred = [row for row in rows if str(row.get("weapon_type") or "") in preferred_types]
+            preferred = [
+                row
+                for row in rows
+                if weapon_type_key(row.get("weapon_type_key") or row.get("weapon_type")) in preferred_types
+            ]
             rows = preferred or rows
         weapon_def = random.choice(rows)
         max_level = self.weapon_core.random_max_level()
@@ -976,14 +1059,38 @@ class WormholeService(CoreService):
             return 0.0
         return max(0.0, min(1.0, int(damage) / max_hp))
 
-    def _location_point(self, name: str) -> dict[str, Any]:
-        """把 NPC 地点名称转成坐标。"""
+    def _location_point(self, name: str, location_id: str = "") -> dict[str, Any]:
+        """把 NPC 地点稳定 ID 或展示名转成坐标。"""
 
+        stable_id = str(location_id or "").strip()
+        if stable_id:
+            row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE location_id = ?", (stable_id,))
+            if row:
+                return row
         clean = name.strip()
-        row = self.db.fetch_one("SELECT name, x, y FROM world_locations WHERE name = ?", (clean,))
+        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE name = ?", (clean,))
         if row:
             return row
-        return {"name": clean or "天枢城", "x": 0, "y": 0}
+        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE location_id = ?", (DEFAULT_LOCATION_ID,))
+        if row:
+            return row
+        return {"location_id": DEFAULT_LOCATION_ID, "name": clean or "主城", "x": 0, "y": 0}
+
+    @staticmethod
+    def _same_location(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        """位置比较优先用稳定 ID；状态不同步时以精确坐标兜底。"""
+
+        left_id = str(left.get("location_id") or "").strip()
+        right_id = str(right.get("location_id") or "").strip()
+        if left_id and right_id and left_id == right_id:
+            return True
+        try:
+            return int(left.get("x")) == int(right.get("x")) and int(left.get("y")) == int(right.get("y"))
+        except (TypeError, ValueError):
+            pass
+        if left_id and right_id:
+            return False
+        return str(left.get("location_name") or "").strip() == str(right.get("location_name") or "").strip()
 
     def _world_snapshot(self) -> dict[str, int]:
         """读取玩家生态，用来动态缩放虫洞强度。"""
@@ -1096,7 +1203,7 @@ class WormholeService(CoreService):
             title = f"战备虫洞·{meta.get('war_prep_name', '战备')}"
         panel.section(f"{title}·{event['boss_name']}")
         panel.line(f"位置：{event['location_name']} ({event['x']},{event['y']})")
-        panel.line(f"等级：**{event['level']}**｜血量：**{event['hp']}/{event['max_hp']}**｜状态：{event['status']}")
+        panel.line(f"强度：**世界平均水平**｜血量：**{event['hp']}/{event['max_hp']}**｜状态：{event['status']}")
         if meta.get("event_type") == "war_prep":
             affixes = "、".join(meta.get("affixes") or []) or "无"
             panel.line(f"势力：{meta.get('force')}｜词条：{affixes}｜奖励倍率：{float(meta.get('reward_multiplier') or 1.0):.2f}x")
@@ -1121,45 +1228,72 @@ class WormholeService(CoreService):
         return meta if isinstance(meta, dict) else {}
 
     @staticmethod
-    def _war_prep_reward_tendency(buyer_name: str) -> str:
+    def _random_combat_profile_meta() -> dict[str, str]:
+        """生成虫洞的展示法则和真实战斗模板。
+
+        Boss 名属于世界皮肤，不能拿来决定技能模板；这里在虫洞生成时随机一次，
+        存入 metadata，后续挑战同一只虫洞时保持稳定。
+        """
+
+        profile_key, flow_key, flow, kinds = random.choice(WORMHOLE_COMBAT_PROFILES)
+        flow = WormholeService._wormhole_name(("wormhole", "flows"), flow_key, flow)
+        return {
+            "boss_flow_key": flow_key,
+            "boss_flow": flow,
+            "combat_profile": profile_key,
+            "combat_kind": random.choice(kinds),
+        }
+
+    @staticmethod
+    def _wormhole_name(path: tuple[str, ...], stable_id: str, default: str) -> str:
+        """读取当前世界皮肤下的虫洞展示名。"""
+
+        return skin_name(path, stable_id, default)
+
+    @staticmethod
+    def _combat_kind_for_event(event: dict[str, Any]) -> str:
+        """读取本次虫洞固化的战斗模板类型；缺失时随机兜底。"""
+
+        meta = WormholeService._event_metadata(event)
+        combat_kind = enemy_kind_key(str(meta.get("combat_kind") or "").strip())
+        if combat_kind in WORMHOLE_COMBAT_KIND_POOL:
+            return combat_kind
+        return random.choice(WORMHOLE_COMBAT_KIND_POOL)
+
+    @staticmethod
+    def _war_prep_reward_tendency(buyer_id: str) -> str:
         """战备虫洞奖励倾向说明。"""
 
         return {
-            "镇妖司": "妖类战利品、轻灵或斩妖风格武器",
-            "伏魔殿": "魔类战利品、破防或镇魔技能书",
-            "鬼市": "鬼类战利品、精神压制或扰乱技能书",
-            "龙渊阁": "龙类战利品、高上限武器小概率",
-            "万兽盟": "兽类战利品、体修或重型武器",
-            "破军营": "兵戈类战利品、战场武器、攻击型技能书",
-        }.get(buyer_name, "战备定向奖励")
+            "buyer_zhenyaosi": "妖类战利品、轻灵或斩妖风格武器",
+            "buyer_fumodian": "魔类战利品、破防或镇魔技能书",
+            "buyer_guishi": "鬼类战利品、精神压制或扰乱技能书",
+            "buyer_longyuan": "龙类战利品、高上限武器小概率",
+            "buyer_wanshou": "兽类战利品、体修或重型武器",
+            "buyer_pojun": "兵戈类战利品、战场武器、攻击型技能书",
+        }.get(buyer_id, "战备定向奖励")
 
     @staticmethod
-    def _war_prep_force_flow(buyer_name: str) -> str:
-        """战备势力牵引出的异界 Boss 必须落回本世界战斗流派。"""
+    def _loot_subtype_key(value: object) -> str:
+        """战利品小类规则键；显示名换皮后不能参与掉落池判断。"""
 
-        return {
-            "镇妖司": "高频连击",
-            "伏魔殿": "重击破防",
-            "鬼市": "压制控制",
-            "龙渊阁": "首领协作",
-            "万兽盟": "生存续航",
-            "破军营": "斩杀收割",
-        }.get(buyer_name, "异界法则")
+        return LOOT_SUBTYPE_KEYS.get(str(value or "").strip(), str(value or "").strip())
 
     def _random_world_loot(self, loot_subtype: str) -> dict[str, Any] | None:
         """按战利品小类抽一个背包掉落。"""
 
+        loot_subtype_key = self._loot_subtype_key(loot_subtype)
         rows = self.db.fetch_all(
             """
             SELECT *
             FROM item_defs
-            WHERE category = '战利品'
+            WHERE json_extract(effect, '$.world_category_key') = 'loot'
             """
         )
         filtered = []
         for row in rows:
             effect = load_json(row.get("effect"), {})
-            if str(effect.get("world_subtype") or "") == loot_subtype:
+            if str(effect.get("world_subtype_key") or "") == loot_subtype_key:
                 filtered.append(row)
         pool = filtered or rows
         return random.choice(pool) if pool else None
@@ -1167,4 +1301,14 @@ class WormholeService(CoreService):
 
 service = WormholeService(db)
 
-__all__ = ["BOSS_POOL", "DISCOVERY_CHANCES", "WormholeService", "service"]
+__all__ = [
+    "BOSS_POOL",
+    "DISCOVERY_CHANCES",
+    "WAR_PREP_AFFIX_NAMES_BY_KEY",
+    "WAR_PREP_BOSS_NAMES_BY_KEY",
+    "WORMHOLE_BOSS_NAMES_BY_KEY",
+    "WORMHOLE_COMBAT_PROFILES",
+    "WORMHOLE_FLOW_NAMES_BY_KEY",
+    "WormholeService",
+    "service",
+]

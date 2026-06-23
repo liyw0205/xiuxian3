@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
-from ..common import load_json, row_value
+from ..common import load_json, player_level_label, quality_label, row_value
 from ..sql import db
 from ..battle_log_links import LOG_BASE_PATH
 from ..combat_core import CombatCore
@@ -122,6 +122,7 @@ def _render_exploration(record: dict[str, Any], result: dict[str, Any], player: 
         _metric("自动用药", medicine),
     ]
     if player:
+        cards.append(_metric("玩家等级", player_level_label(player.get("level", 1))))
         cards.append(_metric("最终状态", f"血气 {player.get('hp', 0)}/{player.get('max_hp', 0)}｜精神 {player.get('mp', 0)}/{player.get('max_mp', 0)}"))
     settlement = [
         ("背包掉落", _counter_text(drops)),
@@ -202,10 +203,12 @@ def _render_boss_challenge(
         _metric("记录", f"〔{record_id}〕"),
         _metric("事件", f"〔{event_id}〕"),
         _metric("目标", boss_name),
+        _metric("目标等级", player_level_label(event.get("level", 1))),
         _metric("状态", str(event.get("status") or "")),
         _metric("本次伤害", str(record.get("damage", 0))),
         _metric("本次血量", f"{record.get('hp_before', 0)} -> {record.get('hp_after', 0)}"),
         _metric("玩家", _player_name(record.get("client_id"))),
+        _metric("玩家等级", player_level_label(result.get("player_level", 1))),
         _metric("累计伤害", str(participant.get("damage", 0) if participant else 0)),
     ]
     weapon_exp = int(result.get("weapon_exp", 0)) if int(result.get("weapon_id", 0) or 0) > 0 else 0
@@ -237,6 +240,7 @@ def _battle_card(index: int, event: dict[str, Any], detail: bool, enemy_label: s
   </div>
   <p>{escape(summary or '无战斗摘要')}</p>
   <div class="battle-grid">
+    {_metric("怪物等级", player_level_label(event.get("monster_level") or event.get("display_level") or 1))}
     {_metric("行动", f"{len(actions)} 次")}
     {_metric("经验", f"+{int(event.get('exp', 0))}")}
     {_metric("武器经验", f"+{_weapon_exp(event)}")}
@@ -259,6 +263,8 @@ def _duel_battle_card(result: dict[str, Any], detail: bool) -> str:
     <span class="pill">{escape(str(result.get('summary') or '已结算'))}</span>
   </div>
   <div class="battle-grid">
+    {_metric("左方等级", player_level_label(result.get("left_level", 1)))}
+    {_metric("右方等级", player_level_label(result.get("right_level", 1)))}
     {_metric("行动", f"{len(actions)} 次")}
     {_metric("胜者", _player_name(result.get("winner_id")))}
     {_metric("败者", _player_name(result.get("loser_id")))}
@@ -289,6 +295,8 @@ def _boss_battle_card(
     <span class="pill {('win' if int(record.get('killed', 0)) else '')}">{state}</span>
   </div>
   <div class="battle-grid">
+    {_metric(f"{boss_label}等级", player_level_label(result.get("boss_level") or result.get("enemy_level") or 1))}
+    {_metric("玩家等级", player_level_label(result.get("player_level", 1)))}
     {_metric("行动", f"{len(actions)} 次")}
     {_metric("伤害", str(record.get("damage", 0)))}
     {_metric("目标血量", f"{record.get('hp_before', 0)} -> {record.get('hp_after', 0)}")}
@@ -566,7 +574,7 @@ def _weapon_drop_text(result: dict[str, Any]) -> str:
     names = []
     for item in drops:
         if isinstance(item, dict):
-            names.append(f"{item.get('name', '武器')}[{item.get('quality', '未知')}]")
+            names.append(f"{item.get('name', '武器')}[{quality_label(item.get('quality', ''))}]")
     return "、".join(names) if names else "无"
 
 

@@ -6,9 +6,13 @@ from ..format_text import T
 
 from ..common import (
     CoreService,
+    RING_CATEGORY_GEM,
+    currency_name,
     fixed_equipment_label,
     money,
     parse_name_level,
+    ring_category_key,
+    ring_item_display_name,
     split_words,
     to_int,
     ts,
@@ -72,7 +76,7 @@ class EquipmentService(CoreService):
                 return T.hint(f"{slot} 已满级。", "可以升级其他装备位，或继续镶嵌、升级宝石。")
             cost = equipment_upgrade_cost(level + 1, FIXED_EQUIPMENT_SLOT_FACTORS[slot])
             if not self.spend_stones_conn(conn, client_id, cost):
-                return T.hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<自动出售>")
+                return T.hint(f"{currency_name()}不足，升级需要 {money(cost)}。", f"发送：银行 查看存量，或通过签到、探险、出售物品获取{currency_name()}。<自动出售>")
             conn.execute(
                 "UPDATE fixed_equipment SET level = level + 1 WHERE client_id = ? AND slot = ?",
                 (client_id, slot),
@@ -193,7 +197,7 @@ class EquipmentService(CoreService):
         if slot not in EQUIPMENT_SLOTS or hole_no < 1 or hole_no > EQUIPMENT_MAX_HOLES:
             return T.hint("装备位或孔位号不正确。", f"装备位只能是：{'、'.join(EQUIPMENT_SLOTS)}；孔位号只能是 1 到 {EQUIPMENT_MAX_HOLES}。")
         item = self.ring_item_def_by_name(item_name)
-        if not item or item["category"] != "宝石":
+        if not item or ring_category_key(item.get("category_key") or item.get("category")) != RING_CATEGORY_GEM:
             return T.hint(f"没有找到宝石：{item_name}。", "发送：宝石 查看已有宝石名称。<宝石>")
         with self.db.transaction() as conn:
             equipment = conn.execute(
@@ -202,7 +206,8 @@ class EquipmentService(CoreService):
             ).fetchone()
             hole_count = int(equipment["hole_count"]) if equipment else EQUIPMENT_DEFAULT_HOLES
             if hole_no > hole_count:
-                return T.hint(f"{slot} 当前只开启到 {hole_count} 号孔。", "先发送：开孔 装备位，消耗开孔器后再镶嵌。")
+                item_name = ring_item_display_name(self.ring_item_def("kaikongqi"), "kaikongqi")
+                return T.hint(f"{slot} 当前只开启到 {hole_count} 号孔。", f"先发送：开孔 装备位，消耗{item_name}后再镶嵌。")
             exists = conn.execute(
                 """
                 SELECT 1 FROM fixed_equipment_inlays
@@ -309,7 +314,7 @@ class EquipmentService(CoreService):
             next_level = row["level"] + 1
             cost = gem_upgrade_cost(next_level)
             if not self.spend_stones_conn(conn, client_id, cost):
-                return T.hint(f"源石不足，升级需要 {money(cost)}。", "发送：源库 查看存量，或通过签到、探险、出售物品获取源石。<自动出售>")
+                return T.hint(f"{currency_name()}不足，升级需要 {money(cost)}。", f"发送：银行 查看存量，或通过签到、探险、出售物品获取{currency_name()}。<自动出售>")
             conn.execute(
                 """
                 UPDATE fixed_equipment_inlays
@@ -327,7 +332,7 @@ class EquipmentService(CoreService):
                 ),
             )
         self.recalc_player(client_id)
-        return f"{row['slot']} {row['hole_no']}号孔 {row['name']} 升级成功：{row['level']} → {next_level}，消耗源石 {money(cost)}。"
+        return f"{row['slot']} {row['hole_no']}号孔 {row['name']} 升级成功：{row['level']} → {next_level}，消耗{currency_name()} {money(cost)}。"
 
     def _upgrade_target_conn(self, conn, client_id: str, text: str):
         """解析宝石升级目标；只按 装备位+孔位 精确定位。"""
@@ -349,7 +354,7 @@ class EquipmentService(CoreService):
             return row, None
 
         item = self.ring_item_def_by_name(text)
-        if not item or item["category"] != "宝石":
+        if not item or ring_category_key(item.get("category_key") or item.get("category")) != RING_CATEGORY_GEM:
             return None, T.hint("宝石升级格式不正确。", "发送：宝石升级 装备位 孔位号，例如：宝石升级 护甲 1")
         rows = conn.execute(
             """

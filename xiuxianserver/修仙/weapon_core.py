@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from .common import CoreService, dump_json, enchant_label_name, random, random_quality, ts, weapon_id_label
+from .common import CoreService, dump_json, enchant_label_name, quality_key, quality_label, random, random_quality, ts, weapon_id_label
 from .sql import db
 
 
@@ -29,7 +29,7 @@ class WeaponCore(CoreService):
             drop["max_level"],
             equipped=False,
         )
-        return f"{weapon_id_label(weapon_id)} {drop['name']}[{drop['quality']}] 上限{drop['max_level']}"
+        return f"{weapon_id_label(weapon_id)} {drop['name']}[{quality_label(drop['quality'])}] 上限{drop['max_level']}"
 
     def roll_weapon_drop(self, location_name: str = "") -> dict:
         """只随机出掉落结果，不写入数据库。
@@ -40,7 +40,8 @@ class WeaponCore(CoreService):
 
         rows = self.db.fetch_all("SELECT * FROM weapon_defs")
         if location_name:
-            same_location = [row for row in rows if row["drop_location"] == location_name]
+            location_id = self._location_id_for_drop(location_name)
+            same_location = [row for row in rows if str(row.get("drop_location_id") or "") == location_id]
             rows = same_location or rows
         weapon_def = random.choice(rows)
         return {
@@ -49,6 +50,15 @@ class WeaponCore(CoreService):
             "quality": random_quality(),
             "max_level": self.random_max_level(),
         }
+
+    def _location_id_for_drop(self, location_name: str) -> str:
+        """按当前展示名读取武器掉落地点 ID。"""
+
+        row = self.db.fetch_one(
+            "SELECT location_id FROM world_locations WHERE name = ?",
+            (str(location_name or "").strip(),),
+        )
+        return str(row["location_id"]) if row else ""
 
     def create_weapon(
         self,
@@ -65,7 +75,7 @@ class WeaponCore(CoreService):
                 conn,
                 client_id,
                 weapon_def_id,
-                quality,
+                quality_key(quality),
                 max_level,
                 equipped=equipped,
             )
@@ -96,7 +106,7 @@ class WeaponCore(CoreService):
                 client_id,
                 weapon_def_id,
                 max_level,
-                quality,
+                quality_key(quality),
                 1 if equipped else 0,
                 dump_json([]),
                 ts(),
@@ -112,7 +122,7 @@ class WeaponCore(CoreService):
         self.ensure_starter_weapon(client_id)
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ? AND w.equipped = 1
@@ -126,7 +136,7 @@ class WeaponCore(CoreService):
 
         return self.db.fetch_all(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ?
@@ -140,7 +150,7 @@ class WeaponCore(CoreService):
 
         return self.db.fetch_one(
             """
-            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type
+            SELECT w.*, d.name, d.drop_location, d.base_attack, d.skill_id, d.weapon_type, d.weapon_type_key
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             WHERE w.holder_id = ? AND w.weapon_id = ?

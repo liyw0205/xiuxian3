@@ -9,24 +9,24 @@ from .service import service
 
 
 @WsMessageHandler.handler(cmd="纳戒", priority=100, block=True)
-async def ws_ring_list(client_id: str, message: str) -> None:
+async def ws_ring_list(client_id: str) -> None:
     """查看纳戒。"""
 
     await send_reply(client_id, service.list_items(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="洗髓", priority=100, block=True)
-async def ws_ring_wash(client_id: str, message: str) -> None:
-    """消耗洗髓液洗髓体质。"""
+@WsMessageHandler.handler(cmd="体质重塑", priority=100, block=True)
+async def ws_ring_remold_physique(client_id: str) -> None:
+    """消耗体质重塑道具刷新体质。"""
 
-    await send_reply(client_id, service.wash(client_id), ws_manager, service)
+    await send_reply(client_id, service.remold_physique(client_id), ws_manager, service)
 
 
-@WsMessageHandler.handler(cmd="武器淬锋", priority=100, block=True)
-async def ws_ring_temper_weapon(client_id: str, message: str) -> None:
-    """消耗淬锋丹提升武器上限。"""
+@WsMessageHandler.handler(cmd="武器升限", priority=100, block=True)
+async def ws_ring_raise_weapon_limit(client_id: str, message: str) -> None:
+    """消耗武器升限道具提升武器上限。"""
 
-    await send_reply(client_id, service.temper_weapon(client_id, message), ws_manager, service)
+    await send_reply(client_id, service.raise_weapon_limit(client_id, message), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="开孔", priority=100, block=True)

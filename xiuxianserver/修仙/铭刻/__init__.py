@@ -16,7 +16,7 @@ async def ws_inscription_guide_or_dispatch(client_id: str, message: str) -> None
 
 
 @WsMessageHandler.handler(cmd="铭刻之羽", priority=100, block=True)
-async def ws_inscription_feathers(client_id: str, message: str) -> None:
+async def ws_inscription_feathers(client_id: str) -> None:
     """查看未使用的铭刻之羽。"""
 
     await send_reply(client_id, service.feathers(client_id), ws_manager, service)

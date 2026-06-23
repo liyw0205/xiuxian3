@@ -37,7 +37,7 @@ async def ws_sell_any(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="自动出售", priority=100, block=True)
-async def ws_auto_sell(client_id: str, message: str) -> None:
+async def ws_auto_sell(client_id: str) -> None:
     """自动清空背包可流通物品。"""
 
     await send_reply(client_id, service.auto_sell(client_id), ws_manager, service)
@@ -65,35 +65,35 @@ async def ws_treasure_bid(client_id: str, message: str) -> None:
 
 
 @WsMessageHandler.handler(cmd="领取藏宝图", priority=100, block=True)
-async def ws_treasure_claim(client_id: str, message: str) -> None:
+async def ws_treasure_claim(client_id: str) -> None:
     """领取已归属或脚下的藏宝图。"""
 
     await send_reply(client_id, service.treasure_claim(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="商场推荐", priority=100, block=True)
-async def ws_trade_recommend(client_id: str, message: str) -> None:
+async def ws_trade_recommend(client_id: str) -> None:
     """推荐跑商路线。"""
 
     await send_reply(client_id, service.recommend(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="跑商记录", priority=100, block=True)
-async def ws_trade_records(client_id: str, message: str) -> None:
+async def ws_trade_records(client_id: str) -> None:
     """查看跑商记录。"""
 
     await send_reply(client_id, service.records(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="跑商限制", priority=100, block=True)
-async def ws_trade_curve(client_id: str, message: str) -> None:
+async def ws_trade_curve(client_id: str) -> None:
     """查看跑商收益曲线。"""
 
     await send_reply(client_id, service.trade_curve(client_id), ws_manager, service)
 
 
 @WsMessageHandler.handler(cmd="跑商奖励", priority=100, block=True)
-async def ws_trade_daily_reward(client_id: str, message: str) -> None:
+async def ws_trade_daily_reward(client_id: str) -> None:
     """领取每日跑商奖励。"""
 
     await send_reply(client_id, service.daily_reward(client_id), ws_manager, service)

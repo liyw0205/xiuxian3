@@ -10,15 +10,21 @@ from typing import Any
 from ..common import (
     CoreService,
     business_day,
+    currency_name,
     dump_json,
     format_effect,
     load_json,
     money,
+    player_level_label,
+    QUALITY_EPIC,
+    QUALITY_RARE,
+    quality_label,
+    ring_item_display_name,
     ts,
     weapon_label_name,
     world_state_for_day,
 )
-from ..constants import DAY_RESET_HOUR
+from ..constants import DAY_RESET_HOUR, DEFAULT_LOCATION_ID
 from ..sql import db
 from ..world_materials import WorldMaterialService
 
@@ -228,7 +234,7 @@ class XiuxianHistoryService(CoreService):
         panel = T.panel()
         panel.section(f"{target['display_name']}人物志")
         panel.line(f"称号：{title}")
-        panel.line(f"等级：**{target['level']}**")
+        panel.line(f"等级：**{player_level_label(target['level'])}**")
         panel.line(f"常驻地点：{target['location_name']}")
         panel.line(f"代表武器：{weapon_text}")
         panel.line(
@@ -414,7 +420,7 @@ class XiuxianHistoryService(CoreService):
             "SELECT display_name, level FROM players ORDER BY level DESC, exp DESC, created_at ASC LIMIT 1"
         )
         if top_level:
-            lines.append(f"境界最高：{top_level['display_name']} Lv.{top_level['level']}。")
+            lines.append(f"境界最高：{top_level['display_name']} {player_level_label(top_level['level'])}。")
 
         rich = self._richest_row()
         if rich and int(rich["total"] or 0) > 0:
@@ -449,12 +455,12 @@ class XiuxianHistoryService(CoreService):
         if weapon:
             lines.append(
                 f"名器当前最高：{self.format_player_name(weapon['holder_id'])} 持有"
-                f"「{weapon_label_name(weapon)}」{weapon['quality']} Lv.{weapon['level']}/{weapon['max_level']}。"
+                f"「{weapon_label_name(weapon)}」{quality_label(weapon['quality'])} Lv.{weapon['level']}/{weapon['max_level']}。"
             )
         return lines
 
     def _history_sect_lines(self) -> list[str]:
-        """宗门史榜：宗门等级、底蕴和宗门战纪录。"""
+        """宗门史榜：宗门等级、底蕴和宗门大会纪录。"""
 
         lines: list[str] = []
         top = self.db.fetch_all(
@@ -483,7 +489,7 @@ class XiuxianHistoryService(CoreService):
             """
         )
         if influence and int(influence["total"] or 0) > 0:
-            lines.append(f"宗门战累计影响最高：{influence['name']}，累计 {influence['total']}。")
+            lines.append(f"宗门大会累计影响最高：{influence['name']}，累计 {influence['total']}。")
 
         reward = self.db.fetch_one(
             """
@@ -496,7 +502,8 @@ class XiuxianHistoryService(CoreService):
             """
         )
         if reward and int(reward["count"] or 0) > 0:
-            lines.append(f"淬锋丹发放最多：{reward['name']}，累计 {reward['count']} 枚待领/已领。")
+            item_name = ring_item_display_name(self.ring_item_def("cuifengdan"), "cuifengdan")
+            lines.append(f"{item_name}发放最多：{reward['name']}，累计 {reward['count']} 枚待领/已领。")
         return lines
 
     def _history_city_lines(self) -> list[str]:
@@ -669,7 +676,7 @@ class XiuxianHistoryService(CoreService):
 
         recycle = self._top_recycle_income_row()
         if recycle and int(recycle["total"] or 0) > 0:
-            lines.append(f"回收源石最高：{self.format_player_name(recycle['client_id'])}，累计 {money(recycle['total'])}。")
+            lines.append(f"回收{currency_name()}最高：{self.format_player_name(recycle['client_id'])}，累计 {money(recycle['total'])}。")
 
         bid = self.db.fetch_one(
             """
@@ -701,7 +708,7 @@ class XiuxianHistoryService(CoreService):
         )
         if total and int(total["count"] or 0) > 0:
             lines.append(
-                f"虫洞现世：累计 {total['count']} 次，击破 {int(total['killed'] or 0)} 次，最高 Lv.{int(total['max_level'] or 0)}。"
+                f"虫洞现世：累计 {total['count']} 次，击破 {int(total['killed'] or 0)} 次，最高 {player_level_label(total['max_level'] or 1)}。"
             )
 
         first_kill = self.db.fetch_one(
@@ -729,7 +736,7 @@ class XiuxianHistoryService(CoreService):
         )
         if hardest:
             lines.append(
-                f"最高难度：「{hardest['boss_name']}」Lv.{hardest['level']}，"
+                f"最高难度：「{hardest['boss_name']}」{player_level_label(hardest['level'])}，"
                 f"曾现于 {hardest['location_name']}，结局 {self._status_word(hardest['status'])}。"
             )
 
@@ -917,7 +924,7 @@ class XiuxianHistoryService(CoreService):
         luck = self._top_luck_row(start, end)
         if luck:
             entries.append(
-                f"{self.format_player_name(luck['original_owner_id'])} 获得 {luck['quality']}武器「{luck['name']}」，"
+                f"{self.format_player_name(luck['original_owner_id'])} 获得 {quality_label(luck['quality'])}武器「{luck['name']}」，"
                 "坊间称其手气正盛。"
             )
 
@@ -931,9 +938,15 @@ class XiuxianHistoryService(CoreService):
             (start, end),
         )
         if new_players:
-            entries.append(f"今日新增 {new_players} 位道友入世，天枢城又添新灯。")
+            entries.append(f"今日新增 {new_players} 位道友入世，{self._default_location_name()}又添新灯。")
 
         return entries or ["今日山河无大事，茶摊照旧开张。"]
+
+    def _default_location_name(self) -> str:
+        """读取主城当前展示名，供早报文案使用。"""
+
+        row = self.db.fetch_one("SELECT name FROM world_locations WHERE location_id = ?", (DEFAULT_LOCATION_ID,))
+        return str(row["name"]) if row else "主城"
 
     def _top_damage_text(self, start: str, end: str) -> str:
         """今日 Boss 伤害最高者。"""
@@ -975,7 +988,7 @@ class XiuxianHistoryService(CoreService):
             return "今日欧气：暂无珍稀武器入世。"
         return (
             f"今日欧气：{self.format_player_name(row['original_owner_id'])}，"
-            f"新得 {row['quality']}武器「{row['name']}」{row['count']} 把。"
+            f"新得 {quality_label(row['quality'])}武器「{row['name']}」{row['count']} 把。"
         )
 
     def _top_active_text(self, start: str, end: str) -> str:
@@ -999,7 +1012,7 @@ class XiuxianHistoryService(CoreService):
 
         rich = self._richest_row()
         if rich and int(rich["total"]) > 0:
-            return f"坊间传闻：商会账房偷偷记下，{self.format_player_name(rich['client_id'])} 的源石声最响。"
+            return f"坊间传闻：商会账房偷偷记下，{self.format_player_name(rich['client_id'])} 的{currency_name()}声最响。"
 
         return "坊间传闻：今日风声尚轻，适合先签到，再慢慢探路。"
 
@@ -1069,9 +1082,9 @@ class XiuxianHistoryService(CoreService):
         return self.db.fetch_one(
             """
             SELECT p.client_id,
-                   p.source_stones + COALESCE(v.balance, 0) AS total
+                   p.raw_stones + COALESCE(v.balance, 0) AS total
             FROM players p
-            LEFT JOIN source_vaults v ON v.client_id = p.client_id
+            LEFT JOIN bank_accounts v ON v.client_id = p.client_id
             ORDER BY total DESC
             LIMIT 1
             """
@@ -1130,15 +1143,15 @@ class XiuxianHistoryService(CoreService):
             FROM player_weapons w
             JOIN weapon_defs d ON d.weapon_def_id = w.weapon_def_id
             LEFT JOIN weapon_legends l ON l.weapon_id = w.weapon_id
-            WHERE w.quality IN ('稀品', '珍品')
+            WHERE w.quality IN (?, ?)
               AND COALESCE(l.original_owner_id, w.holder_id) NOT LIKE '__%__:%'
               AND datetime(replace(w.created_at, 'T', ' ')) >= ?
               AND datetime(replace(w.created_at, 'T', ' ')) < ?
             GROUP BY original_owner_id, w.quality, d.name
-            ORDER BY CASE w.quality WHEN '稀品' THEN 2 ELSE 1 END DESC, count DESC
+            ORDER BY CASE w.quality WHEN ? THEN 2 ELSE 1 END DESC, count DESC
             LIMIT 1
             """,
-            (start, end),
+            (QUALITY_EPIC, QUALITY_RARE, start, end, QUALITY_EPIC),
         )
 
     def _top_active_row(self, start: str, end: str) -> dict[str, Any] | None:

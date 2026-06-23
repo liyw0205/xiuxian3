@@ -29,7 +29,7 @@ import 修仙.二手市场 as second_hand_module
 import 修仙.探险 as exploration_module
 import 修仙.武器 as weapon_module
 import 修仙.修仙百科 as encyclopedia_module
-import 修仙.源库 as vault_module
+import 修仙.银行 as bank_module
 import 修仙.修仙帮助 as help_module
 import 修仙.玩家 as player_module
 import 修仙.宗门 as sect_module
@@ -55,7 +55,7 @@ from 修仙.二手市场.service import SecondHandService
 from 修仙.探险.service import ExplorationService
 from 修仙.武器.service import WeaponService
 from 修仙.修仙百科.service import EncyclopediaService
-from 修仙.源库.service import SourceVaultService
+from 修仙.银行.service import BankService
 from 修仙.修仙帮助.service import HelpService
 from 修仙.玩家.service import PlayerService
 from 修仙.宗门.service import SectService
@@ -80,7 +80,7 @@ WS_MODULES = (
     help_module,
     player_module,
     sect_module,
-    vault_module,
+    bank_module,
     ring_module,
     backpack_module,
     insurance_module,
@@ -171,7 +171,7 @@ async def main_async() -> None:
             _must_reply(manager, "player_ws", "决斗格式不正确")
 
             db.execute(
-                "UPDATE players SET source_stones = source_stones + 1000 WHERE client_id = ?",
+                "UPDATE players SET raw_stones = raw_stones + 1000 WHERE client_id = ?",
                 ("player_ws",),
             )
             await _dispatch(manager, "player_ws", "决斗[CQ:at,qq=target_ws] 100")
@@ -187,7 +187,7 @@ async def main_async() -> None:
             _must_reply(manager, "target_ws", "已拒绝")
 
             await _dispatch(manager, "player_ws", "修仙信息")
-            _must_reply(manager, "player_ws", "Lv.1")
+            _must_reply(manager, "player_ws", "LV1")
             _must_reply(manager, "player_ws", "血气")
             _must_reply(manager, "player_ws", "战斗日志：简要")
             _must_reply(manager, "player_ws", "【青衫客")
@@ -224,7 +224,7 @@ async def main_async() -> None:
                 assert item is not None
                 SecondHandService(db).add_backpack_conn(conn, "target_ws", item["item_id"], 1)
                 conn.execute(
-                    "UPDATE players SET source_stones = source_stones + 1000 WHERE client_id = ?",
+                    "UPDATE players SET raw_stones = raw_stones + 1000 WHERE client_id = ?",
                     ("player_ws",),
                 )
             await _dispatch(manager, "target_ws", "二手市场上架 星官旧简 1 100")
@@ -263,7 +263,7 @@ async def main_async() -> None:
                 RingService(db).add_ring_conn(conn, "player_ws", "fudai", 2)
             await _dispatch(manager, "player_ws", "使用 福袋 2")
             _must_reply(manager, "player_ws", "使用 福袋 x2 成功")
-            _must_reply(manager, "player_ws", "源石+")
+            _must_reply(manager, "player_ws", "原石 ")
 
             with db.transaction() as conn:
                 RingService(db).add_ring_conn(conn, "player_ws", "xisuiye", 1)
@@ -272,8 +272,8 @@ async def main_async() -> None:
             _must_reply(manager, "player_ws", "不能直接使用")
             await _dispatch(manager, "player_ws", "使用 风刃书")
             _must_reply(manager, "player_ws", "不能直接使用")
-            await _dispatch(manager, "player_ws", "洗髓")
-            _must_reply(manager, "player_ws", "洗髓")
+            await _dispatch(manager, "player_ws", "体质重塑")
+            _must_reply(manager, "player_ws", "体质重塑")
 
             await _dispatch(manager, "player_ws", "武器")
             _must_reply(manager, "player_ws", "青岚短剑")
@@ -421,7 +421,7 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "查看修仙物品 福袋")
             _must_reply(manager, "player_ws", "存放：纳戒")
 
-            await _dispatch(manager, "player_ws", "修仙百科 宗门战奖励机制")
+            await _dispatch(manager, "player_ws", "修仙百科 宗门大会奖励机制")
             _must_reply(manager, "player_ws", "参考：")
             _must_reply(manager, "player_ws", "宗门")
 
@@ -487,7 +487,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
         help_module: HelpService(db),
         player_module: PlayerService(db),
         sect_module: SectService(db),
-        vault_module: SourceVaultService(db),
+        bank_module: BankService(db),
         ring_module: RingService(db),
         backpack_module: BackpackService(db),
         insurance_module: InsuranceBoxService(db),
@@ -598,9 +598,9 @@ async def _assert_command_plan() -> None:
     old_view_commands = (
         "用户创建",
         "礼包",
-        "获取源库",
-        "源库获取",
-        "结息源库",
+        "获取银行",
+        "银行获取",
+        "结息银行",
         "地点",
         "探索",
         "状态探险",
@@ -715,14 +715,14 @@ async def _assert_command_plan() -> None:
         "纳戒",
         "保险箱",
         "查看保险箱",
-        "源库",
-        "源库结息",
-        "升级源库",
-        "源库升级",
-        "存入源石 100",
-        "源石存入 100",
-        "取出源石 50",
-        "源石取出 50",
+        "银行",
+        "银行结息",
+        "升级银行",
+        "银行升级",
+        "存入货币 100",
+        "货币存入 100",
+        "取出货币 50",
+        "货币取出 50",
         "修仙日记",
         "查看修仙物品",
         "武器",
