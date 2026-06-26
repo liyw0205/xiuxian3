@@ -33,7 +33,7 @@ from .sql import db
 
 
 DEFAULT_SKIN_ID = "default"
-PACKAGE_FORMAT = 4
+PACKAGE_FORMAT = 5
 PACKS_DIR = Path(__file__).resolve().parent / "世界皮肤" / "packs"
 SKIN_HELP_MAP_DIR = "/static/map"
 DEFAULT_HELP_MAP_PATH = f"{SKIN_HELP_MAP_DIR}/{DEFAULT_SKIN_ID}.png"
@@ -179,6 +179,31 @@ def load_skin_package(skin_id: str) -> WorldSkinPackage:
     return package
 
 
+def resolve_skin_package(value: str) -> WorldSkinPackage:
+    """按目录包名或展示名解析世界皮肤包。"""
+
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        raise ValueError("缺少世界皮肤包名")
+
+    try:
+        return load_skin_package(raw_value)
+    except ValueError:
+        pass
+
+    matches = [
+        package
+        for package in list_skin_packages()
+        if package.display_name == raw_value
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        ids = "、".join(package.skin_id for package in matches)
+        raise ValueError(f"世界皮肤展示名重复：{raw_value}（{ids}）")
+    raise ValueError(f"世界皮肤包不存在：{raw_value}")
+
+
 def validate_skin_package(package: WorldSkinPackage, database: Any = db) -> list[str]:
     """校验皮肤包是否覆盖当前代码和数据库需要的稳定键。"""
 
@@ -244,6 +269,8 @@ def validate_skin_package(package: WorldSkinPackage, database: Any = db) -> list
     _require_count(errors, "宝石", ring.get("gems"), 9)
     _require_keys(errors, "特殊纳戒物品", _dict_or_empty(ring.get("special")), set(SPECIAL_RING_ITEM_DEFAULT_NAMES))
     _require_count(errors, "技能书", weapons.get("skill_books"), 72)
+    _require_count(errors, "体质", actors.get("physiques"), 31)
+    _validate_physique_records(errors, _physique_records(names))
     _require_keys(errors, "敌方技能", _dict_or_empty(actors.get("enemy_skills")), set(ENEMY_SKILL_NAMES_BY_KEY))
     _require_keys(errors, "太虚环境", _secret_realm_environment_names(secret_realm), SECRET_REALM_ENVIRONMENT_KEYS)
     _require_count(errors, "等级显示", system.get("levels"), len(PLAYER_LEVEL_DEFS))
@@ -644,8 +671,9 @@ def _validate_database_coverage(package: WorldSkinPackage, database: Any, errors
     for monster_id in _column_values(database, "monster_defs", "monster_id"):
         if monster_id not in names["actors"]["monsters"]:
             errors.append(f"怪物未进包：{monster_id}")
+    physique_records = _physique_records(names)
     for physique_id in _column_values(database, "physique_defs", "physique_id"):
-        if physique_id not in names["actors"]["physiques"]:
+        if physique_id not in physique_records:
             errors.append(f"体质未进包：{physique_id}")
 
 
@@ -658,7 +686,7 @@ def _validate_unique_display_names(package: WorldSkinPackage, errors: list[str])
         "武器技能": _city_weapon_skill_names(package.names),
         "敌方技能": _dict_or_empty(package.names["actors"].get("enemy_skills")),
         "怪物": _dict_or_empty(package.names["actors"].get("monsters")),
-        "体质": _dict_or_empty(package.names["actors"].get("physiques")),
+        "体质": _physique_names(package.names),
     }
     for bucket_name, values in buckets.items():
         seen: dict[str, str] = {}
@@ -841,7 +869,7 @@ def _apply_actors(conn: sqlite3.Connection, names: dict[str, Any]) -> tuple[int,
         monster_count += conn.execute("UPDATE monster_defs SET name = ? WHERE monster_id = ?", (title, monster_id)).rowcount
     for kind_key, title in actors["enemy_kinds"].items():
         monster_count += conn.execute("UPDATE monster_defs SET kind = ? WHERE kind_key = ?", (title, kind_key)).rowcount
-    physique_count += _safe_update_unique_names(conn, "physique_defs", "physique_id", "name", actors["physiques"])
+    physique_count += _apply_physiques(conn, names)
     return monster_count, physique_count
 
 
@@ -1477,12 +1505,77 @@ def _ring_item_names(names: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def _physique_records(names: dict[str, Any]) -> dict[str, Any]:
+    """读取结构化体质包记录。"""
+
+    actors = _dict_or_empty(names.get("actors"))
+    return _dict_or_empty(actors.get("physiques"))
+
+
+def _physique_names(names: dict[str, Any]) -> dict[str, str]:
+    """提取体质展示名，用于唯一性校验和查询索引。"""
+
+    result: dict[str, str] = {}
+    for physique_id, record in _physique_records(names).items():
+        if isinstance(record, dict):
+            result[str(physique_id)] = str(record.get("name") or "")
+        else:
+            result[str(physique_id)] = ""
+    return result
+
+
 def _secret_realm_environment_names(secret_realm: dict[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for env_id, row in _dict_or_empty(secret_realm.get("environments")).items():
         if isinstance(row, dict):
             result[str(env_id)] = str(row.get("name") or "")
     return result
+
+
+def _validate_physique_records(errors: list[str], physiques: dict[str, Any]) -> None:
+    """体质进包必须整组带展示结构，不能退回旧的纯字符串映射。"""
+
+    for physique_id, record in physiques.items():
+        if not isinstance(record, dict):
+            errors.append(f"体质配置必须是字典：{physique_id}")
+            continue
+        for field in ("name", "grade", "kind", "desc"):
+            _require_text(errors, f"{physique_id}.{field}", record.get(field))
+
+
+def _apply_physiques(conn: sqlite3.Connection, names: dict[str, Any]) -> int:
+    """切换体质展示字段；稳定 ID、数值、效果不随皮肤改变。"""
+
+    records = _physique_records(names)
+    if not records:
+        return 0
+
+    marker = "__world_skin_swap__physique_defs__"
+    for physique_id in records:
+        conn.execute(
+            "UPDATE physique_defs SET name = ? WHERE physique_id = ?",
+            (f"{marker}{physique_id}", physique_id),
+        )
+
+    count = 0
+    for physique_id, record in records.items():
+        if not isinstance(record, dict):
+            continue
+        count += conn.execute(
+            """
+            UPDATE physique_defs
+            SET name = ?, grade = ?, kind = ?, desc = ?
+            WHERE physique_id = ?
+            """,
+            (
+                str(record.get("name") or "").strip(),
+                str(record.get("grade") or "").strip(),
+                str(record.get("kind") or "").strip(),
+                str(record.get("desc") or "").strip(),
+                str(physique_id),
+            ),
+        ).rowcount
+    return count
 
 
 def _safe_update_unique_names(

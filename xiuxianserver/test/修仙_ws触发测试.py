@@ -117,7 +117,7 @@ async def main_async() -> None:
             await _assert_cq_at_split()
 
             await _dispatch(manager, "player_ws", "帮助")
-            _must_image_reply(manager, "player_ws")
+            _must_help_markdown_reply(manager, "player_ws")
 
             await _dispatch(manager, "player_ws", "修仙帮助")
             _must_image_reply(manager, "player_ws")
@@ -142,7 +142,7 @@ async def main_async() -> None:
             await _dispatch(manager, "target_ws", "创建用户 安兰")
             _must_reply(manager, "target_ws", "创建成功")
             await _dispatch(manager, "player_ws", "世界皮肤")
-            _must_reply(manager, "player_ws", "主人命令：世界皮肤切换 包名")
+            _must_reply(manager, "player_ws", "主人命令：世界皮肤切换 包名或显示名")
             await _dispatch(manager, "player_ws", "世界皮肤切换")
             _must_reply(manager, "player_ws", "缺少皮肤包名")
             await _dispatch(manager, "target_ws", "世界皮肤切换")
@@ -853,6 +853,21 @@ def _must_image_reply(manager: FakeManager, client_id: str) -> None:
     is_png = image_bytes.startswith(b"\x89PNG")
     is_webp = image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:16]
     assert is_png or is_webp, "图片回复不是 PNG/WebP base64"
+
+
+def _must_help_markdown_reply(manager: FakeManager, client_id: str) -> None:
+    """断言帮助入口收到带地图的 markdown 回复。"""
+
+    assert manager.sent, "期望有 ws 回复，实际没有"
+    assert len(manager.sent) == 1, f"一条命令只能产生一条回复，实际：{manager.sent}"
+    last_client_id, message = manager.sent[-1]
+    assert last_client_id == client_id, manager.sent
+    assert isinstance(message, dict), message
+    assert message.get("type") == "markdown", message
+    content = message.get("message", {}).get("content", "")
+    assert "[修仙帮助网页](" in content, content
+    assert "![修仙界地图 #720px #400px](" in content, content
+    assert "/static/map/default.jpg" in content, content
 
 
 def _add_feathers_conn(conn, client_id: str, quantity: int) -> None:

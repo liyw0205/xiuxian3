@@ -11,7 +11,7 @@ from ..sql import db
 from ..world_skin import (
     current_skin_id,
     list_skin_packages,
-    load_skin_package,
+    resolve_skin_package,
     validate_skin_package,
     apply_world_skin_package,
 )
@@ -35,10 +35,10 @@ class WorldSkinService(CoreService):
         panel.line("可用包：")
         for package in packages:
             marker = "当前" if package.skin_id == active_id else "可切换"
-            panel.line(f"{package.skin_id}｜{package.display_name}｜{package.version}｜{marker}")
+            panel.line(f"{package.skin_id} | {package.display_name} | {marker}")
         if is_master:
             panel.hr()
-            panel.line("主人命令：世界皮肤切换 包名")
+            panel.line("主人命令：世界皮肤切换 包名或显示名")
             panel.line("切换会先自动校验，失败不写库，异常会回滚。")
         return panel.render()
 
@@ -52,9 +52,9 @@ class WorldSkinService(CoreService):
             return T.hint("只有主人可以切换世界皮肤。", "普通玩家可以发送：世界皮肤 查看当前包。<世界皮肤>")
         skin_id = message.strip()
         if not skin_id:
-            return T.hint("缺少皮肤包名。", "发送：世界皮肤 查看可用包，再发送：世界皮肤切换 包名。<世界皮肤>")
+            return T.hint("缺少皮肤包名。", "发送：世界皮肤 查看可用包，再发送：世界皮肤切换 包名或显示名。<世界皮肤>")
         try:
-            package = load_skin_package(skin_id)
+            package = resolve_skin_package(skin_id)
         except ValueError as exc:
             return T.hint(str(exc), "发送：世界皮肤 查看可用包。<世界皮肤>")
 

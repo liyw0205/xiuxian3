@@ -56,6 +56,7 @@ from 修仙.world_skin import (
     apply_world_skin_package,
     current_help_map_path,
     load_skin_package,
+    resolve_skin_package,
     validate_skin_package,
 )
 from 修仙.world_materials import WorldMaterialService
@@ -156,10 +157,26 @@ def _check_newbie_gift_skin_names() -> None:
         test_db = XiuxianDB(Path(temp_dir) / "skin_gift.db")
         try:
             package = load_skin_package("perfect_world")
+            assert resolve_skin_package("完美世界").skin_id == "perfect_world"
             errors = validate_skin_package(package, test_db)
             assert not errors, errors
             with test_db.transaction() as conn:
                 apply_world_skin_package(conn, package, switched_by="test")
+
+            physique = test_db.fetch_one(
+                """
+                SELECT name, grade, kind, desc, effect
+                FROM physique_defs
+                WHERE physique_id = ?
+                """,
+                ("qingfeng_lingti",),
+            )
+            assert physique
+            assert physique["name"] == "清风灵骨"
+            assert physique["grade"] == "洞天灵骨"
+            assert physique["kind"] == "鲲鹏"
+            assert "肉身宝术对应原体质" in physique["desc"]
+            assert load_json(physique["effect"]).get("dodge_bonus") == 0.01
 
             player = PlayerService(test_db)
             player.create("skin_newbie", "SkinTester")
