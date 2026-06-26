@@ -24,7 +24,7 @@ from ..common import (
     ts,
     weapon_id_label,
 )
-from ..constants import DEFAULT_LOCATION_ID, ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL, WORLD_COORD_MAX, WORLD_COORD_MIN
+from ..constants import DEFAULT_LOCATION_ID, ENCOUNTER_SECONDS, EXPLORE_MINUTES, MAX_LEVEL, WISH_TOKEN_ITEM_ID, WORLD_COORD_MAX, WORLD_COORD_MIN
 from ..format_text import T
 from ..sect_war import sect_direction_bonus_conn
 from ..sql import db
@@ -42,6 +42,8 @@ SECRET_REALM_EXP_RATE = 0.25
 SECRET_REALM_GEM_CHANCE = 0.25
 SECRET_REALM_GEM_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]
 SECRET_REALM_GEM_LEVEL_WEIGHTS = [50, 25, 12, 7, 3, 2, 0.8, 0.2]
+WISH_TOKEN_DROP_CHANCE = 0.006
+SECRET_REALM_WISH_TOKEN_DROP_CHANCE = 0.018
 MONSTER_KIND_LOOT_POOLS = {
     "yao": (
         ("loot_yao_2", 28),
@@ -135,7 +137,14 @@ class ExplorationService(CoreService):
         if error:
             return error
         assert player is not None
-        rows = self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level, name")
+        rows = self.db.fetch_all(
+            """
+            SELECT e.*, COALESCE(w.terrain, '') AS terrain
+            FROM exploration_locations AS e
+            LEFT JOIN world_locations AS w ON w.location_id = e.location_id
+            ORDER BY e.recommended_level, e.name
+            """
+        )
         panel = T.panel()
         panel.section("探险地图")
         panel.line(f"范围：左下角 ({WORLD_COORD_MIN},{WORLD_COORD_MIN})｜右上角 ({WORLD_COORD_MAX},{WORLD_COORD_MAX})")
@@ -147,7 +156,7 @@ class ExplorationService(CoreService):
                 continue
             specialties = self._trade_specialties_text(str(row["name"]), str(row.get("location_id") or ""))
             line = (
-                f"{row['name']} ({row['x']},{row['y']})｜推荐 **{player_level_label(row['recommended_level'])}**｜"
+                f"{row['name']} ({row['x']},{row['y']})｜地貌：{row.get('terrain', '')}｜推荐 **{player_level_label(row['recommended_level'])}**｜"
                 f"怪物 {player_level_label(row['min_level'])}-{player_level_label(row['max_level'])}｜特产：{specialties}"
             )
             state_lines = self.world_material.city_state_lines(str(row["name"]), compact=True)
@@ -181,7 +190,7 @@ class ExplorationService(CoreService):
     def _secret_realm_map_line(row: dict, player_level: int) -> str:
         _ = player_level
         return (
-            f"{row['name']} ({row['x']},{row['y']})｜动态映身｜怪物随进入者变化｜{row['desc']}"
+            f"{row['name']} ({row['x']},{row['y']})｜地貌：{row.get('terrain', '')}｜动态映身｜怪物随进入者变化｜{row['desc']}"
         )
 
     def current_location(self, client_id: str) -> str:
@@ -714,6 +723,8 @@ class ExplorationService(CoreService):
                     0.004 if self._is_secret_realm(player["location_name"], player.get("location_id", "")) else 0.0,
                     str(player.get("location_id") or ""),
                 )
+            if not event.get("ring_drop_id") and random.random() < WISH_TOKEN_DROP_CHANCE + explore_bonus * 0.02:
+                event["ring_drop_id"] = WISH_TOKEN_ITEM_ID
             events.append(event)
         return self._precompute_result(
             player,
@@ -778,6 +789,8 @@ class ExplorationService(CoreService):
                 if gem_drop:
                     event["ring_drop_id"] = gem_drop["gem_id"]
                     event["ring_drop_level"] = gem_drop["level"]
+            if not event.get("ring_drop_id") and random.random() < SECRET_REALM_WISH_TOKEN_DROP_CHANCE + explore_bonus * 0.03:
+                event["ring_drop_id"] = WISH_TOKEN_ITEM_ID
             if random.random() < 0.18 + explore_bonus * 0.25:
                 location_drop = self._roll_secret_realm_location_drop()
                 if location_drop:

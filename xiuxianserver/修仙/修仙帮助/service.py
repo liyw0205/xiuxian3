@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from ..common import CoreService, currency_name
 from ..format_text import T
+from ..markdown_utils import markdown_link
 from ..public_url import public_url
 from ..sql import db
-from ..world_skin import current_help_map_path
 
 HELP_IMAGE = Path(__file__).with_name("help.png")
 
 
 GUIDE_COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "成长": ("修行成长", ("修仙信息", "状态", "签到", "新手礼包", "休息", "结束休息", "银行", "银行结息", "升级银行", "用户组")),
-    "行囊": ("行囊装备", ("背包", "纳戒", "保险箱", "武器", "装备", "孔位", "宝石", "体质重塑", "武器升限", "铭刻之羽")),
+    "行囊": ("行囊装备", ("背包", "纳戒", "保险箱", "祈愿", "我的凭证", "武器", "装备", "孔位", "宝石", "体质重塑", "武器升限", "铭刻之羽")),
     "战斗": ("探险战斗", ("地图", "探险列表", "探险状态", "结束探险", "首领", "首领状态", "挑战首领", "首领奖励", "虫洞", "虫洞奖励", "决斗记录")),
     "交易": ("交易流通", ("商场推荐", "跑商记录", "跑商限制", "跑商奖励", "自动出售", "出售全部 武器", "出售全部 宝石", "出售全部 技能书", "藏宝图", "领取藏宝图", "二手市场")),
     "世界": ("宗门世界", ("地图", "宗门", "宗门成员", "宗门大会", "领取宗门大会奖励", "风云榜", "修仙早报", "修仙界历史", "修仙百科 武器", "修仙百科 跑商", "帮助", "修仙帮助")),
@@ -54,11 +55,21 @@ class HelpService(CoreService):
         """返回当前阶段的帮助入口提示。"""
 
         help_url = public_url("/xiuxian/help")
-        map_url = public_url(current_help_map_path(self.db))
+        map_url = public_url("/xiuxian/map")
         return (
-            f"[修仙帮助网页]({help_url})\n\n"
-            "发送：修仙帮助 查看指令速查图，发送：指南 查看关键入口。\n\n"
-            f"![修仙界地图 #720px #400px]({map_url})"
+            f"{markdown_link('修仙帮助网页', help_url)}\n"
+            f"{markdown_link('修仙界地图', map_url)}\n\n"
+            "发送：修仙帮助 查看指令速查图，发送：指南 查看关键入口。"
+        )
+
+    def map_help(self, player_id: str = "") -> str:
+        """返回交互地图入口；带玩家 ID 时页面可展示当前位置。"""
+
+        suffix = f"?player_id={quote(str(player_id), safe='')}" if player_id else ""
+        map_url = public_url(f"/xiuxian/map{suffix}")
+        return (
+            f"{markdown_link('修仙界地图', map_url)}\n\n"
+            "地图展示城池、秘境、NPC 回收点、宗门山门和活跃事件；页面会每 60 秒刷新一次。"
         )
 
     def command_guide(self, section: str = "") -> str:

@@ -3,10 +3,10 @@
 
 PACKAGE = {
     "package_format": 5,
-    "schema_version": 2026062601,
+    "schema_version": 2026062701,
     "skin_id": "douluo",
     "display_name": "斗罗大陆",
-    "version": "2026.06.24-official.3",
+    "version": "2026.06.27-wish.1",
     "author": "xiuxianserver",
     "desc": "斗罗大陆正式皮肤，覆盖武魂、魂兽、魂导器和魂师等级风格。",
     "files": ["names.py"],

@@ -80,7 +80,7 @@ class PlayerService(CoreService):
         nemesis_text = self._nemesis_text(client_id)
         if nemesis_text:
             panel.line(f"死敌：{nemesis_text}")
-        panel.line(f"地点：{player['location_name']} ({player['x']},{player['y']})")
+        panel.line(f"地点：{player['location_name']} ({player['x']},{player['y']})｜地貌：{self._location_terrain(player)}")
         panel.hr()
         panel.section("战力")
         panel.line(f"攻击：**{total_attack}**（基础 {player['base_attack']} + 武器 {weapon_attack}）")
@@ -125,7 +125,7 @@ class PlayerService(CoreService):
         panel.section("关键状态")
         panel.line(f"等级：{player_level_label(player['level'])}｜经验：{self.next_level_text(player)}")
         panel.line(f"血气：{player['hp']}/{player['max_hp']}｜精神：{player['mp']}/{player['max_mp']}")
-        panel.line(f"状态：{player['status']}｜地点：{player['location_name']} ({player['x']},{player['y']})")
+        panel.line(f"状态：{player['status']}｜地点：{player['location_name']} ({player['x']},{player['y']})｜地貌：{self._location_terrain(player)}")
         panel.line(f"{currency_name()}：{money(player['raw_stones'])}")
         panel.hr()
         panel.line(f"攻击：{total_attack}｜防御：{player['defense']}｜速度：{combat_info['speed']}")
@@ -138,6 +138,20 @@ class PlayerService(CoreService):
         if nemesis_text:
             panel.line(f"死敌：{nemesis_text}")
         return panel.render() + T.buttons("修仙信息", "休息", "地图")
+
+    def _location_terrain(self, player: dict) -> str:
+        """读取当前位置地貌；空地和玩家自建宗门坐标显示为荒野。"""
+
+        location_id = str(player.get("location_id") or "").strip()
+        row = None
+        if location_id:
+            row = self.db.fetch_one("SELECT terrain FROM world_locations WHERE location_id = ?", (location_id,))
+        if not row:
+            row = self.db.fetch_one(
+                "SELECT terrain FROM world_locations WHERE x = ? AND y = ?",
+                (int(player["x"]), int(player["y"])),
+            )
+        return str(row["terrain"]) if row else "荒野"
 
     def diary(self, client_id: str) -> str:
         """查看个人修仙日记。"""

@@ -9,6 +9,7 @@ NAMES = {
         "cities": {
             "city_tianshu": {
                 "name": "石村",
+                "terrain": "大荒村落",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_tianshu_01": "石村骨片", "trade_city_tianshu_02": "柳神嫩枝", "trade_city_tianshu_03": "兽奶陶罐"},
                 "weapons": {
@@ -23,6 +24,7 @@ NAMES = {
             },
             "city_qinglan": {
                 "name": "虚神界",
+                "terrain": "精神界",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_qinglan_01": "虚神界令", "trade_city_qinglan_02": "洞天碑拓", "trade_city_qinglan_03": "战榜残页"},
                 "weapons": {
@@ -37,6 +39,7 @@ NAMES = {
             },
             "city_chixia": {
                 "name": "补天阁",
+                "terrain": "古教山门",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_chixia_01": "补天阁腰牌", "trade_city_chixia_02": "藏经骨书", "trade_city_chixia_03": "圣院香灰"},
                 "weapons": {
@@ -51,6 +54,7 @@ NAMES = {
             },
             "city_xuantie": {
                 "name": "百断山",
+                "terrain": "小世界山域",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_xuantie_01": "百断山钥", "trade_city_xuantie_02": "古兽牙牌", "trade_city_xuantie_03": "小世界沙"},
                 "weapons": {
@@ -65,6 +69,7 @@ NAMES = {
             },
             "city_wanyao": {
                 "name": "石国皇都",
+                "terrain": "皇都",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_wanyao_01": "石国金券", "trade_city_wanyao_02": "皇都玉牒", "trade_city_wanyao_03": "石皇印拓"},
                 "weapons": {
@@ -79,6 +84,7 @@ NAMES = {
             },
             "city_yunmeng": {
                 "name": "火国祖地",
+                "terrain": "火域祖地",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_yunmeng_01": "火桑叶", "trade_city_yunmeng_02": "朱雀火羽", "trade_city_yunmeng_03": "火国铜符"},
                 "weapons": {
@@ -93,6 +99,7 @@ NAMES = {
             },
             "city_liusha": {
                 "name": "不老山",
+                "terrain": "神山",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_liusha_01": "不老山令", "trade_city_liusha_02": "秦族玉简", "trade_city_liusha_03": "五行土"},
                 "weapons": {
@@ -106,6 +113,7 @@ NAMES = {
             },
             "city_hanshuang": {
                 "name": "北海鲲鹏巢",
+                "terrain": "北海巢域",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_hanshuang_01": "鲲鹏巢贝", "trade_city_hanshuang_02": "北海黑金", "trade_city_hanshuang_03": "阴阳羽"},
                 "weapons": {
@@ -119,6 +127,7 @@ NAMES = {
             },
             "city_leize": {
                 "name": "三千道州",
+                "terrain": "道州",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_leize_01": "三千州路引", "trade_city_leize_02": "仙院帖", "trade_city_leize_03": "道州商契"},
                 "weapons": {
@@ -132,6 +141,7 @@ NAMES = {
             },
             "city_bichao": {
                 "name": "帝关",
+                "terrain": "边关",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_bichao_01": "帝关战牌", "trade_city_bichao_02": "帝关军契", "trade_city_bichao_03": "黑暗骨箭"},
                 "weapons": {
@@ -145,6 +155,7 @@ NAMES = {
             },
             "city_xingyun": {
                 "name": "仙古遗地",
+                "terrain": "仙古遗地",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_xingyun_01": "仙古花契", "trade_city_xingyun_02": "长生药籽", "trade_city_xingyun_03": "古界石令"},
                 "weapons": {
@@ -157,19 +168,19 @@ NAMES = {
                 },
             },
         },
-        "realm": {"realm_taixu": {"name": "百断山小世界", "roles": ["secret_realm", "dynamic_battle"]}},
+        "realm": {"realm_taixu": {"name": "百断山小世界", "terrain": "小世界秘境", "roles": ["secret_realm", "dynamic_battle"]}},
         "buyers": {
-            "buyer_zhenyaosi": {"name": "石国镇妖府", "roles": ["special_buyer", "war_prep"]},
-            "buyer_fumodian": {"name": "补天伏魔院", "roles": ["special_buyer", "war_prep"]},
-            "buyer_guishi": {"name": "虚神界鬼市", "roles": ["special_buyer", "war_prep"]},
-            "buyer_longyuan": {"name": "真龙渊阁", "roles": ["special_buyer", "war_prep"]},
-            "buyer_wanshou": {"name": "太古万兽盟", "roles": ["special_buyer", "war_prep"]},
-            "buyer_pojun": {"name": "帝关破军营", "roles": ["special_buyer", "war_prep"]},
+            "buyer_zhenyaosi": {"name": "石国镇妖府", "terrain": "皇朝官署", "roles": ["special_buyer", "war_prep"]},
+            "buyer_fumodian": {"name": "补天伏魔院", "terrain": "古教法庭", "roles": ["special_buyer", "war_prep"]},
+            "buyer_guishi": {"name": "虚神界鬼市", "terrain": "精神黑市", "roles": ["special_buyer", "war_prep"]},
+            "buyer_longyuan": {"name": "真龙渊阁", "terrain": "真龙渊", "roles": ["special_buyer", "war_prep"]},
+            "buyer_wanshou": {"name": "太古万兽盟", "terrain": "太古兽原", "roles": ["special_buyer", "war_prep"]},
+            "buyer_pojun": {"name": "帝关破军营", "terrain": "边关军营", "roles": ["special_buyer", "war_prep"]},
         },
         "recycles": {
-            "recycle_weapon": {"name": "石村炼器台", "roles": ["recycle"]},
-            "recycle_gem": {"name": "虚神界鉴宝楼", "roles": ["recycle"]},
-            "recycle_book": {"name": "补天藏骨阁", "roles": ["recycle"]},
+            "recycle_weapon": {"name": "石村炼器台", "terrain": "大荒石台", "roles": ["recycle"]},
+            "recycle_gem": {"name": "虚神界鉴宝楼", "terrain": "精神宝楼", "roles": ["recycle"]},
+            "recycle_book": {"name": "补天藏骨阁", "terrain": "古教骨阁", "roles": ["recycle"]},
         },
     },
     "world_items": {
@@ -363,7 +374,7 @@ NAMES = {
             "jucai zijing": "七宝紫晶",
             "kangbao fuwen": "帝关抗暴纹",
         },
-        "special": {"kaikongqi": "铭纹开窍石", "xisuiye": "至尊洗髓液", "cuifengdan": "神曦淬锋丹"},
+        "special": {"kaikongqi": "铭纹开窍石", "xisuiye": "至尊洗髓液", "cuifengdan": "神曦淬锋丹", "liuguang_qian": "神曦签"},
     },
     "weapons": {
         "skill_books": {

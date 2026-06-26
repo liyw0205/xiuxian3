@@ -32,7 +32,7 @@ from .common import (
     ts,
     weapon_type_key,
 )
-from .constants import DEFAULT_LOCATION_ID, EQUIPMENT_SLOTS, SCHEMA_VERSION, WORLD_COORD_MAX, WORLD_COORD_MIN
+from .constants import DEFAULT_LOCATION_ID, EQUIPMENT_SLOTS, SCHEMA_VERSION, WISH_TOKEN_ITEM_ID, WORLD_COORD_MAX, WORLD_COORD_MIN
 
 
 PHYSIQUE_DEFS = (
@@ -206,6 +206,7 @@ RING_ITEM_DEFS = (
     ("kaikongqi", "开孔器", "消耗品", "珍品", 0, "装备", {}, "装备开孔材料，通过岁时情劫首领奖励获得。"),
     ("xisuiye", "洗髓液", "消耗品", "珍品", 0, "玩家", {"wash_physique": 1}, "岁时情劫首领和异界虫洞掉落的体质重塑消耗品，通过体质重塑命令消耗。"),
     ("cuifengdan", "淬锋丹", "专属道具", "稀品", 0, "武器", {"weapon_max_level_delta": 1, "weapon_max_level_cap": 100}, "宗门大会奖励。进入纳戒后通过武器升限消耗，使指定武器等级上限 +1，最高 100。"),
+    (WISH_TOKEN_ITEM_ID, "流光签", "专属道具", "良品", 0, "祈愿", {"wish_draws": 1}, "探险中低概率获得的祈愿凭据。进入纳戒后通过祈愿命令消耗，每枚可祈愿一次。"),
     ("fengren_shu", "风刃书", "技能书", "良品", 0, "武器", {"enchant_id": "fengren_shu"}, "高频连击流派。技能蓄势更快、命中更稳，但单次威力下降。"),
     ("shaying_shu", "沙影书", "技能书", "良品", 0, "武器", {"enchant_id": "shaying_shu"}, "高频连击流派。更容易追加连击，但连击伤害偏低。"),
     ("liuguang_shu", "流光书", "技能书", "良品", 0, "武器", {"enchant_id": "liuguang_shu"}, "高频连击流派。技能节奏更快，但单次爆发降低。"),
@@ -303,6 +304,40 @@ def _extreme_book_defs() -> tuple[tuple[str, str, str, str, int, str, dict[str, 
 
 
 EXTREME_BOOK_DEFS = _extreme_book_defs()
+
+
+WISH_DEFAULT_POOL_ID = "default_liuguang"
+WISH_VOUCHERS = (
+    ("liuguang_voucher", "流光凭证"),
+    ("xuanqi_voucher", "玄契凭证"),
+    ("xingming_voucher", "星命凭证"),
+    ("guixu_voucher", "归墟凭证"),
+    ("tianqi_voucher", "天启凭证"),
+)
+WISH_DEFAULT_PRIZES = (
+    ("currency_500", WISH_DEFAULT_POOL_ID, "currency", "raw_stones", "原石 500", 500, 1000, "{}"),
+    ("currency_1500", WISH_DEFAULT_POOL_ID, "currency", "raw_stones", "原石 1500", 1500, 600, "{}"),
+    ("currency_5000", WISH_DEFAULT_POOL_ID, "currency", "raw_stones", "原石 5000", 5000, 200, "{}"),
+    ("exp_200", WISH_DEFAULT_POOL_ID, "exp", "player_exp", "经验 200", 200, 1400, "{}"),
+    ("exp_600", WISH_DEFAULT_POOL_ID, "exp", "player_exp", "经验 600", 600, 800, "{}"),
+    ("exp_1500", WISH_DEFAULT_POOL_ID, "exp", "player_exp", "经验 1500", 1500, 300, "{}"),
+    ("ring_xueqidan_2", WISH_DEFAULT_POOL_ID, "ring_item", "xueqidan", "血契丹 x2", 2, 650, "{}"),
+    ("ring_yinmingcao_2", WISH_DEFAULT_POOL_ID, "ring_item", "yinmingcao", "阴冥草 x2", 2, 650, "{}"),
+    ("ring_huichunlu_1", WISH_DEFAULT_POOL_ID, "ring_item", "huichunlu", "回春露", 1, 450, "{}"),
+    ("ring_ningshenlu_1", WISH_DEFAULT_POOL_ID, "ring_item", "ningshenlu", "凝神露", 1, 450, "{}"),
+    ("ring_shenggudan_1", WISH_DEFAULT_POOL_ID, "ring_item", "shenggudan", "生骨丹", 1, 150, "{}"),
+    ("ring_yanghundan_1", WISH_DEFAULT_POOL_ID, "ring_item", "yanghundan", "养魂丹", 1, 150, "{}"),
+    ("world_med_xueqidan_2", WISH_DEFAULT_POOL_ID, "backpack_item", "world_med_xueqidan_1", "药路物资 x2", 2, 450, "{}"),
+    ("world_med_yinmingcao_2", WISH_DEFAULT_POOL_ID, "backpack_item", "world_med_yinmingcao_1", "药路物资 x2", 2, 450, "{}"),
+    ("world_life_chengshi_3", WISH_DEFAULT_POOL_ID, "backpack_item", "world_life_chengshi_1", "民生物资 x3", 3, 400, "{}"),
+    ("world_build_jichu_2", WISH_DEFAULT_POOL_ID, "backpack_item", "world_build_jichu_1", "建设物资 x2", 2, 350, "{}"),
+    ("world_relic_weiyun_1", WISH_DEFAULT_POOL_ID, "backpack_item", "world_relic_weiyun_1", "古物 x1", 1, 350, "{}"),
+    ("voucher_liuguang", WISH_DEFAULT_POOL_ID, "voucher", "liuguang_voucher", "流光凭证", 1, 240, "{}"),
+    ("voucher_xuanqi", WISH_DEFAULT_POOL_ID, "voucher", "xuanqi_voucher", "玄契凭证", 1, 240, "{}"),
+    ("voucher_xingming", WISH_DEFAULT_POOL_ID, "voucher", "xingming_voucher", "星命凭证", 1, 240, "{}"),
+    ("voucher_guixu", WISH_DEFAULT_POOL_ID, "voucher", "guixu_voucher", "归墟凭证", 1, 240, "{}"),
+    ("voucher_tianqi", WISH_DEFAULT_POOL_ID, "voucher", "tianqi_voucher", "天启凭证", 1, 240, "{}"),
+)
 
 
 SEASONAL_BOSS_REWARD_RATES = (
@@ -1132,6 +1167,54 @@ class XiuxianDB:
                 desc TEXT NOT NULL DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS wish_pools (
+                pool_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                cost_token_id TEXT NOT NULL,
+                cost_token_quantity INTEGER NOT NULL DEFAULT 1,
+                desc TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS wish_prizes (
+                prize_id TEXT PRIMARY KEY,
+                pool_id TEXT NOT NULL,
+                reward_type TEXT NOT NULL,
+                reward_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                weight INTEGER NOT NULL DEFAULT 1,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                desc TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (pool_id) REFERENCES wish_pools(pool_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS wish_draw_records (
+                record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id TEXT NOT NULL,
+                pool_id TEXT NOT NULL,
+                prize_id TEXT NOT NULL,
+                reward_type TEXT NOT NULL,
+                reward_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                cost_token_id TEXT NOT NULL,
+                cost_token_quantity INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS wish_user_vouchers (
+                player_id TEXT NOT NULL,
+                voucher_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (player_id, voucher_key)
+            );
+
             CREATE TABLE IF NOT EXISTS second_hand_listings (
                 listing_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 seller_id TEXT NOT NULL UNIQUE,
@@ -1846,6 +1929,9 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_user_group_bind_codes_player ON user_group_bind_codes(player_id, expires_at);
             CREATE INDEX IF NOT EXISTS idx_ring_client ON ring_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_gem_client ON gem_items(client_id);
+            CREATE INDEX IF NOT EXISTS idx_wish_prizes_pool ON wish_prizes(pool_id, enabled);
+            CREATE INDEX IF NOT EXISTS idx_wish_draw_records_player ON wish_draw_records(player_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_wish_user_vouchers_player ON wish_user_vouchers(player_id, quantity);
             CREATE INDEX IF NOT EXISTS idx_vault_items_client ON vault_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_vault_weapons_client ON vault_weapons(client_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_player_weapons_one_equipped
@@ -2110,6 +2196,7 @@ class XiuxianDB:
                 for row in EXTREME_BOOK_DEFS
             ],
         )
+        self._seed_wish_data()
         self.conn.executemany(
             """
             INSERT OR REPLACE INTO seasonal_boss_reward_rates
@@ -2478,6 +2565,35 @@ class XiuxianDB:
                 (location_id, current_name),
             )
 
+    def _seed_wish_data(self) -> None:
+        """写入祈愿默认奖池和奖品；已有奖池配置不覆盖，方便后续在库里调权重。"""
+
+        assert self.conn is not None
+        now_text = ts()
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO wish_pools
+            (pool_id, name, enabled, cost_token_id, cost_token_quantity, desc, created_at, updated_at)
+            VALUES (?, ?, 1, ?, 1, ?, ?, ?)
+            """,
+            (
+                WISH_DEFAULT_POOL_ID,
+                "流光祈愿",
+                WISH_TOKEN_ITEM_ID,
+                "消耗纳戒中的流光签进行祈愿；流光签由探险低概率掉落。",
+                now_text,
+                now_text,
+            ),
+        )
+        self.conn.executemany(
+            """
+            INSERT OR IGNORE INTO wish_prizes
+            (prize_id, pool_id, reward_type, reward_key, display_name, quantity, weight, enabled, payload_json, desc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, '')
+            """,
+            WISH_DEFAULT_PRIZES,
+        )
+
     def _validate_seed_data(self) -> None:
         """检查配置引用是否都能落到真实表。
 
@@ -2585,12 +2701,72 @@ class XiuxianDB:
             if quality_key(row["quality"]) != row["quality"]:
                 missing.append(f"背包物品品质必须保存稳定键：{item_id}/{row['name']}/{row['quality']}")
 
+        ring_item_ids: set[str] = set()
         for row in self.conn.execute("SELECT ring_item_id, name, category_key, quality FROM ring_item_defs").fetchall():
             item_id = str(row["ring_item_id"])
+            ring_item_ids.add(item_id)
             if row["category_key"] not in RING_CATEGORY_KEYS:
                 missing.append(f"纳戒物品分类稳定键非法：{item_id}/{row['name']}/{row['category_key']}")
             if quality_key(row["quality"]) != row["quality"]:
                 missing.append(f"纳戒物品品质必须保存稳定键：{item_id}/{row['name']}/{row['quality']}")
+
+        wish_pool_rows = self.conn.execute(
+            "SELECT pool_id, name, enabled, cost_token_id, cost_token_quantity FROM wish_pools"
+        ).fetchall()
+        wish_pool_ids = {str(row["pool_id"]) for row in wish_pool_rows}
+        enabled_wish_pools = {str(row["pool_id"]) for row in wish_pool_rows if int(row["enabled"] or 0)}
+        for row in wish_pool_rows:
+            pool_id = str(row["pool_id"])
+            cost_token_id = str(row["cost_token_id"])
+            if cost_token_id not in ring_item_ids:
+                missing.append(f"祈愿奖池消耗物不存在：{pool_id}/{row['name']}/{cost_token_id}")
+            if int(row["cost_token_quantity"] or 0) <= 0:
+                missing.append(f"祈愿奖池消耗数量必须大于 0：{pool_id}/{row['name']}")
+
+        valid_wish_reward_types = {"currency", "exp", "backpack_item", "ring_item", "voucher"}
+        wish_voucher_keys = {key for key, _name in WISH_VOUCHERS}
+        enabled_prize_weights = {pool_id: 0 for pool_id in enabled_wish_pools}
+        for row in self.conn.execute(
+            """
+            SELECT prize_id, pool_id, reward_type, reward_key, display_name, quantity, weight, enabled, payload_json
+            FROM wish_prizes
+            """
+        ).fetchall():
+            prize_id = str(row["prize_id"])
+            pool_id = str(row["pool_id"])
+            reward_type = str(row["reward_type"])
+            reward_key = str(row["reward_key"])
+            if pool_id not in wish_pool_ids:
+                missing.append(f"祈愿奖品指向不存在的奖池：{prize_id}/{pool_id}")
+            if reward_type not in valid_wish_reward_types:
+                missing.append(f"祈愿奖品类型非法：{prize_id}/{reward_type}")
+            try:
+                json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                missing.append(f"祈愿奖品 payload_json 不是 JSON：{prize_id}/{row['display_name']}")
+            if not int(row["enabled"] or 0):
+                continue
+            quantity = int(row["quantity"] or 0)
+            weight = int(row["weight"] or 0)
+            if quantity <= 0:
+                missing.append(f"祈愿奖品数量必须大于 0：{prize_id}/{row['display_name']}")
+            if weight <= 0:
+                missing.append(f"祈愿奖品权重必须大于 0：{prize_id}/{row['display_name']}")
+            if pool_id in enabled_prize_weights:
+                enabled_prize_weights[pool_id] += max(0, weight)
+            if reward_type == "currency" and reward_key not in CURRENCY_DEFS:
+                missing.append(f"祈愿货币奖品指向未知货币：{prize_id}/{reward_key}")
+            elif reward_type == "exp" and reward_key != "player_exp":
+                missing.append(f"祈愿经验奖品稳定键非法：{prize_id}/{reward_key}")
+            elif reward_type == "backpack_item" and reward_key not in item_ids:
+                missing.append(f"祈愿背包奖品不存在：{prize_id}/{reward_key}")
+            elif reward_type == "ring_item" and reward_key not in ring_item_ids:
+                missing.append(f"祈愿纳戒奖品不存在：{prize_id}/{reward_key}")
+            elif reward_type == "voucher" and reward_key not in wish_voucher_keys:
+                missing.append(f"祈愿凭证奖品不存在：{prize_id}/{reward_key}")
+        for pool_id, total_weight in enabled_prize_weights.items():
+            if total_weight <= 0:
+                missing.append(f"启用中的祈愿奖池没有可抽奖品：{pool_id}")
 
         coord_names: dict[tuple[int, int], str] = {}
         name_coords: dict[str, tuple[int, int]] = {}

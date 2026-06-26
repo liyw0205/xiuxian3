@@ -119,6 +119,11 @@ async def main_async() -> None:
             await _dispatch(manager, "player_ws", "帮助")
             _must_help_markdown_reply(manager, "player_ws")
 
+            await _dispatch(manager, "player_ws", "地图")
+            _must_reply(manager, "player_ws", "[修仙界地图](")
+            _must_reply(manager, "player_ws", "/xiuxian/map")
+            assert "探险地图" not in _last_reply_text(manager)
+
             await _dispatch(manager, "player_ws", "修仙帮助")
             _must_image_reply(manager, "player_ws")
 
@@ -716,6 +721,7 @@ async def _assert_command_plan() -> None:
     main_view_commands = (
         "帮助",
         "修仙帮助",
+        "地图",
         "指南",
         "状态",
         "宗门",
@@ -856,7 +862,7 @@ def _must_image_reply(manager: FakeManager, client_id: str) -> None:
 
 
 def _must_help_markdown_reply(manager: FakeManager, client_id: str) -> None:
-    """断言帮助入口收到带地图的 markdown 回复。"""
+    """断言帮助入口收到隐藏网页入口 markdown 回复。"""
 
     assert manager.sent, "期望有 ws 回复，实际没有"
     assert len(manager.sent) == 1, f"一条命令只能产生一条回复，实际：{manager.sent}"
@@ -866,8 +872,9 @@ def _must_help_markdown_reply(manager: FakeManager, client_id: str) -> None:
     assert message.get("type") == "markdown", message
     content = message.get("message", {}).get("content", "")
     assert "[修仙帮助网页](" in content, content
-    assert "![修仙界地图 #720px #400px](" in content, content
-    assert "/static/map/default.jpg" in content, content
+    assert "[修仙界地图](" in content, content
+    assert "/xiuxian/map" in content, content
+    assert "![修仙界地图" not in content, content
 
 
 def _add_feathers_conn(conn, client_id: str, quantity: int) -> None:

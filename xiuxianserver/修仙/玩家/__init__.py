@@ -1,4 +1,4 @@
-﻿"""玩家组件 命令。"""
+"""玩家组件 命令。"""
 
 from __future__ import annotations
 

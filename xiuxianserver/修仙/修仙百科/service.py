@@ -892,9 +892,17 @@ class EncyclopediaService:
         """跑商地点资料。"""
 
         entries: list[KnowledgeEntry] = []
-        for row in self.db.fetch_all("SELECT * FROM trade_locations ORDER BY name"):
+        for row in self.db.fetch_all(
+            """
+            SELECT t.*, COALESCE(w.terrain, '') AS terrain
+            FROM trade_locations AS t
+            LEFT JOIN world_locations AS w ON w.location_id = t.location_id
+            ORDER BY t.name
+            """
+        ):
             body = _join_parts(
                 f"坐标：({row.get('x', 0)},{row.get('y', 0)})",
+                f"地貌：{row.get('terrain', '')}",
                 f"特产：{row.get('specialties', '')}",
             )
             entries.append(
@@ -903,7 +911,7 @@ class EncyclopediaService:
                     group="贸易服务",
                     kind="跑商地点",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("specialties"), "商场", "跑商", "导航"),
+                    keywords=_keywords(row.get("name"), row.get("terrain"), row.get("specialties"), "商场", "跑商", "导航"),
                 )
             )
         return entries
@@ -912,9 +920,17 @@ class EncyclopediaService:
         """探险地点资料。"""
 
         entries: list[KnowledgeEntry] = []
-        for row in self.db.fetch_all("SELECT * FROM exploration_locations ORDER BY recommended_level, name"):
+        for row in self.db.fetch_all(
+            """
+            SELECT e.*, COALESCE(w.terrain, '') AS terrain
+            FROM exploration_locations AS e
+            LEFT JOIN world_locations AS w ON w.location_id = e.location_id
+            ORDER BY e.recommended_level, e.name
+            """
+        ):
             body = _join_parts(
                 f"坐标：({row.get('x', 0)},{row.get('y', 0)})",
+                f"地貌：{row.get('terrain', '')}",
                 f"推荐等级：{player_level_label(row.get('recommended_level', 1))}",
                 f"怪物等级：{player_level_label(row.get('min_level', 1))}-{player_level_label(row.get('max_level', 1))}",
                 str(row.get("desc", "")),
@@ -925,7 +941,7 @@ class EncyclopediaService:
                     group="探险",
                     kind="探险地点",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("desc"), "探险", "地图"),
+                    keywords=_keywords(row.get("name"), row.get("terrain"), row.get("desc"), "探险", "地图"),
                 )
             )
         return entries
@@ -968,10 +984,18 @@ class EncyclopediaService:
         """特殊收购资料。"""
 
         entries: list[KnowledgeEntry] = []
-        for row in self.db.fetch_all("SELECT * FROM special_buyers ORDER BY buyer_name"):
+        for row in self.db.fetch_all(
+            """
+            SELECT b.*, COALESCE(w.terrain, '') AS terrain
+            FROM special_buyers AS b
+            LEFT JOIN world_locations AS w ON w.location_id = b.location_id
+            ORDER BY b.buyer_name
+            """
+        ):
             names = self._item_names(str(row.get("item_ids", "")))
             body = _join_parts(
                 f"坐标：({row.get('x', 0)},{row.get('y', 0)})",
+                f"地貌：{row.get('terrain', '')}",
                 f"收购倍率：{row.get('price_factor', 1)}",
                 f"收购物品：{'、'.join(names) if names else row.get('item_ids', '')}",
             )
@@ -981,7 +1005,7 @@ class EncyclopediaService:
                     group="贸易服务",
                     kind="特殊收购",
                     body=body,
-                    keywords=_keywords(row.get("buyer_name"), *names, "商场", "出售", "自动出售"),
+                    keywords=_keywords(row.get("buyer_name"), row.get("terrain"), *names, "商场", "出售", "自动出售"),
                 )
             )
         return entries
@@ -990,10 +1014,18 @@ class EncyclopediaService:
         """回收地点资料。"""
 
         entries: list[KnowledgeEntry] = []
-        for row in self.db.fetch_all("SELECT * FROM recycle_locations ORDER BY recycle_type, name"):
+        for row in self.db.fetch_all(
+            """
+            SELECT r.*, COALESCE(w.terrain, '') AS terrain
+            FROM recycle_locations AS r
+            LEFT JOIN world_locations AS w ON w.location_id = r.location_id
+            ORDER BY r.recycle_type, r.name
+            """
+        ):
             body = _join_parts(
                 f"回收类型：{row.get('recycle_type', '')}",
                 f"坐标：({row.get('x', 0)},{row.get('y', 0)})",
+                f"地貌：{row.get('terrain', '')}",
                 f"价格倍率：{row.get('price_factor', 1)}",
                 str(row.get("desc", "")),
             )
@@ -1003,7 +1035,7 @@ class EncyclopediaService:
                     group="贸易服务",
                     kind="回收地点",
                     body=body,
-                    keywords=_keywords(row.get("name"), row.get("recycle_type"), row.get("desc"), "商场", "回收"),
+                    keywords=_keywords(row.get("name"), row.get("terrain"), row.get("recycle_type"), row.get("desc"), "商场", "回收"),
                 )
             )
         return entries

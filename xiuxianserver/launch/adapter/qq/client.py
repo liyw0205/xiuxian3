@@ -16,7 +16,7 @@ from launch.log import C, logger
 
 
 QQ_TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
-QQ_OPEN_API_BASE = "https://sandbox.api.sgroup.qq.com"
+QQ_OPEN_API_BASE = "https://api.sgroup.qq.com"
 
 
 class QqOpenApiClient:

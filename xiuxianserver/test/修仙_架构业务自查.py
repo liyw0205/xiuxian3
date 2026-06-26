@@ -456,6 +456,10 @@ def _check_seed_data() -> None:
 def _check_project_timezone() -> None:
     """确认项目时区已经同步到当前进程，避免 Linux 日志时间跟本地时间错位。"""
 
+    if os.name == "nt":
+        assert os.environ.get("TZ") is None, "Windows 下不能设置 IANA TZ，避免 reload 子进程时间偏移"
+        return
+
     assert os.environ.get("TZ") == config.project.timezone, "PROJECT_TIMEZONE 没有同步到进程 TZ"
     if hasattr(time, "tzset"):
         expected = datetime.fromtimestamp(0, ZoneInfo(config.project.timezone))

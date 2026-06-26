@@ -654,6 +654,7 @@ class TradeService(WeaponCore):
             x = int(location["x"])
             y = int(location["y"])
             location_id = str(location.get("location_id") or "")
+            terrain = str(location.get("terrain") or "荒野")
             wormhole_location = name
             wormhole_location_id = location_id
         elif len(parts) == 2:
@@ -669,6 +670,7 @@ class TradeService(WeaponCore):
             location = self._known_location_at(x, y)
             name = str(location["name"]) if location else self._wilderness_name(x, y)
             location_id = str(location.get("location_id") or "") if location else ""
+            terrain = str(location.get("terrain") or "荒野") if location else "荒野"
             wormhole_location = name if location else ""
             wormhole_location_id = location_id
         else:
@@ -683,7 +685,7 @@ class TradeService(WeaponCore):
                 (client_id, f"location={name}, x={x}, y={y}", ts()),
             )
         notice = self.wormhole.try_discover(client_id, "navigate", wormhole_location, wormhole_location_id) if wormhole_location else ""
-        return f"已到达 {name} ({x},{y})。" + notice + "<探险><商场推荐><自动出售>"
+        return f"已到达 {name} ({x},{y})｜地貌：{terrain}。" + notice + "<探险><商场推荐><自动出售>"
 
     def price(self, location_name: str, item_id: str, save: bool = False) -> tuple[int, int]:
         """获取当天价格。
@@ -1299,14 +1301,22 @@ class TradeService(WeaponCore):
     def _navigation_location(self, name: str) -> dict | None:
         """读取任意可命名导航地点。"""
 
-        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE name = ?", (name.strip(),))
-        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+        row = self.db.fetch_one("SELECT location_id, name, terrain, x, y FROM world_locations WHERE name = ?", (name.strip(),))
+        return {"location_id": row["location_id"], "name": row["name"], "terrain": row["terrain"], "x": int(row["x"]), "y": int(row["y"])} if row else None
 
     def _location_by_id(self, location_id: str) -> dict | None:
         """按稳定 ID 读取跑商城池。"""
 
-        row = self.db.fetch_one("SELECT location_id, name, x, y FROM trade_locations WHERE location_id = ?", (str(location_id),))
-        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+        row = self.db.fetch_one(
+            """
+            SELECT t.location_id, t.name, COALESCE(w.terrain, '') AS terrain, t.x, t.y
+            FROM trade_locations AS t
+            LEFT JOIN world_locations AS w ON w.location_id = t.location_id
+            WHERE t.location_id = ?
+            """,
+            (str(location_id),),
+        )
+        return {"location_id": row["location_id"], "name": row["name"], "terrain": row["terrain"], "x": int(row["x"]), "y": int(row["y"])} if row else None
 
     @staticmethod
     def _location_id_for_point_conn(conn, name: str, x: int, y: int) -> str:
@@ -1327,15 +1337,15 @@ class TradeService(WeaponCore):
         """读取全部 NPC 地点，供坐标导航使用。"""
 
         return [
-            {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])}
-            for row in self.db.fetch_all("SELECT location_id, name, x, y FROM world_locations")
+            {"location_id": row["location_id"], "name": row["name"], "terrain": row["terrain"], "x": int(row["x"]), "y": int(row["y"])}
+            for row in self.db.fetch_all("SELECT location_id, name, terrain, x, y FROM world_locations")
         ]
 
     def _known_location_at(self, x: int, y: int) -> dict | None:
         """读取精确坐标上的 NPC 地点。"""
 
-        row = self.db.fetch_one("SELECT location_id, name, x, y FROM world_locations WHERE x = ? AND y = ?", (x, y))
-        return {"location_id": row["location_id"], "name": row["name"], "x": int(row["x"]), "y": int(row["y"])} if row else None
+        row = self.db.fetch_one("SELECT location_id, name, terrain, x, y FROM world_locations WHERE x = ? AND y = ?", (x, y))
+        return {"location_id": row["location_id"], "name": row["name"], "terrain": row["terrain"], "x": int(row["x"]), "y": int(row["y"])} if row else None
 
     def _nearest_location(self, x: int, y: int) -> dict | None:
         """按坐标找最近地点。"""

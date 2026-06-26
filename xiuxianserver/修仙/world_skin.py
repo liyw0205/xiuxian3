@@ -243,6 +243,7 @@ def validate_skin_package(package: WorldSkinPackage, database: Any = db) -> list
             errors.append(f"城池配置必须是字典：{city_id}")
             continue
         _require_text(errors, f"{city_id}.name", city.get("name"))
+        _require_text(errors, f"{city_id}.terrain", city.get("terrain"))
         _require_count(errors, f"{city_id}.trade_goods", city.get("trade_goods"), 3)
         weapons_map = city.get("weapons")
         if not isinstance(weapons_map, dict):
@@ -263,6 +264,14 @@ def validate_skin_package(package: WorldSkinPackage, database: Any = db) -> list
             _require_text(errors, f"{weapon_id}.innate_skill.name", innate.get("name"))
     _require_exact(errors, "普通城池特产", city_trade_count, 33)
     _require_exact(errors, "城池武器", city_weapon_count, 72)
+
+    for label, group in (("太虚秘境", realm), ("特殊收购点", buyers), ("回收点", recycles)):
+        for stable_id, row in group.items():
+            if not isinstance(row, dict):
+                errors.append(f"{label}配置必须是字典：{stable_id}")
+                continue
+            _require_text(errors, f"{stable_id}.name", row.get("name"))
+            _require_text(errors, f"{stable_id}.terrain", row.get("terrain"))
 
     _require_count(errors, "非纯经济世界物资", _flatten_world_item_names(world_items), 125)
     _require_count(errors, "恢复纳戒物品", ring.get("recovery"), 7)
@@ -726,6 +735,11 @@ def _apply_places(conn: sqlite3.Connection, names: dict[str, Any]) -> int:
     recycle_names = {stable_id: str(row["name"]) for stable_id, row in places["recycles"].items()}
     all_places = {**city_names, **realm_names, **buyer_names, **recycle_names}
     count += _safe_update_unique_names(conn, "world_locations", "location_id", "name", all_places)
+    for location_id, terrain in _place_terrains(names).items():
+        count += conn.execute(
+            "UPDATE world_locations SET terrain = ? WHERE location_id = ?",
+            (terrain, location_id),
+        ).rowcount
     count += _safe_update_unique_names(conn, "trade_locations", "location_id", "name", city_names)
     count += _safe_update_unique_names(conn, "exploration_locations", "location_id", "name", {**city_names, **realm_names})
     count += _safe_update_unique_names(conn, "special_buyers", "location_id", "buyer_name", buyer_names)
@@ -943,7 +957,7 @@ def _location_entries(database: Any) -> list[WorldSkinEntry]:
             row.get("category"),
             row.get("location_id"),
             row.get("name"),
-            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜地形：{row.get('terrain', '')}｜{row.get('desc', '')}",
+            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜地貌：{row.get('terrain', '')}｜{row.get('desc', '')}",
             row.get("terrain"),
         )
         for row in rows
@@ -954,9 +968,10 @@ def _trade_location_entries(database: Any) -> list[WorldSkinEntry]:
     rows = _fetch_all(
         database,
         """
-        SELECT location_id, name, x, y, specialties
-        FROM trade_locations
-        ORDER BY name
+        SELECT t.location_id, t.name, t.x, t.y, t.specialties, COALESCE(w.terrain, '') AS terrain
+        FROM trade_locations AS t
+        LEFT JOIN world_locations AS w ON w.location_id = t.location_id
+        ORDER BY t.name
         """,
     )
     return [
@@ -965,8 +980,9 @@ def _trade_location_entries(database: Any) -> list[WorldSkinEntry]:
             "纯经济特产",
             row.get("location_id"),
             row.get("name"),
-            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜特产：{row.get('specialties', '')}",
+            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜地貌：{row.get('terrain', '')}｜特产：{row.get('specialties', '')}",
             row.get("specialties"),
+            row.get("terrain"),
         )
         for row in rows
     ]
@@ -976,9 +992,11 @@ def _exploration_location_entries(database: Any) -> list[WorldSkinEntry]:
     rows = _fetch_all(
         database,
         """
-        SELECT location_id, name, x, y, recommended_level, min_level, max_level, desc
-        FROM exploration_locations
-        ORDER BY recommended_level, name
+        SELECT e.location_id, e.name, e.x, e.y, e.recommended_level, e.min_level, e.max_level, e.desc,
+               COALESCE(w.terrain, '') AS terrain
+        FROM exploration_locations AS e
+        LEFT JOIN world_locations AS w ON w.location_id = e.location_id
+        ORDER BY e.recommended_level, e.name
         """,
     )
     return [
@@ -989,11 +1007,13 @@ def _exploration_location_entries(database: Any) -> list[WorldSkinEntry]:
             row.get("name"),
             (
                 f"坐标({row.get('x', 0)},{row.get('y', 0)})｜"
+                f"地貌：{row.get('terrain', '')}｜"
                 f"推荐{player_level_label(row.get('recommended_level', 1))}｜"
                 f"怪物{player_level_label(row.get('min_level', 1))}-{player_level_label(row.get('max_level', 1))}｜"
                 f"{row.get('desc', '')}"
             ),
             row.get("desc"),
+            row.get("terrain"),
         )
         for row in rows
     ]
@@ -1003,9 +1023,10 @@ def _special_buyer_entries(database: Any) -> list[WorldSkinEntry]:
     rows = _fetch_all(
         database,
         """
-        SELECT location_id, buyer_name, item_ids, price_factor, x, y
-        FROM special_buyers
-        ORDER BY buyer_name
+        SELECT b.location_id, b.buyer_name, b.item_ids, b.price_factor, b.x, b.y, COALESCE(w.terrain, '') AS terrain
+        FROM special_buyers AS b
+        LEFT JOIN world_locations AS w ON w.location_id = b.location_id
+        ORDER BY b.buyer_name
         """,
     )
     return [
@@ -1014,8 +1035,9 @@ def _special_buyer_entries(database: Any) -> list[WorldSkinEntry]:
             "战备回收",
             row.get("location_id"),
             row.get("buyer_name"),
-            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜倍率：{row.get('price_factor', 1)}｜收购物：{row.get('item_ids', '')}",
+            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜地貌：{row.get('terrain', '')}｜倍率：{row.get('price_factor', 1)}｜收购物：{row.get('item_ids', '')}",
             row.get("item_ids"),
+            row.get("terrain"),
         )
         for row in rows
     ]
@@ -1025,9 +1047,11 @@ def _recycle_location_entries(database: Any) -> list[WorldSkinEntry]:
     rows = _fetch_all(
         database,
         """
-        SELECT location_id, name, recycle_type, price_factor, x, y, desc
-        FROM recycle_locations
-        ORDER BY recycle_type, name
+        SELECT r.location_id, r.name, r.recycle_type, r.price_factor, r.x, r.y, r.desc,
+               COALESCE(w.terrain, '') AS terrain
+        FROM recycle_locations AS r
+        LEFT JOIN world_locations AS w ON w.location_id = r.location_id
+        ORDER BY r.recycle_type, r.name
         """,
     )
     return [
@@ -1036,8 +1060,9 @@ def _recycle_location_entries(database: Any) -> list[WorldSkinEntry]:
             row.get("recycle_type"),
             row.get("location_id"),
             row.get("name"),
-            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜倍率：{row.get('price_factor', 1)}｜{row.get('desc', '')}",
+            f"坐标({row.get('x', 0)},{row.get('y', 0)})｜地貌：{row.get('terrain', '')}｜倍率：{row.get('price_factor', 1)}｜{row.get('desc', '')}",
             row.get("recycle_type"),
+            row.get("terrain"),
         )
         for row in rows
     ]
@@ -1459,6 +1484,17 @@ def _place_names(names: dict[str, Any]) -> dict[str, str]:
     for group in ("cities", "realm", "buyers", "recycles"):
         for stable_id, row in places[group].items():
             result[stable_id] = str(row["name"])
+    return result
+
+
+def _place_terrains(names: dict[str, Any]) -> dict[str, str]:
+    """读取地点地貌展示名；只用于 world_locations 展示，不参与业务判断。"""
+
+    places = names["places"]
+    result: dict[str, str] = {}
+    for group in ("cities", "realm", "buyers", "recycles"):
+        for stable_id, row in places[group].items():
+            result[str(stable_id)] = str(row["terrain"]).strip()
     return result
 
 

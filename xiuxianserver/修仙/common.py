@@ -27,6 +27,7 @@ from .constants import (
     RENAME_COOLDOWN_HOURS,
     SECT_LEVEL_MAX,
     WEAPON_TYPE_INTERVAL_FACTORS,
+    WISH_TOKEN_ITEM_ID,
     WORLD_LONG_RECORD_RETENTION_DAYS,
     WORLD_SHORT_RECORD_RETENTION_DAYS,
 )
@@ -377,6 +378,8 @@ def ring_item_use_hint(item: dict[str, Any]) -> str:
         return "<体质重塑><宝石><武器>"
     if item_id == "cuifengdan":
         return f"{name}由纳戒承接消耗，请发送：武器升限；默认提升已装备武器，也可发送：武器升限 武器ID。<纳戒><武器>"
+    if item_id == WISH_TOKEN_ITEM_ID:
+        return f"{name}由祈愿承接消耗，请发送：祈愿；也可以发送：十连祈愿 一次消耗 10 枚。<祈愿><十连祈愿><我的凭证>"
     if category_key == RING_CATEGORY_GEM:
         return f"宝石请发送：镶嵌 装备位 孔位号 {name}；同名多等级时加等级，例如：{name} 2级。<体质重塑><宝石><武器>"
     if category_key == RING_CATEGORY_BOOK:
@@ -483,6 +486,7 @@ SPECIAL_RING_ITEM_DEFAULT_NAMES = {
     "kaikongqi": "开孔器",
     "xisuiye": "洗髓液",
     "cuifengdan": "淬锋丹",
+    WISH_TOKEN_ITEM_ID: "流光签",
 }
 
 

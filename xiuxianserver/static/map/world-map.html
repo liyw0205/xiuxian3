@@ -1,0 +1,1802 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>修仙界公开地图</title>
+  <style>
+    :root {
+      --paper: #f5ebd2;
+      --paper-deep: #e6d4aa;
+      --ink: #1f2621;
+      --muted: #756c5a;
+      --panel: rgba(255, 250, 238, .86);
+      --panel-strong: rgba(255, 250, 238, .95);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      background:
+        linear-gradient(120deg, rgba(58, 90, 72, .16), transparent 34%),
+        linear-gradient(300deg, rgba(126, 73, 40, .16), transparent 38%),
+        var(--paper-deep);
+      touch-action: none;
+    }
+
+    .app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      padding: clamp(10px, 1.2vw, 16px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .topbar,
+    .hud,
+    .panel,
+    .tip {
+      border: 1px solid rgba(82, 63, 34, .22);
+      background: var(--panel);
+      box-shadow: 0 16px 42px rgba(50, 36, 18, .16);
+      backdrop-filter: blur(12px);
+    }
+
+    .topbar {
+      min-height: 76px;
+      padding: 11px 13px;
+      display: grid;
+      grid-template-columns: minmax(210px, auto) minmax(260px, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      z-index: 6;
+    }
+
+    h1 {
+      margin: 0;
+      color: #17241e;
+      font-size: 24px;
+      line-height: 1.08;
+      letter-spacing: 0;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .sub {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    button {
+      height: 36px;
+      border: 1px solid rgba(75, 58, 31, .22);
+      background: rgba(255, 249, 235, .78);
+      color: var(--ink);
+      font: inherit;
+      outline: none;
+    }
+
+    button:focus-visible {
+      border-color: rgba(36, 124, 99, .7);
+      box-shadow: 0 0 0 3px rgba(36, 124, 99, .14);
+    }
+
+    button {
+      min-width: 38px;
+      padding: 0 12px;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    button:hover,
+    button.active {
+      background: rgba(36, 124, 99, .14);
+      border-color: rgba(36, 124, 99, .42);
+    }
+
+    .world-stats {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(72px, 1fr));
+      gap: 7px;
+      align-items: stretch;
+    }
+
+    .stat {
+      min-height: 46px;
+      padding: 7px 9px;
+      border: 1px solid rgba(75, 58, 31, .16);
+      background: rgba(255, 249, 235, .56);
+    }
+
+    .stat b {
+      display: block;
+      color: #17241e;
+      font-size: 17px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filters {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .filter {
+      height: 30px;
+      min-width: auto;
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .filter.active { color: #17241e; }
+
+    .zoom {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .zoom-readout {
+      min-width: 58px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .map-stage {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid rgba(82, 63, 34, .24);
+      background:
+        linear-gradient(135deg, rgba(255, 250, 238, .7), rgba(226, 204, 160, .32)),
+        var(--paper);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, .42),
+        0 22px 54px rgba(50, 36, 18, .18);
+    }
+
+    .map-stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background-image:
+        repeating-linear-gradient(0deg, rgba(70, 54, 28, .035) 0 1px, transparent 1px 5px),
+        repeating-linear-gradient(90deg, rgba(70, 54, 28, .025) 0 1px, transparent 1px 7px);
+      mix-blend-mode: multiply;
+    }
+
+    #worldMap {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+
+    #worldMap.dragging { cursor: grabbing; }
+
+    .hud {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      z-index: 4;
+      min-width: 220px;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+      pointer-events: none;
+    }
+
+    .panel {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      z-index: 5;
+      width: min(350px, calc(100vw - 28px));
+      padding: 14px;
+      background: var(--panel-strong);
+    }
+
+    .panel h2 {
+      margin: 0;
+      color: #17241e;
+      font-size: 18px;
+      line-height: 1.24;
+      letter-spacing: 0;
+    }
+
+    .panel .kind {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel .lines {
+      display: grid;
+      gap: 7px;
+      margin-top: 12px;
+      color: #2b332d;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px dashed rgba(84, 64, 33, .2);
+      padding-bottom: 7px;
+    }
+
+    .line span {
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .tip {
+      position: absolute;
+      z-index: 7;
+      display: none;
+      pointer-events: none;
+      padding: 7px 9px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: nowrap;
+      transform: translate(12px, 12px);
+    }
+
+    @media (max-width: 960px) {
+      .app { padding: 8px; gap: 8px; }
+      .topbar { grid-template-columns: 1fr; gap: 8px; padding: 10px; }
+      h1 { font-size: 20px; }
+      .controls,
+      .filters { justify-content: flex-start; }
+      .world-stats { grid-template-columns: repeat(3, minmax(80px, 1fr)); }
+      .sub { white-space: normal; }
+    }
+
+    @media (max-width: 680px) {
+      .panel { display: none; }
+      .world-stats { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+      .hud {
+        left: 10px;
+        bottom: 10px;
+        min-width: 0;
+        max-width: calc(100vw - 20px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <h1>修仙界四洲图</h1>
+        <div class="sub" id="updatedAt">更新时间：-</div>
+      </div>
+      <div class="world-stats" id="worldStats">
+        <div class="stat"><b id="statNamedPoints">-</b><span>已使用地标</span></div>
+        <div class="stat"><b id="statCities">-</b><span>普通城池</span></div>
+        <div class="stat"><b id="statSpecialPoints">-</b><span>特殊点位</span></div>
+        <div class="stat"><b id="statSects">-</b><span>宗门</span></div>
+        <div class="stat"><b id="statTopCity">-</b><span>最高城池</span></div>
+        <div class="stat"><b id="statEvents">-</b><span>活跃事件</span></div>
+      </div>
+      <div class="controls">
+        <div class="filters" aria-label="图层">
+          <button class="filter active" data-layer="city">城池</button>
+          <button class="filter active" data-layer="realm">秘境</button>
+          <button class="filter active" data-layer="buyer">战利品</button>
+          <button class="filter active" data-layer="recycle">纳戒回收</button>
+          <button class="filter active" data-layer="sect">宗门</button>
+          <button class="filter active" data-layer="wormhole">事件</button>
+        </div>
+        <div class="zoom" aria-label="缩放">
+          <button id="zoomOut" title="缩小" aria-label="缩小">−</button>
+          <span class="zoom-readout" id="zoomReadout">100%</span>
+          <button id="zoomIn" title="放大" aria-label="放大">+</button>
+          <button id="fitMap" title="重置视图" aria-label="重置视图">◎</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="map-stage">
+      <canvas id="worldMap" aria-label="修仙界公开地图"></canvas>
+      <div class="hud" id="hud">
+        <div>坐标：-</div>
+        <div>范围：-100,-100 至 100,100</div>
+      </div>
+      <aside class="panel" id="infoPanel"></aside>
+      <div class="tip" id="tip"></div>
+    </section>
+  </main>
+
+  <script>
+    let DATA = {
+      updatedAt: "2026-06-26 19:20",
+      cities: [
+        { type: "city", id: "city_tianshu", name: "天枢城", x: 0, y: 0, level: 1, build: 0, relic: 28, continent: "南赡部洲", region: "中土枢纽", specialties: "星官旧简、白契纸、旧朝钱" },
+        { type: "city", id: "city_qinglan", name: "青岚坊", x: 8, y: 22, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "灵竹山海", specialties: "风骨玉、听风纸、雨竹简" },
+        { type: "city", id: "city_chixia", name: "赤霞港", x: 31, y: -6, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "日出潮港", specialties: "晚潮珠、火纹贝、舶牙牌" },
+        { type: "city", id: "city_xuantie", name: "玄铁岭", x: -28, y: 12, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "西岭矿脉", specialties: "山铜契、黑矿票、老炉印" },
+        { type: "city", id: "city_wanyao", name: "万药谷", x: -18, y: 32, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "仙草谷地", specialties: "谷市筹、灵圃帖、青囊账" },
+        { type: "city", id: "city_yunmeng", name: "云梦泽", x: 18, y: -24, level: 2, build: 3893, relic: 89, continent: "南赡部洲", region: "南泽水府", specialties: "雾泽贝、蜃雾珠、水市牌" },
+        { type: "city", id: "city_liusha", name: "流沙海市", x: -35, y: -18, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "流沙商海", specialties: "走沙晶、驼铃金、驼队牌" },
+        { type: "city", id: "city_hanshuang", name: "寒霜关", x: -3, y: 39, level: 1, build: 0, relic: 0, continent: "北俱芦洲", region: "北境雪关", specialties: "冷玉髓、雪关牒、霜市帖" },
+        { type: "city", id: "city_leize", name: "雷泽城", x: 29, y: 24, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "雷泽天池", specialties: "伏雷鼓、惊雷符、旧雷令" },
+        { type: "city", id: "city_bichao", name: "碧潮岛", x: 38, y: -32, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "东海离岛", specialties: "青潮珊、月汐珠、水府玉" },
+        { type: "city", id: "city_xingyun", name: "星陨墟", x: 5, y: -43, level: 1, build: 0, relic: 0, continent: "南赡部洲", region: "南荒星墟", specialties: "星砂瓶、陨碑拓、观星券" }
+      ],
+      realms: [
+        { type: "realm", id: "realm_taixu", name: "太虚秘境", x: -6, y: -49, desc: "动态映身秘境" }
+      ],
+      buyers: [
+        { type: "buyer", id: "buyer_wanshou", name: "万兽盟", x: -39, y: -12, desc: "兽类战利品" },
+        { type: "buyer", id: "buyer_fumodian", name: "伏魔殿", x: -31, y: 21, desc: "魔类战利品" },
+        { type: "buyer", id: "buyer_pojun", name: "破军营", x: 22, y: 36, desc: "兵类战利品" },
+        { type: "buyer", id: "buyer_zhenyaosi", name: "镇妖司", x: 4, y: 4, desc: "妖类战利品" },
+        { type: "buyer", id: "buyer_guishi", name: "鬼市", x: 34, y: -17, desc: "鬼类战利品" },
+        { type: "buyer", id: "buyer_longyuan", name: "龙渊阁", x: 41, y: -35, desc: "龙类战利品" }
+      ],
+      recycles: [
+        { type: "recycle", id: "recycle_gem", name: "琢玉楼", x: 17, y: 15, desc: "宝石回收" },
+        { type: "recycle", id: "recycle_book", name: "藏经阁", x: 3, y: 29, desc: "技能书回收" },
+        { type: "recycle", id: "recycle_weapon", name: "铸剑阁", x: -12, y: 18, desc: "武器回收" }
+      ],
+      sects: [
+        { type: "sect", id: "sect_1", name: "炸天帮", x: 6, y: 6 },
+        { type: "sect", id: "sect_4", name: "合欢宗", x: 5, y: 5 },
+        { type: "sect", id: "sect_5", name: "逍遥门", x: 12, y: 21 }
+      ],
+      wormholes: []
+    };
+
+    const ROUTES = [
+      ["city_tianshu", "city_qinglan", "main"],
+      ["city_tianshu", "city_xuantie", "main"],
+      ["city_tianshu", "city_chixia", "main"],
+      ["city_tianshu", "city_yunmeng", "water"],
+      ["city_tianshu", "city_hanshuang", "main"],
+      ["city_qinglan", "city_wanyao", "forest"],
+      ["city_wanyao", "city_hanshuang", "mountain"],
+      ["city_xuantie", "city_liusha", "mountain"],
+      ["city_liusha", "city_xingyun", "desert"],
+      ["city_xingyun", "city_yunmeng", "water"],
+      ["city_yunmeng", "city_bichao", "water"],
+      ["city_chixia", "city_bichao", "water"],
+      ["city_chixia", "city_leize", "main"],
+      ["city_qinglan", "city_leize", "main"]
+    ];
+
+    const CONTINENTS = [
+      { id: "east", name: "东胜神洲", x: 51, y: 15, rx: 48, ry: 72, rotate: .12, color: "rgba(38, 128, 98, .22)", stroke: "rgba(31, 111, 86, .38)", accent: "#247c63", note: "日出沧海，灵根繁盛" },
+      { id: "west", name: "西牛贺洲", x: -56, y: 6, rx: 53, ry: 68, rotate: -.09, color: "rgba(175, 117, 47, .22)", stroke: "rgba(130, 83, 34, .38)", accent: "#a76c24", note: "灵山古道，矿脉沙海" },
+      { id: "south", name: "南赡部洲", x: 5, y: -57, rx: 72, ry: 48, rotate: .04, color: "rgba(42, 122, 145, .20)", stroke: "rgba(35, 95, 116, .36)", accent: "#2d718d", note: "人间商旅，水泽星墟" },
+      { id: "north", name: "北俱芦洲", x: -6, y: 66, rx: 67, ry: 39, rotate: -.04, color: "rgba(151, 174, 183, .24)", stroke: "rgba(94, 113, 121, .36)", accent: "#5f7d86", note: "寒关雪脊，天风不息" }
+    ];
+
+    const TERRAIN = [
+      { x: 48, y: 28, rx: 42, ry: 34, color: "rgba(45, 118, 71, .20)" },
+      { x: 37, y: -20, rx: 43, ry: 38, color: "rgba(39, 113, 143, .16)" },
+      { x: 28, y: 25, rx: 34, ry: 25, color: "rgba(123, 93, 173, .16)" },
+      { x: -49, y: 15, rx: 43, ry: 40, color: "rgba(84, 80, 68, .18)" },
+      { x: -39, y: -23, rx: 45, ry: 32, color: "rgba(190, 130, 55, .18)" },
+      { x: -18, y: 35, rx: 38, ry: 24, color: "rgba(45, 118, 71, .17)" },
+      { x: -7, y: 61, rx: 56, ry: 27, color: "rgba(196, 210, 215, .34)" },
+      { x: 20, y: -35, rx: 53, ry: 32, color: "rgba(44, 122, 148, .20)" },
+      { x: -3, y: -62, rx: 44, ry: 23, color: "rgba(75, 80, 135, .17)" },
+      { x: -6, y: -49, rx: 31, ry: 20, color: "rgba(96, 70, 150, .18)" }
+    ];
+
+    const DETAIL_GLYPHS = [
+      ["mountain", -70, 24], ["mountain", -58, 14], ["mountain", -44, 8], ["mountain", -36, 17], ["mountain", -25, 22], ["mountain", -20, 8],
+      ["mountain", -63, 31], ["mountain", -51, 25], ["mountain", -43, 29], ["mountain", -32, 4], ["mountain", -17, 17],
+      ["tree", -30, 34], ["tree", -20, 41], ["tree", -10, 31], ["tree", 6, 28], ["tree", 13, 17], ["tree", 40, 38], ["tree", 55, 18], ["tree", 63, 0],
+      ["tree", 46, 26], ["tree", 58, 33], ["tree", 68, 12], ["tree", 33, 9], ["tree", 12, 34], ["tree", -25, 47],
+      ["wave", 13, -20], ["wave", 25, -26], ["wave", 36, -34], ["wave", 47, -43], ["wave", 34, -7], ["wave", 65, -23],
+      ["wave", 9, -32], ["wave", 23, -38], ["wave", 42, -22], ["wave", 55, -34], ["wave", 66, -46], ["wave", 72, -15],
+      ["dune", -66, -25], ["dune", -48, -22], ["dune", -34, -13], ["dune", -25, -25], ["dune", -55, -5],
+      ["dune", -70, -35], ["dune", -58, -17], ["dune", -43, -32], ["dune", -31, -39], ["dune", -20, -16],
+      ["snow", -35, 66], ["snow", -13, 41], ["snow", 2, 45], ["snow", 25, 67], ["snow", -20, 73], ["snow", 7, 71], ["snow", 38, 78],
+      ["spark", -12, -58], ["spark", 2, -39], ["spark", 11, -46], ["spark", -4, -48], ["spark", 17, -62], ["spark", -21, -51],
+      ["bolt", 26, 31], ["bolt", 35, 22], ["bolt", 55, 33], ["bolt", 43, 42], ["bolt", 68, 27]
+    ];
+
+    const FINE_DETAIL_MARKS = [
+      ["ridge", -76, 18], ["ridge", -68, 8], ["ridge", -55, 34], ["ridge", -47, 18], ["ridge", -39, 2], ["ridge", -23, 28],
+      ["grass", 31, 35], ["grass", 42, 18], ["grass", 50, 48], ["grass", 63, 22], ["grass", 72, 4], ["grass", 18, 29],
+      ["waterline", 3, -18], ["waterline", 14, -30], ["waterline", 28, -42], ["waterline", 39, -28], ["waterline", 56, -47],
+      ["sandline", -72, -15], ["sandline", -62, -31], ["sandline", -48, -41], ["sandline", -35, -28], ["sandline", -18, -34],
+      ["ice", -38, 77], ["ice", -25, 58], ["ice", -8, 82], ["ice", 14, 58], ["ice", 31, 74],
+      ["ruin", -3, -52], ["ruin", 7, -56], ["ruin", -16, -44], ["ruin", 18, -50], ["ruin", 1, -37]
+    ];
+
+    const REGION_LABELS = [
+      { text: "东胜神洲", x: 55, y: 39, rotate: .10, color: "rgba(31, 116, 77, .24)" },
+      { text: "西牛贺洲", x: -59, y: 15, rotate: -.09, color: "rgba(139, 88, 33, .25)" },
+      { text: "南赡部洲", x: 5, y: -68, rotate: .04, color: "rgba(39, 111, 139, .25)" },
+      { text: "北俱芦洲", x: -6, y: 75, rotate: -.04, color: "rgba(76, 94, 103, .25)" }
+    ];
+
+    const COLORS = {
+      city: "#1f866b",
+      realm: "#6a4aa4",
+      buyer: "#a9612a",
+      recycle: "#2f7892",
+      sect: "#9d416e",
+      wormhole: "#bd334d",
+      route: "#8d5f29",
+      water: "#317d98",
+      forest: "#2e7650",
+      mountain: "#5e5a4c",
+      desert: "#b57936",
+      ink: "#1f2621",
+      muted: "#756c5a"
+    };
+
+    const TYPE_META = {
+      continent: { label: "四洲界域", color: "#7f5223", shape: "continent", radius: 18 },
+      city: { label: "普通城池", color: COLORS.city, shape: "city", radius: 9 },
+      realm: { label: "太虚秘境", color: COLORS.realm, shape: "rift", radius: 13 },
+      buyer: { label: "战利品收购点", color: COLORS.buyer, shape: "seal", radius: 7 },
+      recycle: { label: "纳戒回收建筑", color: COLORS.recycle, shape: "tower", radius: 7 },
+      sect: { label: "宗门山门", color: COLORS.sect, shape: "sect", radius: 6 },
+      wormhole: { label: "活跃事件", color: COLORS.wormhole, shape: "ring", radius: 12 },
+      player: { label: "当前位置", color: "#1f5fbf", shape: "player", radius: 8 }
+    };
+
+    const labelOffsets = {
+      city_tianshu: [12, 14],
+      city_qinglan: [12, -15],
+      city_chixia: [11, -14],
+      city_xuantie: [-66, -11],
+      city_wanyao: [-64, -14],
+      city_yunmeng: [12, 18],
+      city_liusha: [-78, 18],
+      city_hanshuang: [10, -14],
+      city_leize: [12, -15],
+      city_bichao: [12, 17],
+      city_xingyun: [12, 18],
+      realm_taixu: [-78, 16],
+      buyer_zhenyaosi: [11, 17],
+      recycle_book: [9, -13],
+      recycle_weapon: [-58, 15],
+      recycle_gem: [10, 17]
+    };
+    const sectClusterLabelOffsets = [
+      [14, -18],
+      [-60, 18],
+      [14, 32],
+      [-68, -24],
+      [22, -38],
+      [-74, 36]
+    ];
+
+    const canvas = document.getElementById("worldMap");
+    const ctx = canvas.getContext("2d");
+    const hud = document.getElementById("hud");
+    const tip = document.getElementById("tip");
+    const infoPanel = document.getElementById("infoPanel");
+    const zoomReadout = document.getElementById("zoomReadout");
+    const stage = document.querySelector(".map-stage");
+
+    let WORLD_MIN = -100;
+    let WORLD_MAX = 100;
+    let WORLD_SIZE = WORLD_MAX - WORLD_MIN;
+    const DISPLAY_COORD_SCALE = 1;
+
+    let allPoints = [];
+    let pointById = new Map();
+
+    const state = {
+      centerX: 0,
+      centerY: 0,
+      zoom: .35,
+      minZoom: .08,
+      maxZoom: 32,
+      hovered: null,
+      selected: null,
+      drag: null,
+      pointers: new Map(),
+      pinch: null,
+      activeLayers: new Set(["city", "realm", "buyer", "recycle", "sect", "wormhole", "player"]),
+      animationStarted: false
+    };
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function canvasSize() {
+      const rect = canvas.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    }
+
+    function normalizeMapData(raw) {
+      const value = raw && typeof raw === "object" ? raw : {};
+      return {
+        updatedAt: value.updatedAt || "-",
+        bounds: value.bounds && typeof value.bounds === "object" ? value.bounds : { min: -100, max: 100, unitPixels: 24 },
+        cities: Array.isArray(value.cities) ? value.cities : [],
+        realms: Array.isArray(value.realms) ? value.realms : [],
+        buyers: Array.isArray(value.buyers) ? value.buyers : [],
+        recycles: Array.isArray(value.recycles) ? value.recycles : [],
+        sects: Array.isArray(value.sects) ? value.sects : [],
+        wormholes: Array.isArray(value.wormholes) ? value.wormholes : [],
+        player: value.player && typeof value.player === "object" ? value.player : null
+      };
+    }
+
+    function applyWorldBounds(bounds) {
+      const min = Number(bounds?.min);
+      const max = Number(bounds?.max);
+      WORLD_MIN = Number.isFinite(min) ? min : -100;
+      WORLD_MAX = Number.isFinite(max) ? max : 100;
+      if (WORLD_MAX <= WORLD_MIN) {
+        WORLD_MIN = -100;
+        WORLD_MAX = 100;
+      }
+      WORLD_SIZE = WORLD_MAX - WORLD_MIN;
+    }
+
+    function rebuildPointIndex() {
+      allPoints = [
+        ...DATA.cities,
+        ...DATA.realms,
+        ...DATA.buyers,
+        ...DATA.recycles,
+        ...DATA.sects,
+        ...DATA.wormholes,
+        ...(DATA.player ? [DATA.player] : [])
+      ];
+      pointById = new Map(allPoints.map(point => [point.id, point]));
+    }
+
+    function applyMapData(nextData, redraw = true) {
+      DATA = normalizeMapData(nextData);
+      applyWorldBounds(DATA.bounds);
+      rebuildPointIndex();
+      if (state.selected && !pointById.has(state.selected.id)) state.selected = null;
+      if (!redraw) return;
+      document.getElementById("updatedAt").textContent = `更新时间：${DATA.updatedAt}`;
+      renderStats();
+      renderInfo();
+      draw();
+    }
+
+    function unitPixels() {
+      const value = Number(DATA.bounds?.unitPixels);
+      return Number.isFinite(value) && value > 0 ? value : 24;
+    }
+
+    function fitZoom() {
+      const { width, height } = canvasSize();
+      return Math.min(width * .94, height * .96) / (WORLD_SIZE * unitPixels() * .95);
+    }
+
+    function defaultZoom() {
+      return clamp(fitZoom() * 1.42, state.minZoom, state.maxZoom);
+    }
+
+    function scale() {
+      return unitPixels() * state.zoom;
+    }
+
+    function visualZoom() {
+      return clamp(state.zoom * 3, .6, 3.8);
+    }
+
+    function worldToScreen(point) {
+      const { width, height } = canvasSize();
+      const s = scale();
+      return {
+        x: width / 2 + (point.x - state.centerX) * s,
+        y: height / 2 - (point.y - state.centerY) * s
+      };
+    }
+
+    function screenToWorld(x, y) {
+      const { width, height } = canvasSize();
+      const s = scale();
+      return {
+        x: state.centerX + (x - width / 2) / s,
+        y: state.centerY - (y - height / 2) / s
+      };
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function displayCoord(value, fractionDigits = 0) {
+      const scaled = Number(value) * DISPLAY_COORD_SCALE;
+      if (!Number.isFinite(scaled)) return "-";
+      return fractionDigits > 0 ? scaled.toFixed(fractionDigits) : String(Math.round(scaled));
+    }
+
+    function displayPoint(point, fractionDigits = 0) {
+      return `${displayCoord(point.x, fractionDigits)},${displayCoord(point.y, fractionDigits)}`;
+    }
+
+    function visiblePoints() {
+      return allPoints.filter(point => state.activeLayers.has(point.type));
+    }
+
+    function sectCluster(point) {
+      if (point.type !== "sect") return [];
+      return DATA.sects
+        .filter(item => Math.hypot(item.x - point.x, item.y - point.y) <= 14.5)
+        .sort((left, right) => left.id.localeCompare(right.id));
+    }
+
+    function labelOffsetForPoint(point) {
+      const fixed = labelOffsets[point.id];
+      if (fixed) return fixed;
+      if (point.type !== "sect") return [10, -10];
+      const cluster = sectCluster(point);
+      if (cluster.length <= 1) return [10, -10];
+      const index = Math.max(0, cluster.findIndex(item => item.id === point.id));
+      const offset = sectClusterLabelOffsets[index % sectClusterLabelOffsets.length];
+      if (state.zoom >= 16) {
+        return [Math.round(offset[0] * .72), Math.round(offset[1] * .72)];
+      }
+      if (state.zoom >= 7) {
+        return [Math.round(offset[0] * .86), Math.round(offset[1] * .86)];
+      }
+      return offset;
+    }
+
+    function pointMarkerSize(point, meta, selected, hovered, pulse) {
+      const highZoomFactor = point.type === "sect" ? clamp(1.05 - state.zoom * .018, .58, 1) : 1;
+      return meta.radius * highZoomFactor + pulse + (selected ? 4 : hovered ? 2 : 0);
+    }
+
+    function labelFont(point) {
+      if (point.type === "city") return "13px Microsoft YaHei, sans-serif";
+      if (point.type === "sect" && state.zoom >= 10) return "11px Microsoft YaHei, sans-serif";
+      return "12px Microsoft YaHei, sans-serif";
+    }
+
+    function draw() {
+      const { width, height } = canvasSize();
+      const now = performance.now() / 1000;
+      ctx.clearRect(0, 0, width, height);
+      drawBackdrop(width, height);
+      drawWorldPaper(now);
+      drawFourSeas(now);
+      drawContinents(now);
+      drawTerrain();
+      drawFineDetails(now);
+      drawRegionLabels();
+      drawRoutes(now);
+      drawGrid();
+      drawGlyphs();
+      drawCityInfluence(now);
+      drawAllPoints(now);
+      drawSelected(now);
+      drawCompass(width);
+      drawBorder();
+      zoomReadout.textContent = `${Math.round(state.zoom * 100)}%`;
+    }
+
+    function drawBackdrop(width, height) {
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "rgba(255, 250, 238, .46)");
+      gradient.addColorStop(.55, "rgba(226, 207, 162, .26)");
+      gradient.addColorStop(1, "rgba(68, 99, 88, .16)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function worldRect() {
+      const a = worldToScreen({ x: WORLD_MIN, y: WORLD_MAX });
+      const b = worldToScreen({ x: WORLD_MAX, y: WORLD_MIN });
+      return {
+        left: Math.min(a.x, b.x),
+        top: Math.min(a.y, b.y),
+        width: Math.abs(b.x - a.x),
+        height: Math.abs(b.y - a.y)
+      };
+    }
+
+    function drawWorldPaper(now) {
+      const rect = worldRect();
+      ctx.save();
+      ctx.shadowColor = "rgba(45, 32, 13, .22)";
+      ctx.shadowBlur = 28;
+      ctx.shadowOffsetY = 12;
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.fillStyle = "#f7efd9";
+      ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.clip();
+
+      const gradient = ctx.createLinearGradient(rect.left, rect.top, rect.left + rect.width, rect.top + rect.height);
+      gradient.addColorStop(0, "rgba(96, 118, 86, .10)");
+      gradient.addColorStop(.36, "rgba(255, 252, 238, .34)");
+      gradient.addColorStop(.68, "rgba(190, 138, 62, .08)");
+      gradient.addColorStop(1, "rgba(46, 111, 132, .11)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+
+      for (let i = 0; i < 160; i += 1) {
+        const x = rect.left + rect.width * fract(Math.sin(i * 37.17) * 913.13);
+        const y = rect.top + rect.height * fract(Math.sin(i * 19.73) * 571.31);
+        const len = 16 + 42 * fract(Math.sin(i * 11.11) * 124.81);
+        ctx.strokeStyle = `rgba(83, 64, 34, ${0.035 + 0.035 * fract(Math.sin(i * 5.7) * 17.3)})`;
+        ctx.lineWidth = .7;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(x + len * .5, y + Math.sin(i + now * .05) * 5, x + len, y + Math.cos(i) * 3);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawFourSeas(now) {
+      const rect = worldRect();
+      ctx.save();
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.clip();
+
+      seaRibbon(
+        [{ x: WORLD_MIN, y: 6 }, { x: -48, y: -6 }, { x: -4, y: 0 }, { x: 47, y: -3 }, { x: WORLD_MAX, y: 8 }],
+        "rgba(43, 112, 135, .12)",
+        22,
+        now
+      );
+      seaRibbon(
+        [{ x: -7, y: WORLD_MAX }, { x: 2, y: 53 }, { x: -3, y: 8 }, { x: 8, y: -48 }, { x: -2, y: WORLD_MIN }],
+        "rgba(43, 112, 135, .10)",
+        20,
+        now
+      );
+      seaRibbon(
+        [{ x: -96, y: -69 }, { x: -56, y: -48 }, { x: -6, y: -57 }, { x: 50, y: -51 }, { x: 98, y: -70 }],
+        "rgba(43, 112, 135, .09)",
+        18,
+        now
+      );
+
+      ctx.fillStyle = "rgba(45, 95, 115, .13)";
+      ctx.font = `${clamp(scale() * 3.8, 13, 24)}px "Microsoft YaHei", "PingFang SC", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      seaText("东海", 79, -18, .08);
+      seaText("西海", -82, -5, -.1);
+      seaText("南海", 6, -91, 0);
+      seaText("北海", -2, 95, 0);
+      ctx.restore();
+    }
+
+    function seaRibbon(points, color, width, now) {
+      if (points.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = color;
+      const factor = visualZoom();
+      ctx.lineWidth = width * factor;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.setLineDash([18 * factor, 14 * factor]);
+      ctx.lineDashOffset = -now * 4;
+      ctx.beginPath();
+      const start = worldToScreen(points[0]);
+      ctx.moveTo(start.x, start.y);
+      for (let index = 1; index < points.length - 1; index += 1) {
+        const current = worldToScreen(points[index]);
+        const next = worldToScreen(points[index + 1]);
+        ctx.quadraticCurveTo(current.x, current.y, (current.x + next.x) / 2, (current.y + next.y) / 2);
+      }
+      const end = worldToScreen(points[points.length - 1]);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function seaText(text, x, y, rotate) {
+      const p = worldToScreen({ x, y });
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(rotate);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    }
+
+    function drawContinents(now) {
+      const rect = worldRect();
+      ctx.save();
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.clip();
+      for (const continent of CONTINENTS) {
+        continentShape(continent, now, false);
+      }
+      ctx.restore();
+    }
+
+    function continentShape(continent, now, selected) {
+      const points = continentOutlinePoints(continent, now);
+      if (!points.length) return;
+      ctx.save();
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const p = worldToScreen(point);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      const center = worldToScreen(continent);
+      const edge = worldToScreen({ x: continent.x + continent.rx, y: continent.y + continent.ry });
+      const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, Math.hypot(edge.x - center.x, edge.y - center.y));
+      gradient.addColorStop(0, continent.color);
+      gradient.addColorStop(.72, continent.color.replace(/\.[0-9]+\)/, ".11)"));
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.lineWidth = selected ? 3 : 1.6;
+      ctx.strokeStyle = selected ? continent.accent : continent.stroke;
+      ctx.setLineDash(selected ? [7, 6] : []);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function continentOutlinePoints(continent, now) {
+      const points = [];
+      const count = 56;
+      const cos = Math.cos(continent.rotate);
+      const sin = Math.sin(continent.rotate);
+      for (let index = 0; index < count; index += 1) {
+        const angle = Math.PI * 2 * index / count;
+        const noise = 1 + Math.sin(angle * 3 + continent.x * .03) * .08 + Math.cos(angle * 5 + continent.y * .02) * .045;
+        const sway = Math.sin(now * .08 + index) * .006;
+        const localX = Math.cos(angle) * continent.rx * (noise + sway);
+        const localY = Math.sin(angle) * continent.ry * (noise - sway);
+        points.push({
+          x: continent.x + localX * cos - localY * sin,
+          y: continent.y + localX * sin + localY * cos
+        });
+      }
+      return points;
+    }
+
+    function drawTerrain() {
+      const rect = worldRect();
+      ctx.save();
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.clip();
+      for (const terrain of TERRAIN) {
+        terrainBlob(terrain);
+      }
+      ctx.restore();
+    }
+
+    function drawFineDetails(now) {
+      const rect = worldRect();
+      ctx.save();
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.clip();
+      for (let index = 0; index < FINE_DETAIL_MARKS.length; index += 1) {
+        const [kind, x, y] = FINE_DETAIL_MARKS[index];
+        const p = worldToScreen({ x, y });
+        const size = clamp(scale() * .7, 3.5, 10);
+        fineDetailMark(kind, p.x, p.y, size, now, index);
+      }
+      ctx.restore();
+    }
+
+    function fineDetailMark(kind, x, y, size, now, index) {
+      const sway = Math.sin(now * .18 + index) * .8;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (kind === "ridge") {
+        ctx.strokeStyle = "rgba(86, 72, 49, .30)";
+        ctx.beginPath();
+        ctx.moveTo(x - size * 1.4, y + size * .35);
+        ctx.quadraticCurveTo(x - size * .45, y - size * .95 + sway, x + size * .35, y - size * .18);
+        ctx.quadraticCurveTo(x + size * .85, y + size * .3, x + size * 1.45, y - size * .45);
+        ctx.stroke();
+      } else if (kind === "grass") {
+        ctx.strokeStyle = "rgba(45, 112, 72, .28)";
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(x + i * size * .45, y + size * .7);
+          ctx.quadraticCurveTo(x + i * size * .2, y - size * .25, x + i * size * .65, y - size * .78);
+          ctx.stroke();
+        }
+      } else if (kind === "waterline") {
+        ctx.strokeStyle = "rgba(44, 122, 148, .30)";
+        ctx.beginPath();
+        ctx.moveTo(x - size * 1.5, y);
+        ctx.quadraticCurveTo(x - size * .75, y - size * .45, x, y);
+        ctx.quadraticCurveTo(x + size * .75, y + size * .45, x + size * 1.5, y);
+        ctx.stroke();
+      } else if (kind === "sandline") {
+        ctx.strokeStyle = "rgba(168, 104, 44, .26)";
+        ctx.setLineDash([size * .5, size * .35]);
+        ctx.beginPath();
+        ctx.moveTo(x - size * 1.5, y + size * .2);
+        ctx.quadraticCurveTo(x, y - size * .6 + sway, x + size * 1.5, y + size * .2);
+        ctx.stroke();
+      } else if (kind === "ice") {
+        ctx.strokeStyle = "rgba(94, 122, 132, .26)";
+        ctx.beginPath();
+        ctx.moveTo(x - size, y);
+        ctx.lineTo(x + size, y);
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x, y + size);
+        ctx.moveTo(x - size * .7, y - size * .7);
+        ctx.lineTo(x + size * .7, y + size * .7);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(82, 60, 32, .25)";
+        ctx.beginPath();
+        ctx.moveTo(x - size, y + size * .8);
+        ctx.lineTo(x - size * .55, y - size * .6);
+        ctx.lineTo(x + size * .15, y - size * .15);
+        ctx.lineTo(x + size * .85, y - size * .9);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(82, 60, 32, .13)";
+        ctx.fillRect(x - size * .35, y + size * .15, size * .9, size * .45);
+      }
+      ctx.restore();
+    }
+
+    function drawRegionLabels() {
+      const rect = worldRect();
+      ctx.save();
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.clip();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `${clamp(scale() * 5.2, 18, 34)}px "Microsoft YaHei", "PingFang SC", sans-serif`;
+      for (const label of REGION_LABELS) {
+        const p = worldToScreen(label);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(label.rotate);
+        ctx.fillStyle = label.color;
+        ctx.fillText(label.text, 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function terrainBlob(terrain) {
+      const p = worldToScreen(terrain);
+      const rx = terrain.rx * scale();
+      const ry = terrain.ry * scale();
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((terrain.x + terrain.y) * .007);
+      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(rx, ry));
+      gradient.addColorStop(0, terrain.color);
+      gradient.addColorStop(.74, terrain.color.replace(/\.[0-9]+\)/, ".08)"));
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(77, 58, 33, .10)";
+      ctx.lineWidth = 1;
+      for (const rate of [.46, .7]) {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx * rate, ry * rate, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawRoutes(now) {
+      ctx.save();
+      for (const [fromId, toId, kind] of ROUTES) {
+        const from = pointById.get(fromId);
+        const to = pointById.get(toId);
+        if (!from || !to) continue;
+        const highlight = state.selected && (state.selected.id === fromId || state.selected.id === toId);
+        routeLine(from, to, kind, highlight, now);
+      }
+      ctx.restore();
+    }
+
+    function routeLine(from, to, kind, highlight, now) {
+      const a = worldToScreen(from);
+      const b = worldToScreen(to);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distance = Math.hypot(dx, dy);
+      const curve = Math.max(18, distance * .18) * (from.x + to.y > 0 ? 1 : -1);
+      const cx = (a.x + b.x) / 2 - dy / Math.max(1, distance) * curve;
+      const cy = (a.y + b.y) / 2 + dx / Math.max(1, distance) * curve;
+      const colors = {
+        main: "rgba(141, 95, 41, .48)",
+        water: "rgba(49, 125, 152, .48)",
+        forest: "rgba(46, 118, 80, .42)",
+        mountain: "rgba(92, 86, 69, .42)",
+        desert: "rgba(181, 121, 54, .42)"
+      };
+      ctx.lineWidth = highlight ? 3.2 : 1.6;
+      ctx.strokeStyle = highlight ? "rgba(176, 102, 35, .86)" : colors[kind] || colors.main;
+      ctx.setLineDash(kind === "water" ? [8, 7] : kind === "desert" ? [4, 7] : []);
+      ctx.lineDashOffset = -now * 8;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+      ctx.stroke();
+      if (state.zoom >= 1.45) {
+        ctx.setLineDash([]);
+        ctx.fillStyle = highlight ? "rgba(255, 242, 186, .78)" : "rgba(103, 75, 42, .34)";
+        for (const t of [.25, .5, .75]) {
+          const px = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * cx + t * t * b.x;
+          const py = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * cy + t * t * b.y;
+          ctx.beginPath();
+          ctx.arc(px, py, highlight ? 2.2 : 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      if (highlight) {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = "rgba(255, 239, 180, .55)";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    function drawGrid() {
+      const pixels = scale();
+      const step = pixels >= 160 ? 1 : pixels >= 80 ? 2 : pixels >= 40 ? 5 : pixels >= 18 ? 10 : 25;
+      ctx.save();
+      ctx.lineWidth = 1;
+      for (let value = WORLD_MIN; value <= WORLD_MAX; value += step) {
+        const strong = value % 50 === 0;
+        const medium = value % 10 === 0;
+        ctx.strokeStyle = strong
+          ? "rgba(50, 40, 27, .32)"
+          : medium
+            ? "rgba(58, 48, 34, .16)"
+            : "rgba(58, 48, 34, .075)";
+        const v1 = worldToScreen({ x: value, y: WORLD_MIN });
+        const v2 = worldToScreen({ x: value, y: WORLD_MAX });
+        const h1 = worldToScreen({ x: WORLD_MIN, y: value });
+        const h2 = worldToScreen({ x: WORLD_MAX, y: value });
+        line(v1.x, v1.y, v2.x, v2.y);
+        line(h1.x, h1.y, h2.x, h2.y);
+      }
+
+      ctx.strokeStyle = "rgba(38, 31, 22, .42)";
+      ctx.lineWidth = 1.5;
+      const x1 = worldToScreen({ x: WORLD_MIN, y: 0 });
+      const x2 = worldToScreen({ x: WORLD_MAX, y: 0 });
+      const y1 = worldToScreen({ x: 0, y: WORLD_MIN });
+      const y2 = worldToScreen({ x: 0, y: WORLD_MAX });
+      line(x1.x, x1.y, x2.x, x2.y);
+      line(y1.x, y1.y, y2.x, y2.y);
+
+      ctx.fillStyle = "rgba(44, 38, 29, .48)";
+      ctx.font = "12px Microsoft YaHei, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const value of [WORLD_MIN, -50, 0, 50, WORLD_MAX]) {
+        const bottom = worldToScreen({ x: value, y: WORLD_MIN });
+        const left = worldToScreen({ x: WORLD_MIN, y: value });
+        ctx.fillText(displayCoord(value), bottom.x, bottom.y + 18);
+        ctx.save();
+        ctx.textAlign = "right";
+        ctx.fillText(displayCoord(value), left.x - 10, left.y);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function drawGlyphs() {
+      ctx.save();
+      for (const [kind, x, y] of DETAIL_GLYPHS) {
+        const p = worldToScreen({ x, y });
+        const size = clamp(scale() * .95, 4, 12);
+        if (kind === "mountain") mountainGlyph(p.x, p.y, size);
+        if (kind === "tree") treeGlyph(p.x, p.y, size);
+        if (kind === "wave") waveGlyph(p.x, p.y, size);
+        if (kind === "dune") duneGlyph(p.x, p.y, size);
+        if (kind === "snow") snowGlyph(p.x, p.y, size);
+        if (kind === "spark") sparkGlyph(p.x, p.y, size);
+        if (kind === "bolt") boltGlyph(p.x, p.y, size);
+      }
+      ctx.restore();
+    }
+
+    function mountainGlyph(x, y, size) {
+      ctx.strokeStyle = "rgba(70, 64, 49, .42)";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(x - size, y + size * .7);
+      ctx.lineTo(x, y - size);
+      ctx.lineTo(x + size, y + size * .7);
+      ctx.moveTo(x - size * .35, y + size * .1);
+      ctx.lineTo(x, y + size * .7);
+      ctx.stroke();
+    }
+
+    function treeGlyph(x, y, size) {
+      ctx.strokeStyle = "rgba(34, 93, 61, .42)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + size);
+      ctx.lineTo(x, y - size);
+      ctx.moveTo(x, y - size * .6);
+      ctx.lineTo(x - size * .7, y + size * .2);
+      ctx.moveTo(x, y - size * .3);
+      ctx.lineTo(x + size * .65, y + size * .35);
+      ctx.stroke();
+    }
+
+    function waveGlyph(x, y, size) {
+      ctx.strokeStyle = "rgba(41, 105, 132, .42)";
+      ctx.lineWidth = 1.3;
+      for (let i = 0; i < 2; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(x - size, y + i * size * .55);
+        ctx.quadraticCurveTo(x - size * .35, y - size * .45 + i * size * .55, x + size * .2, y + i * size * .55);
+        ctx.quadraticCurveTo(x + size * .75, y + size * .45 + i * size * .55, x + size * 1.2, y + i * size * .55);
+        ctx.stroke();
+      }
+    }
+
+    function duneGlyph(x, y, size) {
+      ctx.strokeStyle = "rgba(143, 91, 36, .42)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x - size, y + size * .25);
+      ctx.quadraticCurveTo(x, y - size * .8, x + size, y + size * .25);
+      ctx.stroke();
+    }
+
+    function snowGlyph(x, y, size) {
+      ctx.strokeStyle = "rgba(96, 117, 124, .38)";
+      ctx.lineWidth = 1.1;
+      for (let i = 0; i < 3; i += 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.PI * i / 3);
+        line(-size, 0, size, 0);
+        ctx.restore();
+      }
+    }
+
+    function sparkGlyph(x, y, size) {
+      ctx.fillStyle = "rgba(91, 84, 151, .48)";
+      ctx.beginPath();
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x + size * .34, y - size * .1);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x + size * .2, y + size * .24);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x - size * .22, y + size * .24);
+      ctx.lineTo(x - size, y);
+      ctx.lineTo(x - size * .34, y - size * .1);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function boltGlyph(x, y, size) {
+      ctx.fillStyle = "rgba(124, 86, 171, .44)";
+      ctx.beginPath();
+      ctx.moveTo(x + size * .2, y - size);
+      ctx.lineTo(x - size * .45, y + size * .08);
+      ctx.lineTo(x + size * .05, y + size * .05);
+      ctx.lineTo(x - size * .2, y + size);
+      ctx.lineTo(x + size * .62, y - size * .2);
+      ctx.lineTo(x + size * .12, y - size * .15);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawCityInfluence(now) {
+      if (!state.activeLayers.has("city")) return;
+      ctx.save();
+      for (const city of DATA.cities) {
+        const p = worldToScreen(city);
+        const pulse = .7 + Math.sin(now * 1.4 + city.x * .1) * .08;
+        const radius = Math.max(12, (city.level + 1.5) * scale() * .42 * pulse);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = city.level > 1 ? "rgba(31, 134, 107, .14)" : "rgba(31, 134, 107, .08)";
+        ctx.fill();
+        ctx.strokeStyle = city.level > 1 ? "rgba(31, 134, 107, .28)" : "rgba(31, 134, 107, .15)";
+        ctx.setLineDash([4, 5]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawAllPoints(now) {
+      for (const point of visiblePoints()) {
+        drawPoint(point, now);
+      }
+      for (const point of visiblePoints()) {
+        if (shouldLabel(point)) drawLabel(point);
+      }
+    }
+
+    function shouldLabel(point) {
+      if (state.selected?.id === point.id || state.hovered?.id === point.id) return true;
+      if (point.type === "city" || point.type === "realm") return true;
+      if (point.type === "sect") return state.zoom >= 2.1;
+      return state.zoom >= 1.45;
+    }
+
+    function drawPoint(point, now) {
+      const meta = TYPE_META[point.type];
+      const p = worldToScreen(point);
+      const selected = state.selected?.id === point.id;
+      const hovered = state.hovered?.id === point.id;
+      const pulse = point.type === "realm" ? Math.sin(now * 2.2) * 1.8 : 0;
+      const size = pointMarkerSize(point, meta, selected, hovered, pulse);
+      drawMarker(p.x, p.y, size, meta.color, meta.shape, selected || hovered);
+    }
+
+    function drawMarker(x, y, size, color, shape, active) {
+      ctx.save();
+      ctx.shadowColor = "rgba(48, 34, 17, .30)";
+      ctx.shadowBlur = active ? 16 : 9;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(255, 248, 229, .96)";
+      ctx.lineWidth = 2.2;
+
+      if (shape === "city") {
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = "rgba(255, 248, 229, .9)";
+        ctx.fillRect(x - size * .42, y - size * .12, size * .84, size * .55);
+        ctx.fillRect(x - size * .22, y - size * .48, size * .44, size * .36);
+      } else if (shape === "rift") {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y);
+        ctx.lineTo(x, y + size);
+        ctx.lineTo(x - size, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(111, 76, 169, .65)";
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.arc(x, y, size + 8, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (shape === "seal") {
+        roundRect(x - size, y - size, size * 2, size * 2, 4);
+        ctx.fill();
+        ctx.stroke();
+      } else if (shape === "tower") {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y + size);
+        ctx.lineTo(x - size, y + size);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (shape === "sect") {
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = "rgba(255, 248, 229, .8)";
+        ctx.beginPath();
+        ctx.moveTo(x - size * .5, y + size * .1);
+        ctx.lineTo(x, y - size * .55);
+        ctx.lineTo(x + size * .5, y + size * .1);
+        ctx.stroke();
+      } else if (shape === "player") {
+        ctx.beginPath();
+        ctx.moveTo(x, y - size * 1.2);
+        ctx.lineTo(x + size * .9, y + size * .75);
+        ctx.lineTo(x, y + size * .3);
+        ctx.lineTo(x - size * .9, y + size * .75);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawLabel(point) {
+      const p = worldToScreen(point);
+      const offset = labelOffsetForPoint(point);
+      const text = point.name;
+      const x = p.x + offset[0];
+      const y = p.y + offset[1];
+      ctx.save();
+      ctx.font = labelFont(point);
+      ctx.textAlign = offset[0] < 0 ? "right" : "left";
+      ctx.textBaseline = "middle";
+      const metrics = ctx.measureText(text);
+      const width = metrics.width + 12;
+      const height = point.type === "sect" && state.zoom >= 10 ? 18 : 20;
+      const left = offset[0] < 0 ? x - width + 4 : x - 4;
+      const top = y - height / 2;
+      if (point.type === "sect" && sectCluster(point).length > 1) {
+        ctx.strokeStyle = "rgba(114, 65, 92, .34)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(offset[0] < 0 ? left + width : left, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = "rgba(255, 249, 235, .72)";
+      roundRect(left, top, width, height, 7);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(99, 74, 35, .16)";
+      ctx.stroke();
+      ctx.fillStyle = TYPE_META[point.type].color || COLORS.ink;
+      ctx.fillText(text, x, y + .5);
+      ctx.restore();
+    }
+
+    function drawSelected(now) {
+      const point = state.selected;
+      if (!point) return;
+      if (!state.activeLayers.has(point.type)) return;
+      const p = worldToScreen(point);
+      const pulse = 22 + Math.sin(now * 3) * 3;
+      ctx.save();
+      ctx.strokeStyle = TYPE_META[point.type].color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawCompass(width) {
+      const rect = worldRect();
+      const x = rect.left + rect.width - 42;
+      const y = rect.top + 42;
+      if (x > width - 20) return;
+      ctx.save();
+      ctx.strokeStyle = "rgba(72, 52, 24, .38)";
+      ctx.fillStyle = "rgba(72, 52, 24, .55)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y - 15);
+      ctx.lineTo(x + 5, y + 4);
+      ctx.lineTo(x, y + 1);
+      ctx.lineTo(x - 5, y + 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = "12px Microsoft YaHei, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("北", x, y - 26);
+      ctx.restore();
+    }
+
+    function drawBorder() {
+      const rect = worldRect();
+      ctx.save();
+      ctx.strokeStyle = "rgba(53, 40, 22, .55)";
+      ctx.lineWidth = 1.8;
+      roundRect(rect.left, rect.top, rect.width, rect.height, 20);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255, 249, 235, .45)";
+      ctx.lineWidth = 1;
+      roundRect(rect.left + 5, rect.top + 5, rect.width - 10, rect.height - 10, 16);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function zoomAt(screenX, screenY, factor) {
+      const before = screenToWorld(screenX, screenY);
+      const nextZoom = clamp(state.zoom * factor, state.minZoom, state.maxZoom);
+      if (nextZoom === state.zoom) return;
+      state.zoom = nextZoom;
+      const { width, height } = canvasSize();
+      const s = scale();
+      state.centerX = before.x - (screenX - width / 2) / s;
+      state.centerY = before.y + (screenY - height / 2) / s;
+      clampCenter();
+      draw();
+      renderInfo();
+    }
+
+    function setZoom(nextZoom) {
+      const { width, height } = canvasSize();
+      zoomAt(width / 2, height / 2, nextZoom / state.zoom);
+    }
+
+    function resetView() {
+      state.centerX = 0;
+      state.centerY = 0;
+      state.zoom = defaultZoom();
+      state.selected = null;
+      draw();
+      renderInfo();
+    }
+
+    function clampCenter() {
+      const margin = 38 / Math.max(1, state.zoom);
+      state.centerX = clamp(state.centerX, WORLD_MIN - margin, WORLD_MAX + margin);
+      state.centerY = clamp(state.centerY, WORLD_MIN - margin, WORLD_MAX + margin);
+    }
+
+    function nearestPoint(screenX, screenY, maxDistance = 18) {
+      let best = null;
+      let bestDistance = maxDistance;
+      for (const point of visiblePoints()) {
+        const p = worldToScreen(point);
+        const d = Math.hypot(p.x - screenX, p.y - screenY);
+        if (d < bestDistance) {
+          best = point;
+          bestDistance = d;
+        }
+      }
+      return best;
+    }
+
+    function selectPoint(point, focus = false) {
+      if (!point) return;
+      state.selected = point;
+      if (focus) {
+        state.centerX = point.x;
+        state.centerY = point.y;
+        state.zoom = Math.max(state.zoom, 1);
+      }
+      draw();
+      renderInfo();
+    }
+
+    function renderInfo() {
+      const point = state.selected;
+      if (!point) {
+        const specialPointCount = DATA.realms.length + DATA.buyers.length + DATA.recycles.length;
+        const usedLandmarkCount = DATA.cities.length + specialPointCount + DATA.sects.length + DATA.wormholes.length;
+        infoPanel.innerHTML = `
+          <h2>世界快照</h2>
+          <div class="kind">公开地理概览</div>
+          <div class="lines">
+            <div class="line"><b>已使用地标</b><span>${usedLandmarkCount}</span></div>
+            <div class="line"><b>普通城池</b><span>${DATA.cities.length}</span></div>
+            <div class="line"><b>太虚秘境</b><span>${DATA.realms.length}</span></div>
+            <div class="line"><b>战利品收购</b><span>${DATA.buyers.length}</span></div>
+            <div class="line"><b>纳戒回收</b><span>${DATA.recycles.length}</span></div>
+            <div class="line"><b>宗门山门</b><span>${DATA.sects.length}</span></div>
+            <div class="line"><b>活跃虫洞</b><span>${DATA.wormholes.length}</span></div>
+          </div>
+        `;
+        return;
+      }
+
+      const meta = TYPE_META[point.type];
+      const lines = [["坐标", displayPoint(point)]];
+      if (point.type === "city") {
+        lines.push(["洲域", point.continent]);
+        lines.push(["地貌", point.region]);
+        lines.push(["城池等级", `Lv.${point.level}`]);
+        lines.push(["建设", String(point.build)]);
+        lines.push(["神秘蓄能", String(point.relic)]);
+        lines.push(["特产", point.specialties]);
+      } else if (point.type === "sect") {
+        lines.push(["宗门等级", `Lv.${point.level || 1}`]);
+        lines.push(["成员", `${point.members || 0} 人`]);
+        if (point.master) lines.push(["宗主", point.master]);
+      } else if (point.type === "player") {
+        lines.push(["当前位置", point.location || "-"]);
+        lines.push(["状态", point.status || "-"]);
+        lines.push(["境界", `Lv.${point.level || 1}`]);
+      } else if (point.type === "recycle") {
+        if (point.recycleType) lines.push(["回收类型", point.recycleType]);
+        if (point.priceFactor) lines.push(["倍率", Number(point.priceFactor).toFixed(2)]);
+        if (point.terrain) lines.push(["地貌", point.terrain]);
+        if (point.desc) lines.push(["说明", point.desc]);
+      } else if (point.type === "buyer") {
+        if (point.terrain) lines.push(["地貌", point.terrain]);
+        if (point.desc) lines.push(["说明", point.desc]);
+      } else if (point.type === "wormhole") {
+        if (point.desc) lines.push(["说明", point.desc]);
+        if (point.closesAt) lines.push(["结束", point.closesAt]);
+      } else if (point.desc) {
+        lines.push(["说明", point.desc]);
+      }
+      infoPanel.innerHTML = `
+        <h2>${point.name}</h2>
+        <div class="kind">${meta.label}</div>
+        <div class="lines">
+          ${lines.map(([key, value]) => `<div class="line"><b>${key}</b><span>${value}</span></div>`).join("")}
+        </div>
+      `;
+    }
+
+    function updateHud(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const point = screenToWorld(clientX - rect.left, clientY - rect.top);
+      hud.innerHTML = `
+        <div>坐标：${displayPoint(point)}</div>
+        <div>缩放：${Math.round(state.zoom * 100)}%｜${scale().toFixed(1)}px/坐标</div>
+      `;
+    }
+
+    function showTip(point, clientX, clientY) {
+      if (!point) {
+        tip.style.display = "none";
+        return;
+      }
+      const meta = TYPE_META[point.type];
+      tip.innerHTML = `<b>${point.name}</b><br>${meta.label}｜${displayPoint(point)}`;
+      tip.style.display = "block";
+      const stageRect = stage.getBoundingClientRect();
+      tip.style.left = `${clientX - stageRect.left}px`;
+      tip.style.top = `${clientY - stageRect.top}px`;
+    }
+
+    function syncFilters() {
+      document.querySelectorAll(".filter").forEach(button => {
+        button.classList.toggle("active", state.activeLayers.has(button.dataset.layer));
+      });
+    }
+
+    function renderStats() {
+      const specialPointCount = DATA.realms.length + DATA.buyers.length + DATA.recycles.length;
+      const usedLandmarkCount = DATA.cities.length + specialPointCount + DATA.sects.length + DATA.wormholes.length;
+      const topCity = DATA.cities.reduce((best, city) => {
+        if (!best) return city;
+        if (city.level !== best.level) return city.level > best.level ? city : best;
+        return city.build > best.build ? city : best;
+      }, null);
+      const setText = (id, value) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = String(value);
+      };
+      setText("statNamedPoints", usedLandmarkCount);
+      setText("statCities", DATA.cities.length);
+      setText("statSpecialPoints", specialPointCount);
+      setText("statSects", DATA.sects.length);
+      setText("statTopCity", topCity ? `${topCity.name} Lv.${topCity.level}` : "-");
+      setText("statEvents", DATA.wormholes.length);
+    }
+
+    function line(x1, y1, x2, y2) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    function roundRect(x, y, width, height, radius) {
+      const r = Math.max(0, Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2));
+      const left = width >= 0 ? x : x + width;
+      const top = height >= 0 ? y : y + height;
+      const w = Math.abs(width);
+      const h = Math.abs(height);
+      ctx.beginPath();
+      ctx.moveTo(left + r, top);
+      ctx.arcTo(left + w, top, left + w, top + h, r);
+      ctx.arcTo(left + w, top + h, left, top + h, r);
+      ctx.arcTo(left, top + h, left, top, r);
+      ctx.arcTo(left, top, left + w, top, r);
+      ctx.closePath();
+    }
+
+    function fract(value) {
+      return value - Math.floor(value);
+    }
+
+    function mapDataUrl() {
+      const url = new URL("/xiuxian/map/data", window.location.origin);
+      const current = new URLSearchParams(window.location.search).get("player_id");
+      if (current) url.searchParams.set("player_id", current);
+      return url.toString();
+    }
+
+    async function refreshMapData() {
+      try {
+        const response = await fetch(mapDataUrl(), { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        applyMapData(await response.json());
+      } catch (error) {
+        const node = document.getElementById("updatedAt");
+        if (node) node.textContent = `更新时间：${DATA.updatedAt}（离线兜底）`;
+      }
+    }
+
+    function setup() {
+      applyMapData(DATA, false);
+      document.getElementById("updatedAt").textContent = `更新时间：${DATA.updatedAt}`;
+      resizeCanvas();
+      resetView();
+      refreshMapData();
+      setInterval(refreshMapData, 60000);
+
+      canvas.addEventListener("wheel", event => {
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const factor = event.deltaY > 0 ? .88 : 1.14;
+        zoomAt(event.clientX - rect.left, event.clientY - rect.top, factor);
+      }, { passive: false });
+
+      canvas.addEventListener("pointerdown", event => {
+        canvas.setPointerCapture(event.pointerId);
+        state.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (state.pointers.size === 2) {
+          const points = Array.from(state.pointers.values());
+          state.pinch = {
+            distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+            zoom: state.zoom
+          };
+        } else {
+          state.drag = {
+            x: event.clientX,
+            y: event.clientY,
+            centerX: state.centerX,
+            centerY: state.centerY,
+            moved: false
+          };
+          canvas.classList.add("dragging");
+        }
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        const rect = canvas.getBoundingClientRect();
+        updateHud(event.clientX, event.clientY);
+        if (state.pointers.has(event.pointerId)) {
+          state.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        }
+        if (state.pointers.size === 2 && state.pinch) {
+          const points = Array.from(state.pointers.values());
+          const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+          const midpoint = {
+            x: (points[0].x + points[1].x) / 2 - rect.left,
+            y: (points[0].y + points[1].y) / 2 - rect.top
+          };
+          const nextZoom = clamp(state.pinch.zoom * (distance / Math.max(1, state.pinch.distance)), state.minZoom, state.maxZoom);
+          zoomAt(midpoint.x, midpoint.y, nextZoom / state.zoom);
+          return;
+        }
+        if (state.drag) {
+          const dx = event.clientX - state.drag.x;
+          const dy = event.clientY - state.drag.y;
+          if (Math.hypot(dx, dy) > 3) state.drag.moved = true;
+          const s = scale();
+          state.centerX = state.drag.centerX - dx / s;
+          state.centerY = state.drag.centerY + dy / s;
+          clampCenter();
+          draw();
+          return;
+        }
+        const nearest = nearestPoint(event.clientX - rect.left, event.clientY - rect.top, 18);
+        if (nearest?.id !== state.hovered?.id) {
+          state.hovered = nearest;
+          draw();
+        }
+        showTip(nearest, event.clientX, event.clientY);
+      });
+
+      canvas.addEventListener("pointerup", event => {
+        const rect = canvas.getBoundingClientRect();
+        state.pointers.delete(event.pointerId);
+        if (state.pointers.size < 2) state.pinch = null;
+        if (state.drag && !state.drag.moved) {
+          const point = nearestPoint(event.clientX - rect.left, event.clientY - rect.top, 20);
+          if (point) selectPoint(point);
+        }
+        state.drag = null;
+        canvas.classList.remove("dragging");
+      });
+
+      canvas.addEventListener("pointercancel", event => {
+        state.pointers.delete(event.pointerId);
+        state.drag = null;
+        state.pinch = null;
+        canvas.classList.remove("dragging");
+      });
+
+      canvas.addEventListener("pointerleave", () => {
+        state.hovered = null;
+        tip.style.display = "none";
+        draw();
+      });
+
+      canvas.addEventListener("dblclick", event => {
+        const rect = canvas.getBoundingClientRect();
+        zoomAt(event.clientX - rect.left, event.clientY - rect.top, 1.5);
+      });
+
+      document.getElementById("zoomIn").addEventListener("click", () => setZoom(clamp(state.zoom * 1.25, state.minZoom, state.maxZoom)));
+      document.getElementById("zoomOut").addEventListener("click", () => setZoom(clamp(state.zoom / 1.25, state.minZoom, state.maxZoom)));
+      document.getElementById("fitMap").addEventListener("click", resetView);
+      document.querySelectorAll(".filter").forEach(button => {
+        button.addEventListener("click", () => {
+          const layer = button.dataset.layer;
+          if (state.activeLayers.has(layer)) state.activeLayers.delete(layer);
+          else state.activeLayers.add(layer);
+          syncFilters();
+          if (state.selected && state.selected.type !== "continent" && !state.activeLayers.has(state.selected.type)) state.selected = null;
+          draw();
+          renderInfo();
+        });
+      });
+      window.addEventListener("resize", resizeCanvas);
+      startAnimation();
+    }
+
+    function startAnimation() {
+      if (state.animationStarted) return;
+      state.animationStarted = true;
+      const tick = () => {
+        draw();
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+
+    setup();
+  </script>
+</body>
+</html>

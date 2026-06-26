@@ -15,6 +15,8 @@ NAMES = {
             "city_tianshu": {
                 # 城池显示名：地图、导航、跑商、探险、城池回收归属都会显示这个名字。
                 "name": "天枢城",
+                # 地貌显示名：只用于地图、百科和地点描述，不参与任何数值规则。
+                "terrain": "城镇",
                 # 系统职责标签：代码按这些标签识别地点用途，正常换皮不要改。
                 "roles": [
                     "trade",
@@ -88,6 +90,7 @@ NAMES = {
             },
             "city_qinglan": {
                 "name": "青岚坊",
+                "terrain": "森林",
                 "roles": [
                     "trade",
                     "exploration",
@@ -155,6 +158,7 @@ NAMES = {
             },
             "city_chixia": {
                 "name": "赤霞港",
+                "terrain": "港湾",
                 "roles": [
                     "trade",
                     "exploration",
@@ -222,6 +226,7 @@ NAMES = {
             },
             "city_xuantie": {
                 "name": "玄铁岭",
+                "terrain": "山岭",
                 "roles": [
                     "trade",
                     "exploration",
@@ -289,6 +294,7 @@ NAMES = {
             },
             "city_wanyao": {
                 "name": "万药谷",
+                "terrain": "药谷",
                 "roles": [
                     "trade",
                     "exploration",
@@ -356,6 +362,7 @@ NAMES = {
             },
             "city_yunmeng": {
                 "name": "云梦泽",
+                "terrain": "水泽",
                 "roles": [
                     "trade",
                     "exploration",
@@ -423,6 +430,7 @@ NAMES = {
             },
             "city_liusha": {
                 "name": "流沙海市",
+                "terrain": "荒漠",
                 "roles": [
                     "trade",
                     "exploration",
@@ -483,6 +491,7 @@ NAMES = {
             },
             "city_hanshuang": {
                 "name": "寒霜关",
+                "terrain": "雪原",
                 "roles": [
                     "trade",
                     "exploration",
@@ -543,6 +552,7 @@ NAMES = {
             },
             "city_leize": {
                 "name": "雷泽城",
+                "terrain": "雷泽",
                 "roles": [
                     "trade",
                     "exploration",
@@ -603,6 +613,7 @@ NAMES = {
             },
             "city_bichao": {
                 "name": "碧潮岛",
+                "terrain": "海岛",
                 "roles": [
                     "trade",
                     "exploration",
@@ -663,6 +674,7 @@ NAMES = {
             },
             "city_xingyun": {
                 "name": "星陨墟",
+                "terrain": "遗迹",
                 "roles": [
                     "trade",
                     "exploration",
@@ -726,6 +738,7 @@ NAMES = {
         "realm": {
             "realm_taixu": {
                 "name": "太虚秘境",
+                "terrain": "秘境",
                 "roles": [
                     "secret_realm",
                     "dynamic_battle"
@@ -737,6 +750,7 @@ NAMES = {
         "buyers": {
             "buyer_zhenyaosi": {
                 "name": "镇妖司",
+                "terrain": "城镇",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -744,6 +758,7 @@ NAMES = {
             },
             "buyer_fumodian": {
                 "name": "伏魔殿",
+                "terrain": "遗迹",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -751,6 +766,7 @@ NAMES = {
             },
             "buyer_guishi": {
                 "name": "鬼市",
+                "terrain": "阴市",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -758,6 +774,7 @@ NAMES = {
             },
             "buyer_longyuan": {
                 "name": "龙渊阁",
+                "terrain": "水泽",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -765,6 +782,7 @@ NAMES = {
             },
             "buyer_wanshou": {
                 "name": "万兽盟",
+                "terrain": "草原",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -772,6 +790,7 @@ NAMES = {
             },
             "buyer_pojun": {
                 "name": "破军营",
+                "terrain": "军营",
                 "roles": [
                     "special_buyer",
                     "war_prep"
@@ -783,18 +802,21 @@ NAMES = {
         "recycles": {
             "recycle_weapon": {
                 "name": "铸剑阁",
+                "terrain": "山岭",
                 "roles": [
                     "recycle"
                 ]
             },
             "recycle_gem": {
                 "name": "琢玉楼",
+                "terrain": "湖泽",
                 "roles": [
                     "recycle"
                 ]
             },
             "recycle_book": {
                 "name": "藏经阁",
+                "terrain": "城镇",
                 "roles": [
                     "recycle"
                 ]
@@ -1022,11 +1044,12 @@ NAMES = {
             "kangbao fuwen": "抗暴符文"
         },
         # 特殊纳戒物品：有独立用途或独立命令入口，不走普通“使用物品”。
-        # 开孔器用于装备开孔，洗髓液用于体质刷新，淬锋丹用于武器上限提升。
+        # 开孔器用于装备开孔，洗髓液用于体质刷新，淬锋丹用于武器上限提升，流光签用于祈愿。
         "special": {
             "kaikongqi": "开孔器",
             "xisuiye": "洗髓液",
-            "cuifengdan": "淬锋丹"
+            "cuifengdan": "淬锋丹",
+            "liuguang_qian": "流光签"
         }
     },
     # 武器公共展示：城池武器本体在 places.cities.*.weapons，这里放技能书和武器类型名。

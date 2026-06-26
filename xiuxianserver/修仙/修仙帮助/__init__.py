@@ -11,10 +11,12 @@ from ..identity import current_player_id
 
 from ..reply import send_reply
 from .service import HELP_IMAGE, service
+from .map_page import router as map_router
 from .site import load_help_site, router
 
 
 __all__ = ["router"]
+router.include_router(map_router)
 
 
 @OnEvent.connect(priority=40)
@@ -67,6 +69,18 @@ async def ws_xiuxian_help_image(player_id: str = Depends(current_player_id)) -> 
             "type": "image",
             "message": image_io,
         },
+        manager,
+        service,
+    )
+
+
+@MessageHandler.handler(cmd="地图", priority=100, block=True)
+async def ws_world_map(player_id: str = Depends(current_player_id)) -> None:
+    """发送交互地图网页入口。"""
+
+    await send_reply(
+        player_id,
+        service.map_help(player_id),
         manager,
         service,
     )

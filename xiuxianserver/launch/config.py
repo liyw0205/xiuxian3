@@ -197,12 +197,21 @@ class Env:
 
 
 def apply_project_timezone(timezone_name: str) -> None:
-    """把项目时区同步到当前进程，避免 Linux 本地时区和项目时区不一致。"""
+    """校验项目时区，并在支持 IANA TZ 的平台同步到当前进程。
+
+    Windows 运行库不按 IANA 时区名解析 TZ=Asia/Shanghai。reload 子进程
+    如果继承这个环境变量，日志时间会被解析成错误的 UTC+1，所以 Windows
+    下只保留 ZoneInfo 校验，不写入 TZ。
+    """
 
     try:
         ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"PROJECT_TIMEZONE 配置无效，当前值是：{timezone_name}") from exc
+
+    if os.name == "nt":
+        os.environ.pop("TZ", None)
+        return
 
     os.environ["TZ"] = timezone_name
     if hasattr(time, "tzset"):

@@ -17,7 +17,7 @@ async def ws_current_location(player_id: str = Depends(current_player_id)) -> No
     await send_reply(player_id, service.current_location(player_id), manager, service)
 
 
-@MessageHandler.handler(cmd=("探险列表", "地图"), priority=100, block=True)
+@MessageHandler.handler(cmd="探险列表", priority=100, block=True)
 async def ws_exploration_locations(player_id: str = Depends(current_player_id)) -> None:
     """查看探险地点。"""
 

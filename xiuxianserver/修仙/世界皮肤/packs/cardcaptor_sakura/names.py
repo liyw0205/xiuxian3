@@ -9,6 +9,7 @@ NAMES = {
         "cities": {
             "city_tianshu": {
                 "name": "友枝町",
+                "terrain": "海边小城",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_tianshu_01": "友枝校徽", "trade_city_tianshu_02": "星星发夹", "trade_city_tianshu_03": "小樱便当券"},
                 "weapons": {
@@ -23,6 +24,7 @@ NAMES = {
             },
             "city_qinglan": {
                 "name": "月峰神社",
+                "terrain": "神社山坡",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_qinglan_01": "月峰御守", "trade_city_qinglan_02": "雪兔点心盒", "trade_city_qinglan_03": "神社绘马"},
                 "weapons": {
@@ -37,6 +39,7 @@ NAMES = {
             },
             "city_chixia": {
                 "name": "企鹅公园",
+                "terrain": "公园广场",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_chixia_01": "企鹅纪念章", "trade_city_chixia_02": "溜冰票根", "trade_city_chixia_03": "公园气球"},
                 "weapons": {
@@ -51,6 +54,7 @@ NAMES = {
             },
             "city_xuantie": {
                 "name": "钟楼街",
+                "terrain": "钟楼街区",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_xuantie_01": "钟楼齿轮", "trade_city_xuantie_02": "旧时钟钥", "trade_city_xuantie_03": "时牌钟坠"},
                 "weapons": {
@@ -65,6 +69,7 @@ NAMES = {
             },
             "city_wanyao": {
                 "name": "木之本家",
+                "terrain": "住宅街",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_wanyao_01": "星杖挂坠", "trade_city_wanyao_02": "库洛书签", "trade_city_wanyao_03": "小可布丁券"},
                 "weapons": {
@@ -79,6 +84,7 @@ NAMES = {
             },
             "city_yunmeng": {
                 "name": "大道寺宅",
+                "terrain": "洋馆庭院",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_yunmeng_01": "知世缎带", "trade_city_yunmeng_02": "摄影胶卷", "trade_city_yunmeng_03": "天使蕾丝"},
                 "weapons": {
@@ -93,6 +99,7 @@ NAMES = {
             },
             "city_liusha": {
                 "name": "友枝小学",
+                "terrain": "校园",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_liusha_01": "友枝课本", "trade_city_liusha_02": "制服纽扣", "trade_city_liusha_03": "体育哨"},
                 "weapons": {
@@ -106,6 +113,7 @@ NAMES = {
             },
             "city_hanshuang": {
                 "name": "友枝中学",
+                "terrain": "校园",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_hanshuang_01": "星条领结", "trade_city_hanshuang_02": "社团徽章", "trade_city_hanshuang_03": "弓道护符"},
                 "weapons": {
@@ -119,6 +127,7 @@ NAMES = {
             },
             "city_leize": {
                 "name": "库洛书库",
+                "terrain": "魔法书库",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_leize_01": "库洛封皮", "trade_city_leize_02": "魔法阵拓片", "trade_city_leize_03": "月铃残音"},
                 "weapons": {
@@ -132,6 +141,7 @@ NAMES = {
             },
             "city_bichao": {
                 "name": "友枝水族馆",
+                "terrain": "水族馆",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_bichao_01": "水族馆贝票", "trade_city_bichao_02": "水牌玻璃珠", "trade_city_bichao_03": "蓝鲸玩偶"},
                 "weapons": {
@@ -145,6 +155,7 @@ NAMES = {
             },
             "city_xingyun": {
                 "name": "钟国迷宫",
+                "terrain": "迷宫异界",
                 "roles": ["trade", "exploration", "city_state", "weapon_origin", "treasure_map", "wormhole_anchor"],
                 "trade_goods": {"trade_city_xingyun_01": "钟国茶匙", "trade_city_xingyun_02": "梦境怀表", "trade_city_xingyun_03": "爱丽丝书页"},
                 "weapons": {
@@ -157,19 +168,19 @@ NAMES = {
                 },
             },
         },
-        "realm": {"realm_taixu": {"name": "透明牌梦境", "roles": ["secret_realm", "dynamic_battle"]}},
+        "realm": {"realm_taixu": {"name": "透明牌梦境", "terrain": "梦境秘域", "roles": ["secret_realm", "dynamic_battle"]}},
         "buyers": {
-            "buyer_zhenyaosi": {"name": "封印审判庭", "roles": ["special_buyer", "war_prep"]},
-            "buyer_fumodian": {"name": "月之审判台", "roles": ["special_buyer", "war_prep"]},
-            "buyer_guishi": {"name": "镜牌旧市", "roles": ["special_buyer", "war_prep"]},
-            "buyer_longyuan": {"name": "库洛魔法阵", "roles": ["special_buyer", "war_prep"]},
-            "buyer_wanshou": {"name": "守护兽议会", "roles": ["special_buyer", "war_prep"]},
-            "buyer_pojun": {"name": "时间钟塔", "roles": ["special_buyer", "war_prep"]},
+            "buyer_zhenyaosi": {"name": "封印审判庭", "terrain": "审判庭", "roles": ["special_buyer", "war_prep"]},
+            "buyer_fumodian": {"name": "月之审判台", "terrain": "月光高台", "roles": ["special_buyer", "war_prep"]},
+            "buyer_guishi": {"name": "镜牌旧市", "terrain": "镜中旧市", "roles": ["special_buyer", "war_prep"]},
+            "buyer_longyuan": {"name": "库洛魔法阵", "terrain": "魔法阵", "roles": ["special_buyer", "war_prep"]},
+            "buyer_wanshou": {"name": "守护兽议会", "terrain": "守护兽会所", "roles": ["special_buyer", "war_prep"]},
+            "buyer_pojun": {"name": "时间钟塔", "terrain": "钟塔", "roles": ["special_buyer", "war_prep"]},
         },
         "recycles": {
-            "recycle_weapon": {"name": "星杖工坊", "roles": ["recycle"]},
-            "recycle_gem": {"name": "宝石缎带屋", "roles": ["recycle"]},
-            "recycle_book": {"name": "库洛书房", "roles": ["recycle"]},
+            "recycle_weapon": {"name": "星杖工坊", "terrain": "魔杖工坊", "roles": ["recycle"]},
+            "recycle_gem": {"name": "宝石缎带屋", "terrain": "缎带小屋", "roles": ["recycle"]},
+            "recycle_book": {"name": "库洛书房", "terrain": "魔法书房", "roles": ["recycle"]},
         },
     },
     "world_items": {
@@ -370,7 +381,7 @@ NAMES = {
             "jucai zijing": "甜牌紫晶",
             "kangbao fuwen": "盾牌符文",
         },
-        "special": {"kaikongqi": "封印开孔钥", "xisuiye": "星光洗髓露", "cuifengdan": "星杖淬锋砂"},
+        "special": {"kaikongqi": "封印开孔钥", "xisuiye": "星光洗髓露", "cuifengdan": "星杖淬锋砂", "liuguang_qian": "星光签"},
     },
     "weapons": {
         "skill_books": {

@@ -770,15 +770,16 @@ def test_command_guide_buttons() -> None:
     assert "出售全部 武器" in trade_commands
 
 
-def test_web_help_uses_world_skin_map_image_rule() -> None:
-    """帮助入口按 QQ Markdown 图片规则展示当前世界地图。"""
+def test_web_help_uses_hidden_web_links() -> None:
+    """帮助入口隐藏帮助站和交互地图真实链接。"""
 
     text = help_service.web_help()
     assert "[修仙帮助网页](" in text
     assert "/xiuxian/help" in text
+    assert "[修仙界地图](" in text
+    assert "/xiuxian/map" in text
     assert "发送：修仙帮助 查看指令速查图，发送：指南 查看关键入口。" in text
-    assert "![修仙界地图 #720px #400px](" in text
-    assert "/static/map/default.jpg" in text
+    assert "![修仙界地图" not in text
 
 
 def _payload_commands(payload: dict) -> list[str]:
@@ -812,6 +813,7 @@ def main() -> None:
     test_predictive_buttons_before_context_buttons()
     test_boss_cooldown_hint_uses_safe_buttons_only()
     test_command_guide_buttons()
+    test_web_help_uses_hidden_web_links()
     print("修仙 markdown 按钮测试通过")
 
 

@@ -3,10 +3,10 @@
 
 PACKAGE = {
     "package_format": 5,
-    "schema_version": 2026062601,
+    "schema_version": 2026062701,
     "skin_id": "default",
     "display_name": "默认修仙界",
-    "version": "2026.06.24-test.3",
+    "version": "2026.06.27-wish.1",
     "author": "xiuxianserver",
     "desc": "默认修仙界基准包，用于回滚和校验。",
     "files": ["names.py"],
