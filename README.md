@@ -75,7 +75,7 @@ xiuxian3/                 # 安装根目录（可自定义）
 └── logs/                 # 运行日志
 ```
 
-脚本会自动将插件 `xiuxianplugin/api.py` 中的 WebSocket 地址指向本机服务端（默认 `ws://127.0.0.1:1234/ws/bot`），并生成服务端 `.env`、NoneBot `.env.dev`。
+脚本会自动将插件 `xiuxianplugin/api.py` 中的 WebSocket 地址指向本机服务端（默认 `ws://127.0.0.1:8443/ws/bot`），并生成服务端 `.env`、NoneBot `.env.dev`。
 
 ### 连接 QQ / OneBot
 
