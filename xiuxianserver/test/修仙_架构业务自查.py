@@ -13,6 +13,7 @@
 - 战斗效果公共函数只能在 common.py 定义。
 - 二级组件必须有说明文档，并写清命令/HTTP/回调入口和组件关联。
 - 玩家可见的正文卡和按钮必须通过富文本工具组合，不能重新硬拼。
+- 网页地图移动端必须保持全屏画布和较近默认视角。
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ def main() -> None:
     _check_deprecated_commands_removed()
     _check_shared_combat_helpers()
     _check_rich_text_output_style()
+    _check_mobile_map_layout_contract()
     print("修仙架构业务自查通过")
 
 
@@ -787,6 +789,61 @@ def _check_rich_text_output_style() -> None:
                 if pattern in line:
                     offenders.append(f"{file}:{index}: {title}: {line.strip()}")
     assert not offenders, "富文本输出风格不统一：\n" + "\n".join(offenders)
+
+
+def _check_mobile_map_layout_contract() -> None:
+    """检查网页地图移动端仍是全屏画布。
+
+    这里不做像素级视觉测试，只守住几个容易回退的结构点：手机端
+    `.app` 占满视口，`.map-stage` 盖住整屏，canvas 自身填满容器，
+    默认缩放在移动端更近，并且地图数据继续按 60 秒刷新。
+    """
+
+    html_path = PROJECT_ROOT / "static" / "map" / "world-map.html"
+    text = html_path.read_text(encoding="utf-8")
+    mobile_css = _css_media_block(text, "@media (max-width: 680px)")
+    assert mobile_css, "网页地图缺少移动端媒体规则"
+    assert _css_rule_has(mobile_css, ".app", ("height: 100dvh", "padding: 0")), "移动端地图外层必须占满视口且无外边距"
+    assert _css_rule_has(mobile_css, ".map-stage", ("position: absolute", "inset: 0")), "移动端地图舞台必须全屏铺开"
+    assert _css_rule_has(text, "#worldMap", ("width: 100%", "height: 100%", "display: block")), "地图 canvas 必须填满舞台"
+    assert "function defaultZoom()" in text, "网页地图需要集中维护默认缩放"
+    assert "mobileView ? 2.25 : 1.42" in text, "移动端默认缩放不能退回全图缩略图"
+    assert "setInterval(refreshMapData, 60000)" in text, "网页地图需要保持 60 秒自动刷新"
+
+
+def _css_media_block(text: str, marker: str) -> str:
+    """取出一个 CSS 媒体块正文；只服务结构自查，不做完整 CSS 解析。"""
+
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    brace = text.find("{", start)
+    if brace < 0:
+        return ""
+    depth = 0
+    for index in range(brace, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace + 1:index]
+    return ""
+
+
+def _css_rule_has(text: str, selector: str, declarations: tuple[str, ...]) -> bool:
+    """粗略检查某个 CSS 规则里是否包含指定声明。"""
+
+    start = text.find(selector)
+    if start < 0:
+        return False
+    brace = text.find("{", start)
+    end = text.find("}", brace)
+    if brace < 0 or end < 0:
+        return False
+    body = " ".join(text[brace + 1:end].replace(";", "; ").split())
+    return all(item in body for item in declarations)
 
 
 def _iter_ws_commands() -> list[tuple[str, str]]:

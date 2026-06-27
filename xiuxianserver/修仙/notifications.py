@@ -346,6 +346,7 @@ def _second_hand_notifications(client_id: str, database: Any, current: datetime)
         FROM second_hand_records AS r
         LEFT JOIN players AS p ON p.client_id = r.buyer_id
         WHERE r.seller_id = ?
+          AND r.seller_seen_at IS NULL
           AND datetime(replace(r.created_at, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
         ORDER BY r.created_at DESC
         LIMIT 1

@@ -1236,6 +1236,7 @@ class XiuxianDB:
                 quantity INTEGER NOT NULL,
                 total_price INTEGER NOT NULL,
                 fee INTEGER NOT NULL,
+                seller_seen_at TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -1934,6 +1935,7 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_wish_prizes_pool ON wish_prizes(pool_id, enabled);
             CREATE INDEX IF NOT EXISTS idx_wish_draw_records_player ON wish_draw_records(player_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_wish_user_vouchers_player ON wish_user_vouchers(player_id, quantity);
+            CREATE INDEX IF NOT EXISTS idx_second_hand_records_seller_seen ON second_hand_records(seller_id, seller_seen_at, created_at);
             CREATE INDEX IF NOT EXISTS idx_vault_items_client ON vault_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_vault_weapons_client ON vault_weapons(client_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_player_weapons_one_equipped

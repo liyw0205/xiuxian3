@@ -297,13 +297,87 @@
     }
 
     @media (max-width: 680px) {
+      .app {
+        display: block;
+        height: 100dvh;
+        padding: 0;
+      }
+      .topbar {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        top: 6px;
+        min-height: 0;
+        max-height: 34dvh;
+        padding: 7px;
+        gap: 5px;
+        overflow: hidden;
+      }
+      h1 { font-size: 17px; }
+      .sub {
+        margin-top: 3px;
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .controls {
+        gap: 5px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .controls::-webkit-scrollbar,
+      .filters::-webkit-scrollbar,
+      .world-stats::-webkit-scrollbar { display: none; }
+      .filters {
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+      }
+      .filter {
+        flex: 0 0 auto;
+        height: 25px;
+        padding: 0 8px;
+        font-size: 11px;
+      }
+      .zoom { flex: 0 0 auto; }
+      .zoom button {
+        min-width: 30px;
+        height: 28px;
+        padding: 0 8px;
+      }
+      .zoom-readout {
+        min-width: 44px;
+        font-size: 11px;
+      }
+      .map-stage {
+        position: absolute;
+        inset: 0;
+        border: 0;
+      }
       .panel { display: none; }
-      .world-stats { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+      .world-stats {
+        grid-template-columns: repeat(6, minmax(58px, 1fr));
+        gap: 4px;
+        overflow-x: auto;
+      }
+      .stat {
+        min-height: 31px;
+        padding: 4px 6px;
+      }
+      .stat b {
+        font-size: 13px;
+        line-height: 1;
+      }
+      .stat span {
+        margin-top: 3px;
+        font-size: 9px;
+      }
       .hud {
         left: 10px;
         bottom: 10px;
         min-width: 0;
         max-width: calc(100vw - 20px);
+        padding: 7px 9px;
+        font-size: 11px;
       }
     }
   </style>
@@ -621,7 +695,10 @@
     }
 
     function defaultZoom() {
-      return clamp(fitZoom() * 1.42, state.minZoom, state.maxZoom);
+      // 手机屏幕如果只按完整世界自适应，200x200 坐标会被压成缩略图。
+      // 移动端默认给更近的第一视角，保留拖拽和重置按钮查看全图。
+      const mobileView = window.matchMedia("(max-width: 680px)").matches;
+      return clamp(fitZoom() * (mobileView ? 2.25 : 1.42), state.minZoom, state.maxZoom);
     }
 
     function scale() {

@@ -37,27 +37,66 @@ class SecondHandService(CoreService):
         _, error = self.require_player(client_id)
         if error:
             return error
-        rows = self.db.fetch_all(
-            """
-            SELECT l.*, p.display_name
-            FROM second_hand_listings l
-            LEFT JOIN players p ON p.client_id = l.seller_id
-            ORDER BY l.created_at DESC
-            LIMIT 20
-            """
-        )
-        if not rows:
+        with self.db.transaction() as conn:
+            sale_rows = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT r.*, p.display_name AS buyer_name
+                    FROM second_hand_records AS r
+                    LEFT JOIN players AS p ON p.client_id = r.buyer_id
+                    WHERE r.seller_id = ?
+                      AND r.seller_seen_at IS NULL
+                    ORDER BY r.created_at DESC
+                    LIMIT 5
+                    """,
+                    (client_id,),
+                ).fetchall()
+            ]
+            if sale_rows:
+                conn.execute(
+                    """
+                    UPDATE second_hand_records
+                    SET seller_seen_at = ?
+                    WHERE seller_id = ? AND seller_seen_at IS NULL
+                    """,
+                    (ts(), client_id),
+                )
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT l.*, p.display_name
+                    FROM second_hand_listings l
+                    LEFT JOIN players p ON p.client_id = l.seller_id
+                    ORDER BY l.created_at DESC
+                    LIMIT 20
+                    """
+                ).fetchall()
+            ]
+        if not rows and not sale_rows:
             return T.hint(
                 "二手市场暂无上架。",
                 "背包/纳戒物品：二手市场上架 名称 数量 总价；宝石可写等级；武器：二手市场上架 武器#ID 总价",
             )
         panel = T.panel()
+        if sale_rows:
+            panel.section("二手成交回执")
+            for row in sale_rows:
+                panel.line(self._sale_receipt_line(row))
+            if len(sale_rows) >= 5:
+                panel.line("只展示最近 5 笔未读成交，其余成交已经一并确认。")
+            if rows:
+                panel.hr()
         panel.section("二手市场")
-        for row in rows:
-            name = self._item_name(row["item_type"], row["item_id"])
-            seller = row["display_name"] or "未知道友"
-            quantity = "" if row["item_type"] == "weapon" else f" x{row['quantity']}"
-            panel.line(f"{seller}：{name}{quantity}｜总价 **{money(row['total_price'])}**")
+        if not rows:
+            panel.line("暂无上架。")
+        else:
+            for row in rows:
+                name = self._item_name(row["item_type"], row["item_id"])
+                seller = row["display_name"] or "未知道友"
+                quantity = "" if row["item_type"] == "weapon" else f" x{row['quantity']}"
+                panel.line(f"{seller}：{name}{quantity}｜总价 **{money(row['total_price'])}**")
         return panel.render()
 
     def sell(self, client_id: str, message: str) -> str:
@@ -323,6 +362,17 @@ class SecondHandService(CoreService):
             weapon = self._weapon_by_id(to_int(item_id))
             return self._weapon_label(weapon) if weapon else f"武器{weapon_id_label(item_id)}"
         return item_id
+
+    def _sale_receipt_line(self, row: dict) -> str:
+        """卖家查看市场时展示并确认成交到账。"""
+
+        name = self._item_name(str(row["item_type"]), str(row["item_id"]))
+        quantity = "" if row["item_type"] == "weapon" else f" x{row['quantity']}"
+        buyer = str(row.get("buyer_name") or "某位道友")
+        total_price = int(row["total_price"] or 0)
+        fee = int(row["fee"] or 0)
+        gain = max(0, total_price - fee)
+        return f"{buyer}买走 {name}{quantity}｜到账 **{money(gain)}**｜手续费 {money(fee)}"
 
     @staticmethod
     def _gem_listing_id(gem_id: str, level: int) -> str:

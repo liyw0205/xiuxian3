@@ -80,6 +80,7 @@ class DuelService(CoreService):
         if error:
             return error
         self.cleanup_battle_records()
+        pending_rows = self._pending_request_rows(client_id)
         rows = self.db.fetch_all(
             """
             SELECT * FROM duel_records
@@ -89,13 +90,23 @@ class DuelService(CoreService):
             """,
             (client_id, client_id),
         )
-        if not rows:
+        if not rows and not pending_rows:
             return T.hint("暂无切磋/决斗记录。", "发送：切磋 对方名称，或发送：决斗 货币数量 对方名称。")
         panel = T.panel()
-        panel.section("最近切磋/决斗记录")
-        for row in rows:
-            panel.line(f"{row['mode']}：{row['summary']}")
-        return panel.render()
+        buttons: list[str] = []
+        if pending_rows:
+            panel.section("待处理对战请求")
+            for row in pending_rows:
+                line, row_buttons = self._pending_request_line(client_id, row)
+                panel.line(line)
+                buttons.extend(row_buttons)
+            if rows:
+                panel.hr()
+        if rows:
+            panel.section("最近切磋/决斗记录")
+            for row in rows:
+                panel.line(f"{row['mode']}：{row['summary']}")
+        return T.attach(panel.render(), T.buttons(*buttons))
 
     def robbery(self, client_id: str, message: str) -> str | dict:
         """抢劫正在探险中的玩家。"""
@@ -630,6 +641,44 @@ class DuelService(CoreService):
         panel.line(f"对方 10 分钟内发送：{accept_cmd} {from_name}")
         panel.line(f"如果不接受，发送：{reject_cmd} {from_name}")
         return panel.render()
+
+    def _pending_request_rows(self, client_id: str) -> list[dict]:
+        """读取当前玩家相关的待处理请求，并顺手过期超时请求。"""
+
+        with self.db.transaction() as conn:
+            self._expire_requests_conn(conn, client_id)
+            rows = conn.execute(
+                """
+                SELECT r.*, fp.display_name AS from_name, tp.display_name AS to_name
+                FROM duel_requests AS r
+                LEFT JOIN players AS fp ON fp.client_id = r.from_client_id
+                LEFT JOIN players AS tp ON tp.client_id = r.to_client_id
+                WHERE r.status = '等待'
+                  AND (r.from_client_id = ? OR r.to_client_id = ?)
+                ORDER BY r.created_at DESC
+                LIMIT 5
+                """,
+                (client_id, client_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _pending_request_line(self, client_id: str, row: dict) -> tuple[str, list[str]]:
+        """把待处理请求渲染成一行，并给接收方生成接受/拒绝按钮。"""
+
+        mode = str(row["mode"])
+        mode_text = "切磋" if mode == "spar" else f"决斗 {money(int(row['stake'] or 0))}"
+        from_id = str(row["from_client_id"])
+        to_id = str(row["to_client_id"])
+        from_name = str(row.get("from_name") or self.format_player_name(from_id))
+        to_name = str(row.get("to_name") or self.format_player_name(to_id))
+        expires_at = str(row.get("expires_at") or "")
+        if client_id == to_id:
+            accept_cmd = "接受切磋" if mode == "spar" else "接受决斗"
+            reject_cmd = "拒绝切磋" if mode == "spar" else "拒绝决斗"
+            line = f"{from_name} 向你发起{mode_text}｜过期 {expires_at}"
+            return line, [f"{accept_cmd} {from_name}", f"{reject_cmd} {from_name}"]
+        line = f"你向 {to_name} 发起{mode_text}｜等待对方处理｜过期 {expires_at}"
+        return line, []
 
     def _accept(self, client_id: str, message: str, mode: str) -> str | dict:
         """接受对战请求并结算。"""

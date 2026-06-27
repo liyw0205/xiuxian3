@@ -6,7 +6,7 @@
 
 - 修仙帮助、修仙百科、后台接口、用户组、玩家、背包、纳戒、祈愿、保险箱、修仙物品、银行、二手市场、贸易服务、宗门、探险、武器、装备、铭刻、对战、异界虫洞、首领、修仙界历史、世界皮肤、数据库备份都是中文二级组件。
 - HTTP 路由由 `修仙帮助`、`用户组`、`后台接口` 等显式暴露 router 的组件承接；`修仙帮助` 提供 Markdown 文档站，`用户组` 提供入口绑定后台页，`后台接口` 是 web 后台 API 的统一承接点。
-- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026062701`；系统保留地点、跑商城池、探险地点、特殊收购点、回收建筑、城池状态、战备状态和交易动态状态都以稳定 ID 承接，中文名只作为当前世界皮肤的展示名；`user_groups` 和 `user_identities` 承接多入口身份映射；`wish_pools`、`wish_prizes`、`wish_draw_records` 和 `wish_user_vouchers` 承接祈愿奖池、记录和凭证；`player_weapons` 保存累计经验，但不保存攻击、自带技能或附魔槽位这类可实时派生字段；`sects` 保存宗门山门坐标、创建者和宗主，`sect_members` 保存宗门成员归属，`sect_stats` 保存宗门等级和三底蕴，宗门大会数据按周期累计到宗门影响力、个人贡献和奖励表。
+- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026062702`；系统保留地点、跑商城池、探险地点、特殊收购点、回收建筑、城池状态、战备状态和交易动态状态都以稳定 ID 承接，中文名只作为当前世界皮肤的展示名；`user_groups` 和 `user_identities` 承接多入口身份映射；`wish_pools`、`wish_prizes`、`wish_draw_records` 和 `wish_user_vouchers` 承接祈愿奖池、记录和凭证；`second_hand_records.seller_seen_at` 只记录卖家是否看过二手到账回执；`player_weapons` 保存累计经验，但不保存攻击、自带技能或附魔槽位这类可实时派生字段；`sects` 保存宗门山门坐标、创建者和宗主，`sect_members` 保存宗门成员归属，`sect_stats` 保存宗门等级和三底蕴，宗门大会数据按周期累计到宗门影响力、个人贡献和奖励表。
 - 行为沉淀使用长期表：`game_logs` 记关键行为流水，`player_lifetime_stats` 接清理前的累计统计，`player_journals` 记玩家日记摘要，`player_titles` 记动态称号，`daily_fortunes` 记每日气运，`weapon_legends` 记武器传奇。
 - 每个二级包保留 `说明.md`，作为单个组件的使用和维护约束；帮助站会读取这些 Markdown。
 - 常用检查覆盖冒烟测试、WS 触发测试、命令压力测试和架构业务自查。

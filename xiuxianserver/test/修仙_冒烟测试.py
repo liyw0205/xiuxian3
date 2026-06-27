@@ -1059,6 +1059,11 @@ def _check_duel(services: dict[str, object]) -> None:
     blocked_accept = duel.accept_spar("u2", "青衫客")
     _must_contain(blocked_accept, "双方都需要处于空闲状态才能接受对战")
     assert duel.db.fetch_one("SELECT 1 FROM duel_requests WHERE mode = 'spar' AND status = '等待'")
+    pending_records = duel.records("u2")
+    _must_contain(pending_records, "待处理对战请求")
+    _must_contain(pending_records, "青衫客 向你发起切磋")
+    _must_contain(pending_records, "接受切磋 青衫客")
+    _must_contain(pending_records, "拒绝切磋 青衫客")
     duel.db.execute("UPDATE players SET status = '空闲' WHERE client_id = 'u1'")
     _must_contain(duel.reject_spar("u2", "青衫客"), "已拒绝")
 
@@ -1273,6 +1278,13 @@ def _check_second_hand_ring(services: dict[str, object]) -> None:
     _must_contain(second_hand.buy("u2", "青衫客"), "购买成功")
     notification_keys = {item.key for item in collect_notifications("u1", second_hand.db)}
     assert "second_hand_sale" in notification_keys
+    receipt_text = second_hand.list_items("u1")
+    _must_contain(receipt_text, "二手成交回执")
+    _must_contain(receipt_text, "血契丹 x1")
+    _must_contain(receipt_text, "到账")
+    _must_contain(receipt_text, "手续费")
+    notification_keys = {item.key for item in collect_notifications("u1", second_hand.db)}
+    assert "second_hand_sale" not in notification_keys
 
     after = ring.db.fetch_one(
         "SELECT quantity FROM ring_items WHERE client_id = ? AND ring_item_id = ?",
