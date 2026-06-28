@@ -14,10 +14,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
 from ..doc_sources import stable_markdown_paths
+from launch.paths import project_path
 from ..world_skin import WorldSkinEntry, current_world_entries
 
 
-XIUXIAN_DIR = Path(__file__).resolve().parent.parent
+XIUXIAN_DIR = project_path("修仙")
 ROOT_DOC_GROUP = "根目录"
 HELP_BASE_PATH = "/xiuxian/help"
 COMMAND_COLORS: tuple[str, ...] = (

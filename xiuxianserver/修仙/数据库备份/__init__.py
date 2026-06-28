@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from launch import C, OnEvent, logger
+from launch.paths import project_path
 
 from ..sql import XiuxianDB, db
 
@@ -30,7 +31,7 @@ def backup_database(
     """把当前 sqlite 库备份到本包目录，并只保留最近 10 份自动备份。"""
 
     db_path = Path(database.db_path)
-    backup_dir = Path(backup_dir) if backup_dir is not None else Path(__file__).resolve().parent
+    backup_dir = Path(backup_dir) if backup_dir is not None else project_path("修仙", "数据库备份")
     now = now or datetime.now()
 
     timestamp = now.strftime("%Y%m%d_%H%M")
@@ -100,7 +101,7 @@ def _should_skip_disconnect_backup(
     """热重启和短间隔关闭不自动备份。"""
 
     now = now or datetime.now()
-    backup_dir = Path(backup_dir) if backup_dir is not None else Path(__file__).resolve().parent
+    backup_dir = Path(backup_dir) if backup_dir is not None else project_path("修仙", "数据库备份")
     if now - STARTED_AT <= HOT_RELOAD_WINDOW:
         return True
     latest = _latest_auto_backup(backup_dir, Path(db.db_path).stem, Path(db.db_path).suffix)

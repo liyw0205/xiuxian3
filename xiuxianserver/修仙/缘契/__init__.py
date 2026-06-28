@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from launch.adapter import Depends, MessageHandler, manager
+from launch.paths import static_path
 
 from ..identity import current_player_id
 from ..reply import send_reply
@@ -14,7 +13,7 @@ from .service import service
 
 
 router = APIRouter(prefix="/xiuxian/yuanqi")
-YUANQI_INDEX = Path(__file__).resolve().parents[2] / "static" / "yuanqi" / "index.html"
+YUANQI_INDEX = static_path("yuanqi", "index.html")
 
 
 @router.get("", response_class=HTMLResponse)

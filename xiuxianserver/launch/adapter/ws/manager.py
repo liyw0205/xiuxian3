@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from fastapi import WebSocket, status
 
 from launch.log import C, logger
+from launch.message_events import emit_message_event, event_from_outgoing
 from .schema import make_payload
 
 
@@ -116,6 +117,14 @@ class ConnectionManager:
         success = await self._send_text(websocket, client_id, data)
 
         if is_log and success:
+            emit_message_event(
+                event_from_outgoing(
+                    adapter="ws",
+                    client_id=client_id,
+                    request_id=current_id or "",
+                    message=message,
+                )
+            )
             logger.opt(colors=True).success(
                 f"{C.ok('发送消息')} "
                 f"{C.kv('client', client_id)} "

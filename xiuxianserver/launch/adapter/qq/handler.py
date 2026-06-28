@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Pattern, Set, Tuple, Uni
 
 from launch.config import config
 from launch.log import C, logger
+from launch.message_events import emit_message_event, event_from_incoming
 
 from ..base_handler import BaseAdapter
 from ..depends import call_with_dependencies
@@ -401,6 +402,16 @@ class QqEventHandler(BaseAdapter):
                 )
             )
             return
+
+        emit_message_event(
+            event_from_incoming(
+                adapter="qq",
+                client_id=event.client_id,
+                request_id=event.event_id or event.message_id,
+                message_type="text",
+                content=event.content,
+            )
+        )
 
         if not await QqEventHandler._reserve_user_event(event.client_id):
             logger.opt(colors=True).warning(

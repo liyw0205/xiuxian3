@@ -4,9 +4,9 @@
 
 ## 模块边界
 
-- 修仙帮助、修仙百科、后台接口、用户组、玩家、背包、纳戒、祈愿、缘契、洞天福地、保险箱、修仙物品、银行、二手市场、贸易服务、宗门、探险、武器、装备、铭刻、对战、异界虫洞、首领、修仙界历史、世界皮肤、数据库备份都是中文二级组件。
-- HTTP 路由由 `修仙帮助`、`用户组`、`缘契`、`洞天福地`、`后台接口` 等显式暴露 router 的组件承接；`修仙帮助` 提供 Markdown 文档站，`用户组` 提供入口绑定后台页，`缘契` 提供一次性剧情体验页，`后台接口` 是 web 后台 API 的统一承接点。
-- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026062805`；系统保留地点、跑商城池、探险地点、特殊收购点、回收建筑、城池状态、战备状态和交易动态状态都以稳定 ID 承接，中文名只作为当前世界皮肤的展示名；`user_groups` 和 `user_identities` 承接多入口身份映射；`wish_pools`、`wish_prizes`、`wish_draw_records` 和 `wish_user_vouchers` 承接祈愿奖池、记录和凭证；`yuanqi_codes` 承接缘契一次性开启码、绑定角色名、指定剧本和已使用状态；`dongtian_game_tokens` 承接小游戏启动凭证，`dongtian_rounds` 承接启动凭证哈希、单局凭证、消费状态和已签出的兑换码，`dongtian_codes` 承接异世小游戏兑换码、奖励快照和实际发放摘要；`second_hand_records.seller_seen_at` 只记录卖家是否看过二手到账回执；`player_weapons` 保存累计经验，但不保存攻击、自带技能或附魔槽位这类可实时派生字段；`sects` 保存宗门山门坐标、创建者和宗主，`sect_members` 保存宗门成员归属，`sect_stats` 保存宗门等级和三底蕴，宗门大会数据按周期累计到宗门影响力、个人贡献和奖励表。
+- 修仙帮助、修仙百科、后台接口、用户组、消息流水、玩家、背包、纳戒、祈愿、缘契、洞天福地、保险箱、修仙物品、银行、二手市场、贸易服务、宗门、探险、武器、装备、铭刻、对战、异界虫洞、首领、修仙界历史、世界皮肤、数据库备份都是中文二级组件。
+- HTTP 路由由 `修仙帮助`、`用户组`、`消息流水`、`缘契`、`洞天福地`、`后台接口` 等显式暴露 router 的组件承接；`修仙帮助` 提供 Markdown 文档站，`用户组` 提供入口绑定后台页，`消息流水` 提供短期聊天框式收发观察页，`缘契` 提供一次性剧情体验页，`后台接口` 是 web 后台 API 的统一承接点。
+- 数据库使用 sqlite3，schema 版本为 `SCHEMA_VERSION = 2026062901`；系统保留地点、跑商城池、探险地点、特殊收购点、回收建筑、城池状态、战备状态和交易动态状态都以稳定 ID 承接，中文名只作为当前世界皮肤的展示名；`user_groups` 和 `user_identities` 承接多入口身份映射；`message_flows` 承接按用户组主用户归档的短期收发消息流水；`wish_pools`、`wish_prizes`、`wish_draw_records` 和 `wish_user_vouchers` 承接祈愿奖池、记录和凭证；`yuanqi_codes` 承接缘契一次性开启码、绑定角色名、指定剧本和已使用状态；`dongtian_game_tokens` 承接小游戏启动凭证，`dongtian_rounds` 承接启动凭证哈希、单局凭证、消费状态和已签出的兑换码，`dongtian_codes` 承接异世小游戏兑换码、奖励快照和实际发放摘要；`second_hand_records.seller_seen_at` 只记录卖家是否看过二手到账回执；`player_weapons` 保存累计经验，但不保存攻击、自带技能或附魔槽位这类可实时派生字段；`sects` 保存宗门山门坐标、创建者和宗主，`sect_members` 保存宗门成员归属，`sect_stats` 保存宗门等级和三底蕴，宗门大会数据按周期累计到宗门影响力、个人贡献和奖励表。
 - 行为沉淀使用长期表：`game_logs` 记关键行为流水，`player_lifetime_stats` 接清理前的累计统计，`player_journals` 记玩家日记摘要，`player_titles` 记动态称号，`daily_fortunes` 记每日气运，`weapon_legends` 记武器传奇。
 - 每个二级包保留 `说明.md`，作为单个组件的使用和维护约束；帮助站会读取这些 Markdown。
 - 常用检查覆盖冒烟测试、WS 触发测试、命令压力测试和架构业务自查。
@@ -49,6 +49,7 @@
 修仙百科/        修仙设定问答，启动时缓存 Markdown 和 xiuxian.db 结构化资料
 后台接口/        web 后台 API 承接点，不注册玩家命令
 用户组/          多入口身份映射、用户组后台登录页面和绑定码流程
+消息流水/        按用户组主用户展示 QQ/WS 收发消息，短期表和 SSE 实时推送
 玩家/            创建用户、修仙信息、状态、修仙日记、签到、新手礼包、休息
 背包/            占负重库存和恢复类使用入口
 纳戒/            不占负重库存，承接体质重塑、淬锋丹、开孔器等特殊纳戒物品消耗
@@ -86,6 +87,7 @@
 - `修仙/__init__.py` 注册 `OnEvent.connect(priority=50)`，启动时执行 `db.init()`。
 - `修仙/修仙帮助/__init__.py` 注册 `OnEvent.connect(priority=40)`，启动时递归读取 `修仙` 下的 `.md` 文档并缓存帮助站。
 - `修仙/修仙百科/__init__.py` 注册 `OnEvent.connect(priority=40)`，在数据库初始化后读取 Markdown 和 `xiuxian.db` 结构化资料并缓存百科知识。
+- `修仙/消息流水/__init__.py` 注册 `OnEvent.connect(priority=41)`，启动时订阅驱动器消息事件并从短期表恢复内存回放。
 - `修仙/数据库备份/__init__.py` 注册 `OnEvent.disconnect(priority=100)`，关闭时先备份数据库。
 - `修仙/__init__.py` 注册 `OnEvent.disconnect(priority=50)`，关闭时释放数据库连接。
 - 如果关闭回调按倒序执行，备份优先级应保持高于数据库关闭优先级。
@@ -245,7 +247,7 @@
 
 ## 数据库对象
 
-`sql.py` 当前维护 88 张表，按用途分组如下：
+`sql.py` 当前维护 89 张表，按用途分组如下：
 
 ```text
 schema_meta                 schema 版本、大事记和少量全局键值
@@ -256,6 +258,7 @@ currency_labels             当前世界皮肤的货币显示名
 player_level_labels         当前世界皮肤的等级显示名
 physique_defs               体质定义
 players                     玩家主档
+message_flows               按用户组主用户归档的短期收发消息流水
 bank_accounts               银行
 
 backpack_items              玩家背包库存
@@ -348,6 +351,7 @@ weapon_legends              武器传奇
 - `combat_logs` 保留 5 天，只保留短战斗流水；网页战斗日志优先读取探险、对战、抢劫、首领挑战和虫洞挑战的结构化结果。
 - `trade_prices`、`trade_heat`、`trade_daily_rewards`、`trade_buy_locks`、`daily_fortunes` 保留 7 天。
 - `daily_newspapers` 保留 7 天。
+- `message_flows` 保留 2 天且最多保留最新 5000 条，页面实时展示优先走内存环形缓冲和 SSE。
 - `game_logs`、`dongtian_codes`、`trade_records`、`second_hand_records`、三类回收记录、已领取探险记录、已领取虫洞/首领参与记录、虫洞通知、对战记录和抢劫记录保留 7 天；`yuanqi_codes` 保存一次性开启码的绑定、指定剧本、过期和使用状态，已使用或已过期超过 7 天后清理；`dongtian_game_tokens` 和 `dongtian_rounds` 只保留有效或短期可审计的防刷凭证。
 - 清理每天最多触发一次，入口沿用探险、对战、虫洞、首领等玩法入口的 `cleanup_battle_records()`。
 - 每次清理会先删除已不存在玩家的当前态数据，包括背包、纳戒、银行、固定装备、保险箱、称号、日记、未领奖励和非托管武器；历史流水按保留周期处理。

@@ -30,6 +30,7 @@ _include_child_router(router, "修仙帮助")
 _include_child_router(router, "战斗日志")
 _include_child_router(router, "洞天福地")
 _include_child_router(router, "缘契")
+_include_child_router(router, "消息流水")
 
 __all__ = ["router"]
 

@@ -7,11 +7,11 @@ import hmac
 import re
 import secrets
 import sqlite3
-from dataclasses import dataclass
-from datetime import timedelta
-from pathlib import Path
 from typing import Any
+from pathlib import Path
+from datetime import timedelta
 from urllib.parse import quote
+from dataclasses import dataclass
 
 from ..common import CoreService, business_day, dt, dump_json, load_json, money, now, ring_item_display_name, ts
 from ..constants import (
@@ -28,9 +28,10 @@ from ..constants import (
 from ..format_text import T
 from ..markdown_utils import markdown_link
 from ..public_url import public_url
+from launch.paths import static_path
 from ..sql import db
 
-DONGTIAN_STATIC_DIR = Path(__file__).resolve().parents[2] / "static" / "dongtian"
+DONGTIAN_STATIC_DIR = static_path("dongtian")
 DONGTIAN_PUBLIC_PATH = "/static/dongtian"
 DONGTIAN_CODE_PREFIX = "DT"
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)

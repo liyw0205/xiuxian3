@@ -3,7 +3,7 @@
 
 PACKAGE = {
     "package_format": 5,
-    "schema_version": 2026062805,
+    "schema_version": 2026062901,
     "skin_id": "douluo",
     "display_name": "斗罗大陆",
     "version": "2026.06.27-depth.1",

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from launch.log import C, logger
+from launch.message_events import emit_message_event, event_from_outgoing
 
 from .client import client
 from .event import QqMessageEvent
@@ -262,6 +263,15 @@ class QqReplyManager:
 
         if not payload:
             return False
+
+        emit_message_event(
+            event_from_outgoing(
+                adapter="qq",
+                client_id=item.client_id,
+                request_id=item.request_id or item.event.event_id or item.event.message_id,
+                message=item.message,
+            )
+        )
 
         if item.is_log:
             logger.opt(colors=True).debug(

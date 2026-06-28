@@ -1,21 +1,20 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .config import config
 from .log import C, logger
 from .adapter import BaseAdapter, enabled_adapter_specs
+from .paths import STATIC_DIR
 
 
 async def FastAPIMount(app: "FastAPI") -> None:
     """挂载 FastAPI 全局资源。"""
 
-    static_dir = config.base_dir / "static"
-    static_dir.mkdir(parents=True, exist_ok=True)
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
     if any(getattr(route, "path", "") == "/static" for route in app.routes):
         return
 
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 async def AdapterMount(app: "FastAPI") -> list[type[BaseAdapter]]:

@@ -1,7 +1,8 @@
 """世界皮肤公共只读能力。
 
 二级组件不要互相导入；帮助、百科等组件需要皮肤展示名时，
-统一从这个根目录公共模块读取。
+统一从这个根目录公共模块读取。`launch.paths` 提供项目级路径底座，
+这里负责世界皮肤包和当前展示名的解析，不承担别的组件布局约束。
 """
 
 from __future__ import annotations
@@ -29,17 +30,17 @@ from .common import (
     set_quality_label_overrides,
 )
 from .constants import SCHEMA_VERSION
+from launch.paths import project_path, static_file_from_url, static_url
 from .runtime_cache import clear_runtime_caches
 from .sql import db
 
 
 DEFAULT_SKIN_ID = "default"
 PACKAGE_FORMAT = 5
-PACKS_DIR = Path(__file__).resolve().parent / "世界皮肤" / "packs"
-SKIN_HELP_MAP_DIR = "/static/map"
+PACKS_DIR = project_path("修仙", "世界皮肤", "packs")
+SKIN_HELP_MAP_DIR = static_url("map")
 DEFAULT_HELP_MAP_PATH = f"{SKIN_HELP_MAP_DIR}/{DEFAULT_SKIN_ID}.png"
 SKIN_HELP_MAP_EXTENSIONS = ("jpeg", "jpg", "png")
-SERVER_ROOT = Path(__file__).resolve().parent.parent
 SECRET_REALM_ENVIRONMENT_KEYS = {
     "secret_env_youming_wind",
     "secret_env_mirror_sky",
@@ -351,7 +352,10 @@ def apply_world_skin_package(
     record_snapshot: bool = True,
     update_active: bool = True,
 ) -> dict[str, int]:
-    """把皮肤包写入当前展示快照；只改展示名，不改稳定键和数值。"""
+    """把皮肤包写入当前展示快照。
+
+    这里只改展示名和相关快照，不改稳定键、数值规则和历史业务数据。
+    """
 
     counts: dict[str, int] = {
         "locations": 0,
@@ -1373,8 +1377,7 @@ def _static_file_exists(public_path: str) -> bool:
 
 
 def _static_file_path(public_path: str) -> Path:
-    relative = str(public_path or "").lstrip("/").split("/")
-    return SERVER_ROOT.joinpath(*relative)
+    return static_file_from_url(public_path)
 
 
 def _best_help_map_path_for_skin(skin_id: str) -> str:

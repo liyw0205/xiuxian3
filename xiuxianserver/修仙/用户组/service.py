@@ -20,15 +20,13 @@ from ..identity import (
     player_exists,
     resolve_player_id,
 )
-from ..markdown_utils import markdown_link
-from ..public_url import public_url
 from ..sql import db
+from ..user_group_core import read_user_group_session, user_group_admin_link, user_group_admin_url
 
 
 LOGIN_TTL_MINUTES = 15
 BIND_CODE_TTL_MINUTES = 10
 TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-USER_GROUP_ADMIN_PATH = "/xiuxian/user-groups"
 
 
 class UserGroupService:
@@ -146,23 +144,7 @@ class UserGroupService:
     def session(self, session_id: str) -> dict[str, Any] | None:
         """读取仍在有效期内的后台 session。"""
 
-        value = str(session_id or "").strip()
-        if not value:
-            return None
-
-        now_text = _ts()
-        row = self.db.fetch_one(
-            """
-            SELECT session_id, player_id, expires_at
-            FROM user_group_sessions
-            WHERE session_id = ?
-            LIMIT 1
-            """,
-            (value,),
-        )
-        if not row or str(row["expires_at"]) <= now_text:
-            return None
-        return row
+        return read_user_group_session(session_id, self.db)
 
     def create_bind_code(self, session_id: str) -> dict[str, Any]:
         """为已登录用户组创建一次性绑定码。"""
@@ -267,18 +249,6 @@ def _token(length: int) -> str:
     """生成不含易混淆字符的短码。"""
 
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(length))
-
-
-def user_group_admin_url() -> str:
-    """返回当前环境下的用户组后台公开地址。"""
-
-    return public_url(USER_GROUP_ADMIN_PATH)
-
-
-def user_group_admin_link(label: str = "用户组后台") -> str:
-    """返回用户组后台 Markdown 改名链接，消息里不裸露真实地址。"""
-
-    return markdown_link(label, user_group_admin_url())
 
 
 def _ts(value: datetime | None = None) -> str:

@@ -32,10 +32,11 @@ from ..doc_sources import stable_markdown_paths
 from ..format_text import T
 from ..runtime_cache import register_runtime_cache
 from ..sql import db
+from launch.paths import project_path
 from ..world_skin import current_world_entries, skin_name
 
 
-XIUXIAN_DIR = Path(__file__).resolve().parent.parent
+XIUXIAN_DIR = project_path("修仙")
 
 
 @dataclass(frozen=True)

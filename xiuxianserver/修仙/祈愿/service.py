@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from math import ceil
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -13,6 +12,7 @@ from ..common import CoreService, currency_amount, load_json, random, ring_item_
 from ..constants import WISH_TOKEN_ITEM_ID
 from ..format_text import T
 from ..public_url import public_url
+from launch.paths import static_path
 from ..sql import WISH_DEFAULT_POOL_ID, WISH_VOUCHERS, db
 
 VOUCHER_NAMES = {key: name for key, name in WISH_VOUCHERS}
@@ -23,7 +23,7 @@ REWARD_TYPE_LABELS = {
     "ring_item": "纳戒物品",
     "voucher": "凭证",
 }
-WISH_ANIMATION_DIR = Path(__file__).resolve().parents[2] / "static" / "wish"
+WISH_ANIMATION_DIR = static_path("wish")
 WISH_ANIMATION_PUBLIC_PATH = "/static/wish"
 WISH_ANIMATION_VERSION = "20260627-small"
 WISH_ANIMATION_FILES = {

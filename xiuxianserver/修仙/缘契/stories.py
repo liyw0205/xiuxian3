@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from launch.paths import project_path
 
-STORIES_DIR = Path(__file__).resolve().parent / "stories"
+
+STORIES_DIR = project_path("修仙", "缘契", "stories")
 STORY_FILE_NAME = "story-data.json"
 STORY_KEY_RE = re.compile(r"[^A-Za-z0-9_-]+")
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .manager import current_request_id, manager
 from launch.log import C, logger
+from launch.message_events import emit_message_event, event_from_incoming
 from .schema import is_ws_code
 from .handler import WsMessageHandler
 from .rule import RateLimiter, TaskLimiter
@@ -171,6 +172,16 @@ async def _dispatch_message(client_id: str, message_data: Dict[str, Any]) -> Non
     if not await _remember_request_once(client_id, message_data):
         await _send_duplicate_request(client_id, message_data)
         return
+
+    emit_message_event(
+        event_from_incoming(
+            adapter="ws",
+            client_id=client_id,
+            request_id=_message_request_id(message_data) or "",
+            message_type=message_data.get("type") or "unknown",
+            content=message_data.get("message") or "",
+        )
+    )
 
     if not await WsMessageHandler.has_match(message_data):
         await _send_unmatched_message(client_id, message_data)

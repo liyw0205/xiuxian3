@@ -1101,6 +1101,18 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS message_flows (
+                flow_id INTEGER PRIMARY KEY,
+                direction TEXT NOT NULL,
+                adapter TEXT NOT NULL,
+                request_id TEXT NOT NULL DEFAULT '',
+                client_id TEXT NOT NULL,
+                player_id TEXT NOT NULL,
+                message_type TEXT NOT NULL DEFAULT 'unknown',
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS bank_accounts (
                 client_id TEXT PRIMARY KEY,
                 star_level INTEGER NOT NULL DEFAULT 1,
@@ -1981,6 +1993,8 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_user_identities_group ON user_identities(group_id);
             CREATE INDEX IF NOT EXISTS idx_user_group_sessions_expires ON user_group_sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_user_group_bind_codes_player ON user_group_bind_codes(player_id, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_message_flows_player ON message_flows(player_id, flow_id);
+            CREATE INDEX IF NOT EXISTS idx_message_flows_created_at ON message_flows(created_at);
             CREATE INDEX IF NOT EXISTS idx_ring_client ON ring_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_gem_client ON gem_items(client_id);
             CREATE INDEX IF NOT EXISTS idx_wish_prizes_pool ON wish_prizes(pool_id, enabled);

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi_cache.decorator import cache
+from launch.paths import static_path
 
 from ..sql import db
 from .map_builder import build_map_data
@@ -15,7 +14,7 @@ from .map_builder import build_map_data
 # 交互地图的视觉底板只由静态 HTML/CSS/JS 维护；地点、宗门、虫洞、
 # 藏宝图等动态信息统一从 `/xiuxian/map/data` 读取数据库，不再把
 # 绘图提示词或画师参考放进 Markdown 知识源。
-MAP_HTML = Path(__file__).resolve().parents[2] / "static" / "map" / "world-map.html"
+MAP_HTML = static_path("map", "world-map.html")
 router = APIRouter()
 
 

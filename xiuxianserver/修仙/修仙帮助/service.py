@@ -217,6 +217,14 @@ GUIDE_COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
             "修仙帮助",
         ),
     ),
+    "消息流水": (
+        "消息流水观察",
+        (
+            "消息流水",
+            "消息记录",
+            "用户组后台",
+        ),
+    ),
 }
 GUIDE_ALIASES = {
     "主": "",
@@ -414,6 +422,11 @@ class HelpService(CoreService):
                 GUIDE_COMMANDS["世界"][0],
                 "世界历史、史榜、百科、世界皮肤和帮助入口。",
                 GUIDE_COMMANDS["世界"][1],
+            ),
+            "消息流水": (
+                GUIDE_COMMANDS["消息流水"][0],
+                "查看驱动器收发消息的聊天框式短期流水和后台页面。",
+                GUIDE_COMMANDS["消息流水"][1],
             ),
         }
 

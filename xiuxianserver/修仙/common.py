@@ -24,6 +24,8 @@ from .constants import (
     EQUIPMENT_SLOTS,
     FIXED_EQUIPMENT_SLOT_FACTORS,
     MAX_LEVEL,
+    MESSAGE_FLOW_MAX_ROWS,
+    MESSAGE_FLOW_RETENTION_DAYS,
     NEWSPAPER_RETENTION_DAYS,
     RENAME_COOLDOWN_HOURS,
     SECT_LEVEL_MAX,
@@ -948,6 +950,7 @@ class CoreService:
         today = business_day()
         battle_cutoff = ts(now() - timedelta(days=BATTLE_RECORD_RETENTION_DAYS))
         direct_cutoff = ts(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
+        message_flow_cutoff = ts(now() - timedelta(days=MESSAGE_FLOW_RETENTION_DAYS))
         world_short_cutoff = ts(now() - timedelta(days=WORLD_SHORT_RECORD_RETENTION_DAYS))
         world_long_cutoff = ts(now() - timedelta(days=WORLD_LONG_RECORD_RETENTION_DAYS))
         direct_business_day = business_day(now() - timedelta(days=DIRECT_FLOW_RETENTION_DAYS))
@@ -1005,6 +1008,25 @@ class CoreService:
             )
             conn.execute("DELETE FROM daily_fortunes WHERE business_day < ?", (direct_business_day,))
             conn.execute("DELETE FROM daily_newspapers WHERE business_day < ?", (newspaper_business_day,))
+            conn.execute(
+                """
+                DELETE FROM message_flows
+                WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+                """,
+                (message_flow_cutoff,),
+            )
+            conn.execute(
+                """
+                DELETE FROM message_flows
+                WHERE flow_id NOT IN (
+                    SELECT flow_id
+                    FROM message_flows
+                    ORDER BY flow_id DESC
+                    LIMIT ?
+                )
+                """,
+                (MESSAGE_FLOW_MAX_ROWS,),
+            )
 
             stats_start_at = self._lifetime_stats_started_at_conn(conn)
             self._rollup_lifetime_records_conn(conn, stats_start_at, direct_cutoff, world_long_cutoff)
