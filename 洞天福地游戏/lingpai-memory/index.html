@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>灵牌记忆</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #10151c;
+      --panel: #18212b;
+      --panel-2: #202b36;
+      --line: rgba(255,255,255,.12);
+      --text: #f6f1e7;
+      --muted: #aeb8c4;
+      --accent: #77d6b2;
+      --accent-2: #f3c969;
+      --bad: #ff8c8c;
+      --card: #283646;
+      --card-back: linear-gradient(145deg, #244556, #1a2936);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { display: grid; place-items: center; padding: 16px; }
+    main { width: min(560px, 100%); }
+    .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+    h1 { margin: 0 0 4px; font-size: clamp(28px, 7vw, 42px); line-height: 1; letter-spacing: 0; }
+    .sub { margin: 0; color: var(--muted); font-size: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    .stat { padding: 10px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; text-align: center; }
+    .stat b { display: block; font-size: 20px; color: var(--accent); }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .card {
+      aspect-ratio: 1 / 1.12;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card-back);
+      color: var(--text);
+      font-size: clamp(17px, 4.4vw, 24px);
+      font-weight: 800;
+      letter-spacing: 0;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+      transition: transform .14s ease, background .14s ease, border-color .14s ease;
+      touch-action: manipulation;
+    }
+    .card:active { transform: scale(.97); }
+    .card.open { background: #f7ead4; color: #20242a; border-color: rgba(243,201,105,.72); }
+    .card.done { background: rgba(119,214,178,.18); border-color: rgba(119,214,178,.74); color: var(--accent); cursor: default; }
+    .actions { display: flex; gap: 10px; margin-top: 12px; }
+    button.action {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #0d1716;
+      font-weight: 800;
+      padding: 12px 16px;
+      min-height: 44px;
+      cursor: pointer;
+      flex: 1;
+    }
+    button.action.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+    button.action:disabled { opacity: .55; cursor: not-allowed; }
+    .result {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(5, 8, 12, .68);
+      backdrop-filter: blur(8px);
+    }
+    .result.show { display: grid; }
+    .result-card {
+      width: min(430px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      padding: 18px;
+      box-shadow: 0 22px 70px rgba(0, 0, 0, .42);
+    }
+    .result-card h2 { margin: 0 0 8px; font-size: 24px; }
+    .result-desc { margin: 0 0 12px; color: var(--muted); line-height: 1.6; }
+    .code-label { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .code {
+      margin-top: 4px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.24);
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--accent-2);
+      word-break: break-all;
+    }
+    .command {
+      margin-top: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font-weight: 800;
+      word-break: break-all;
+    }
+    .rewards { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+    .copy-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .result-card > .action { margin-top: 8px; width: 100%; }
+    .error { color: var(--bad); }
+
+    @media (max-width: 420px) {
+      body { padding: 10px; align-items: start; }
+      .top { align-items: flex-start; flex-direction: column; }
+      .stats { gap: 6px; }
+      .stat { padding: 8px 4px; }
+      .board { gap: 6px; }
+      .actions { flex-direction: column; }
+      .copy-actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="top">
+      <div>
+        <h1>灵牌记忆</h1>
+        <p class="sub">翻开相同灵牌，九十息内尽量归位。</p>
+      </div>
+      <button class="action secondary" id="restart" type="button">重开</button>
+    </section>
+
+    <section class="stats" aria-live="polite">
+      <div class="stat"><b id="time">90</b><span>剩余</span></div>
+      <div class="stat"><b id="pairs">0/8</b><span>配对</span></div>
+      <div class="stat"><b id="flips">0</b><span>翻牌</span></div>
+    </section>
+
+    <section class="board" id="board" aria-label="灵牌棋盘"></section>
+
+    <section class="actions">
+      <button class="action" id="start" type="button">开局</button>
+      <button class="action secondary" id="finish" type="button" disabled>结算本局</button>
+    </section>
+
+    <section class="result" id="result" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const API = "/xiuxian/dongtian/lingpai-memory";
+    const state = {
+      config: null,
+      round: null,
+      cards: [],
+      open: [],
+      matched: new Set(),
+      flips: 0,
+      startedAt: 0,
+      timer: null,
+      finished: false,
+      duration: 90
+    };
+
+    const els = {
+      board: document.getElementById("board"),
+      start: document.getElementById("start"),
+      finish: document.getElementById("finish"),
+      restart: document.getElementById("restart"),
+      time: document.getElementById("time"),
+      pairs: document.getElementById("pairs"),
+      flips: document.getElementById("flips"),
+      result: document.getElementById("result")
+    };
+
+    async function request(path, options = {}) {
+      const res = await fetch(API + path, {
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        ...options
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "洞天接口暂时没有回应");
+      return data;
+    }
+
+    async function loadConfig() {
+      state.config = await request("/config", { method: "GET", headers: undefined });
+      state.duration = Number(state.config.config?.game_duration || 90);
+      updateStats();
+    }
+
+    async function startGame() {
+      clearResult();
+      state.round = await request("/start", {
+        method: "POST",
+        body: JSON.stringify({ gameToken: state.config.game_token })
+      });
+      state.cards = state.round.cards || [];
+      state.open = [];
+      state.matched = new Set();
+      state.flips = 0;
+      state.startedAt = Date.now();
+      state.finished = false;
+      els.start.disabled = true;
+      els.finish.disabled = false;
+      renderBoard();
+      tick();
+      clearInterval(state.timer);
+      state.timer = setInterval(tick, 500);
+    }
+
+    function renderBoard() {
+      els.board.innerHTML = "";
+      for (const card of state.cards) {
+        const btn = document.createElement("button");
+        btn.className = "card";
+        btn.type = "button";
+        btn.dataset.id = card.id;
+        btn.textContent = "";
+        btn.addEventListener("click", () => flip(card));
+        els.board.appendChild(btn);
+      }
+      refreshCards();
+    }
+
+    function flip(card) {
+      if (!state.startedAt || state.finished || state.matched.has(card.id)) return;
+      if (state.open.some(item => item.id === card.id) || state.open.length >= 2) return;
+      state.open.push(card);
+      state.flips += 1;
+      refreshCards();
+      updateStats();
+      if (state.open.length === 2) {
+        const [a, b] = state.open;
+        if (a.pair_id === b.pair_id) {
+          state.matched.add(a.id);
+          state.matched.add(b.id);
+          state.open = [];
+          if (matchedPairs() >= 8) finishGame();
+        } else {
+          setTimeout(() => {
+            state.open = [];
+            refreshCards();
+          }, 520);
+        }
+      }
+    }
+
+    function refreshCards() {
+      for (const btn of els.board.children) {
+        const id = Number(btn.dataset.id);
+        const card = state.cards.find(item => item.id === id);
+        const isOpen = state.open.some(item => item.id === id);
+        const isDone = state.matched.has(id);
+        btn.classList.toggle("open", isOpen && !isDone);
+        btn.classList.toggle("done", isDone);
+        btn.textContent = isOpen || isDone ? card.label : "灵";
+        btn.disabled = isDone || state.finished;
+      }
+    }
+
+    function tick() {
+      const left = Math.max(0, state.duration - elapsedSeconds());
+      els.time.textContent = String(left);
+      if (left <= 0 && state.startedAt && !state.finished) finishGame();
+    }
+
+    function matchedPairs() {
+      return Math.floor(state.matched.size / 2);
+    }
+
+    function elapsedSeconds() {
+      if (!state.startedAt) return 0;
+      return Math.min(state.duration, Math.floor((Date.now() - state.startedAt) / 1000));
+    }
+
+    function updateStats() {
+      els.pairs.textContent = `${matchedPairs()}/8`;
+      els.flips.textContent = String(state.flips);
+      els.time.textContent = String(Math.max(0, state.duration - elapsedSeconds()));
+    }
+
+    async function finishGame() {
+      if (!state.round || state.finished) return;
+      state.finished = true;
+      clearInterval(state.timer);
+      els.finish.disabled = true;
+      els.start.disabled = false;
+      refreshCards();
+      updateStats();
+      try {
+        const payload = {
+          gameToken: state.config.game_token,
+          sessionId: state.round.session_id,
+          roundToken: state.round.round_token,
+          matchedPairs: matchedPairs(),
+          flipCount: state.flips,
+          elapsedSeconds: elapsedSeconds(),
+          completed: matchedPairs() >= 8
+        };
+        const issued = await request("/finish", { method: "POST", body: JSON.stringify(payload) });
+        showResult(issued);
+      } catch (err) {
+        state.finished = false;
+        els.finish.disabled = false;
+        els.start.disabled = true;
+        showError(`${err.message || "结算失败"}，可以重试结算本局。`, true);
+      }
+    }
+
+    function showResult(issued) {
+      const code = issued.code || "";
+      const rewards = (issued.reward_preview || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>本局没有生成可兑换奖励。</li>";
+      els.result.className = "result show";
+      els.result.innerHTML = `
+        <div class="result-card" role="dialog" aria-modal="true" aria-label="灵牌记忆结算">
+          <h2>灵牌归位</h2>
+          <p class="result-desc">配对 ${matchedPairs()}/8｜翻牌 ${state.flips}。兑换码十分钟内有效。</p>
+          <div class="code-label">洞天兑换码</div>
+          <div class="code">${escapeHtml(code)}</div>
+          <div class="command">洞天兑换 ${escapeHtml(code)}</div>
+          <ul class="rewards">${rewards}</ul>
+          <div class="copy-actions">
+            <button class="action" type="button" id="copyCommand">复制兑换命令</button>
+            <button class="action secondary" type="button" id="copyCode">复制兑换码</button>
+          </div>
+          <button class="action secondary" type="button" id="againFromResult">再来一局</button>
+        </div>
+      `;
+      document.getElementById("copyCommand").addEventListener("click", event => copyText(event.currentTarget, `洞天兑换 ${code}`, "已复制兑换命令"));
+      document.getElementById("copyCode").addEventListener("click", event => copyText(event.currentTarget, code, "已复制兑换码"));
+      document.getElementById("againFromResult").addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    }
+
+    function showError(message, retry = false) {
+      els.result.className = "result show";
+      els.result.innerHTML = `
+        <div class="result-card" role="dialog" aria-modal="true" aria-label="灵牌记忆结算异常">
+          <h2>结算受阻</h2>
+          <div class="error">${escapeHtml(message)}</div>
+          ${retry ? '<button class="action" type="button" id="retryFinish">结算本局</button>' : '<button class="action secondary" type="button" id="closeResult">知道了</button>'}
+        </div>
+      `;
+      if (retry) {
+        document.getElementById("retryFinish")?.addEventListener("click", () => finishGame());
+      } else {
+        document.getElementById("closeResult")?.addEventListener("click", clearResult);
+      }
+    }
+
+    function clearResult() {
+      els.result.className = "result";
+      els.result.innerHTML = "";
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    async function copyText(button, text, copiedText) {
+      const original = button.textContent;
+      try {
+        await writeClipboard(text);
+        button.textContent = copiedText;
+      } catch {
+        button.textContent = "请长按复制";
+      }
+      window.setTimeout(() => { button.textContent = original; }, 1600);
+    }
+
+    async function writeClipboard(text) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+
+    els.start.addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    els.finish.addEventListener("click", () => finishGame());
+    els.restart.addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    loadConfig().catch(err => showError(err.message));
+  </script>
+</body>
+</html>

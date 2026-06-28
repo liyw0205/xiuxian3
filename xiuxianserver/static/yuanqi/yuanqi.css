@@ -1,0 +1,135 @@
+:root {
+    --yuanqi-panel-bg: rgba(245, 250, 246, 0.96);
+    --yuanqi-panel-border: rgba(46, 74, 68, 0.18);
+    --yuanqi-text: #16231f;
+    --yuanqi-muted: #58736c;
+    --yuanqi-accent: #2d8067;
+    --yuanqi-accent-dark: #1f5d4c;
+    --yuanqi-danger: #a33a36;
+    --yuanqi-shadow: 0 18px 54px rgba(12, 28, 24, 0.22);
+}
+
+.yuanqi-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--yuanqi-text);
+    background:
+        linear-gradient(rgba(9, 24, 20, 0.45), rgba(9, 24, 20, 0.58)),
+        linear-gradient(135deg, #dce9e1 0%, #bed2c9 50%, #e4d8c1 100%);
+}
+
+.yuanqi-gate.hidden {
+    display: none;
+}
+
+.yuanqi-panel {
+    width: min(420px, 100%);
+    padding: 28px;
+    border: 1px solid var(--yuanqi-panel-border);
+    border-radius: 8px;
+    background: var(--yuanqi-panel-bg);
+    box-shadow: var(--yuanqi-shadow);
+}
+
+.yuanqi-kicker {
+    margin: 0 0 8px;
+    color: var(--yuanqi-muted);
+    font-size: 0.86rem;
+}
+
+.yuanqi-panel h1 {
+    margin: 0 0 22px;
+    font-size: 1.65rem;
+    line-height: 1.2;
+    letter-spacing: 0;
+}
+
+.yuanqi-panel label {
+    display: block;
+    margin: 14px 0 7px;
+    color: var(--yuanqi-muted);
+    font-size: 0.92rem;
+}
+
+.yuanqi-panel input {
+    width: 100%;
+    min-height: 44px;
+    box-sizing: border-box;
+    border: 1px solid rgba(32, 65, 58, 0.22);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--yuanqi-text);
+    background: rgba(255, 255, 255, 0.84);
+    font: inherit;
+    letter-spacing: 0;
+}
+
+.yuanqi-panel input:focus {
+    outline: 2px solid rgba(45, 128, 103, 0.24);
+    border-color: rgba(45, 128, 103, 0.66);
+}
+
+.yuanqi-status {
+    min-height: 22px;
+    margin: 14px 0;
+    color: var(--yuanqi-muted);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.yuanqi-status.error {
+    color: var(--yuanqi-danger);
+}
+
+.yuanqi-submit {
+    width: 100%;
+    min-height: 46px;
+    border: 0;
+    border-radius: 8px;
+    color: #ffffff;
+    background: var(--yuanqi-accent);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.yuanqi-submit:hover {
+    background: var(--yuanqi-accent-dark);
+}
+
+.yuanqi-submit:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
+.credits-list {
+    display: grid;
+    gap: 10px;
+    color: var(--yuanqi-text);
+    font-size: 0.95rem;
+    line-height: 1.7;
+}
+
+.credits-list p {
+    margin: 0;
+}
+
+@media (max-width: 560px) {
+    .yuanqi-gate {
+        padding: 16px;
+        align-items: stretch;
+    }
+
+    .yuanqi-panel {
+        align-self: center;
+        padding: 22px;
+    }
+
+    .yuanqi-panel h1 {
+        font-size: 1.42rem;
+    }
+}

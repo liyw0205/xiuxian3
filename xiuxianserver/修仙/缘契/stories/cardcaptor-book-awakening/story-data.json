@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "cardcaptor_book_awakening",
+    "title": "书页醒来",
+    "subtitle": "库洛书在夜里翻开，一张牌把你的名字写进风里。",
+    "startScene": "start",
+    "defaultTheme": "warm",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "翻开",
+    "settingsButton": "设置",
+    "loadingText": "库洛书页正在翻动...",
+    "welcome": [
+      "{{name}}在木之本家的书房里听见纸页自己翻动。",
+      "小可从书脊上探出头，认真到有点夸张地宣布：今晚需要临时守护者。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.27, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.36, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"kindness": 0, "magic": 0, "courage": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "warm", "label": "灯光"}, {"id": "cool", "label": "月色"}, {"id": "rainbow", "label": "魔法"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "木之本家书房",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "库洛书自己打开，书页里吹出一阵温柔却任性的风。星之杖靠在桌边轻轻发亮，像在等一个愿意伸手的人。\n\n小樱还没赶到，小可已经急得在空中转圈。"},
+        {"type": "dialogue", "speaker": "小可", "content": "{{name}}，先别问为什么！那张牌醒了，我们得让它冷静下来！"}
+      ],
+      "choices": [
+        {"id": "take_wand", "text": "握住星之杖，先让自己别慌", "actions": [{"type": "state.add", "path": "stats.courage", "value": 2}, {"type": "goto", "target": "wind_room"}]},
+        {"id": "read_book", "text": "快速看书页，找出牌的名字", "actions": [{"type": "state.add", "path": "stats.magic", "value": 2}, {"type": "goto", "target": "wind_room"}]},
+        {"id": "comfort", "text": "轻声对飞散的纸页说：我们不会伤害你", "actions": [{"type": "state.add", "path": "stats.kindness", "value": 2}, {"type": "goto", "target": "wind_room"}]}
+      ]
+    },
+    "wind_room": {
+      "id": "wind_room",
+      "chapter": "第二幕",
+      "time": "风里的房间",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "风牌没有恶意，却把房间吹成了小小的旋涡。照片、课本、窗帘全在半空跳舞，连小可都差点被卷进台灯罩里。\n\n门外传来小樱跑上楼的脚步声，你只需要撑到她赶来。"}
+      ],
+      "choices": [
+        {"id": "close_window", "text": "关上窗户，先稳住风向", "actions": [{"type": "state.add", "path": "stats.magic", "value": 2}, {"type": "goto", "target": "seal_moment"}]},
+        {"id": "catch_photos", "text": "接住飞起的照片，不让回忆摔坏", "actions": [{"type": "state.add", "path": "stats.kindness", "value": 2}, {"type": "goto", "target": "seal_moment"}]},
+        {"id": "stand_center", "text": "站到风眼中央，替小可挡一下", "actions": [{"type": "state.add", "path": "stats.courage", "value": 2}, {"type": "goto", "target": "seal_moment"}]}
+      ]
+    },
+    "seal_moment": {
+      "id": "seal_moment",
+      "chapter": "第三幕",
+      "time": "星光落下",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "小樱终于推门进来，发带被风吹得乱七八糟，却还是很认真地向你点头。\n\n星之杖展开翅膀，风牌的影子在房间中央停了一瞬。你能感觉到它并不是想逃，只是醒来时太孤单。"},
+        {"type": "dialogue", "speaker": "小樱", "content": "我们一起吧。{{name}}，请帮我把它带回来。"}
+      ],
+      "choices": [
+        {"id": "name_card", "text": "喊出它的名字，让风听见归处", "actions": [{"type": "state.add", "path": "stats.magic", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "hold_pages", "text": "按住库洛书页，为封印留出空白", "actions": [{"type": "state.add", "path": "stats.courage", "value": 1}, {"type": "state.add", "path": "stats.magic", "value": 1}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "smile_card", "text": "对牌微笑，告诉它欢迎回来", "actions": [{"type": "state.add", "path": "stats.kindness", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "书页合上",
+      "blocks": [{"type": "text", "content": "风终于安静，库洛书重新合上。\n\n小樱郑重地把封印好的牌放回书中，小可则宣布你已经通过临时守护者资格考试，虽然这个考试是它刚刚想出来的。\n\n今晚的纪念，你可以选一种方式留下。"}],
+      "choices": [
+        {"id": "bookmark", "text": "收下一枚星星书签", "actions": [{"type": "ending", "target": "ending_bookmark"}]},
+        {"id": "photo", "text": "和小樱、小可拍一张合照", "actions": [{"type": "ending", "target": "ending_photo"}]},
+        {"id": "promise", "text": "答应下次牌醒来还会帮忙", "actions": [{"type": "ending", "target": "ending_promise"}]}
+      ]
+    },
+    "ending_bookmark": {
+      "id": "ending_bookmark",
+      "chapter": "结局",
+      "time": "书桌前",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "星星书签夹在库洛书旁边，边角还带着一点风的气息。\n\n它不是强大的魔法道具，却能在你翻书时轻轻发亮，提醒你今晚没有退缩。\n\n【结局：星星书签】\n你短暂成为守护者，也认真守住了一页醒来的书。"}],
+      "choices": []
+    },
+    "ending_photo": {
+      "id": "ending_photo",
+      "chapter": "结局",
+      "time": "镜头前",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "知世不知何时出现在门口，举着摄像机笑得非常满足。\n\n照片里，小樱的发带歪了，小可还在挥爪，你站在中间，手里抱着刚救下来的课本。大家都很狼狈，也都很开心。\n\n【结局：临时守护者合照】\n这张照片证明，魔法也可以是一场明亮的日常。"}],
+      "choices": []
+    },
+    "ending_promise": {
+      "id": "ending_promise",
+      "chapter": "结局",
+      "time": "窗边",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "你答应下次还会帮忙，小可立刻满意地点头，好像终于找到新的可靠后援。\n\n窗外夜风变得很轻，像风牌也在说晚安。\n\n【结局：下一页再见】\n库洛书安静下来，而你的名字已经被今晚的风记住。"}],
+      "choices": []
+    }
+  }
+}

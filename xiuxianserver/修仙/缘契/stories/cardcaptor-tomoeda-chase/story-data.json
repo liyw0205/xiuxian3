@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "cardcaptor_tomoeda_chase",
+    "title": "友枝町追卡",
+    "subtitle": "放学后的街道亮起魔法阵，追逐也可以很温柔。",
+    "startScene": "start",
+    "defaultTheme": "rainbow",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "出发",
+    "settingsButton": "设置",
+    "loadingText": "友枝町的路灯正在亮起...",
+    "welcome": [
+      "放学铃响后，{{name}}在友枝町街口看见一只企鹅雕像慢慢飘了起来。",
+      "小樱骑着轮滑鞋冲过来，身后跟着兴奋到发光的知世。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.31, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.27, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.36, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"speed": 0, "care": 0, "spark": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "rainbow", "label": "街灯"}, {"id": "warm", "label": "夕阳"}, {"id": "cool", "label": "月影"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "企鹅公园",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "企鹅公园的雕像一只接一只飘起来，排成奇怪的队伍往商业街飞。孩子们以为是表演，已经开始鼓掌。\n\n小可趴在你肩上压低声音：这是浮牌和跳牌的气息混在一起，再不收就要变成友枝町大游行了。"},
+        {"type": "dialogue", "speaker": "知世", "content": "{{name}}，我会记录大家最帅气的样子，所以请放心追上去吧。"}
+      ],
+      "choices": [
+        {"id": "skate", "text": "借一双轮滑鞋，跟小樱一起追", "actions": [{"type": "state.add", "path": "stats.speed", "value": 2}, {"type": "goto", "target": "shopping_street"}]},
+        {"id": "guide", "text": "引导围观孩子退到安全线外", "actions": [{"type": "state.add", "path": "stats.care", "value": 2}, {"type": "goto", "target": "shopping_street"}]},
+        {"id": "wave", "text": "朝飞走的企鹅雕像挥手，试着吸引牌注意", "actions": [{"type": "state.add", "path": "stats.spark", "value": 2}, {"type": "goto", "target": "shopping_street"}]}
+      ]
+    },
+    "shopping_street": {
+      "id": "shopping_street",
+      "chapter": "第二幕",
+      "time": "商业街",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "商业街霓虹刚亮，漂浮的企鹅雕像从招牌之间穿过去。跳牌的影子在路灯上一弹一弹，浮牌则把路人的购物袋轻轻托起。\n\n场面乱得离谱，却没有真正的恶意。你们要做的是让它们玩够之前，先让城市别被玩坏。"}
+      ],
+      "choices": [
+        {"id": "shortcut", "text": "抄近路去钟楼街，堵住前方", "actions": [{"type": "state.add", "path": "stats.speed", "value": 2}, {"type": "goto", "target": "clock_corner"}]},
+        {"id": "soft_land", "text": "帮小樱把落下的物品轻轻接住", "actions": [{"type": "state.add", "path": "stats.care", "value": 2}, {"type": "goto", "target": "clock_corner"}]},
+        {"id": "dance", "text": "顺着跳牌节奏拍手，让它慢下来", "actions": [{"type": "state.add", "path": "stats.spark", "value": 2}, {"type": "goto", "target": "clock_corner"}]}
+      ]
+    },
+    "clock_corner": {
+      "id": "clock_corner",
+      "chapter": "第三幕",
+      "time": "钟楼街角",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "钟楼指针指向七点，企鹅雕像终于停在广场中央。\n\n小樱举起星之杖，李小狼从另一条街赶到，罗盘光芒落在地面。两张牌像玩累的孩子，仍不肯乖乖回家。"}
+      ],
+      "choices": [
+        {"id": "circle", "text": "和李小狼一起站住魔法阵边角", "actions": [{"type": "state.add", "path": "stats.speed", "value": 1}, {"type": "state.add", "path": "stats.spark", "value": 1}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "promise_safe", "text": "告诉牌：回家后也会有人记得今天", "actions": [{"type": "state.add", "path": "stats.care", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "cheer", "text": "大声给小樱加油，让她别紧张", "actions": [{"type": "state.add", "path": "stats.spark", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "街灯下",
+      "blocks": [{"type": "text", "content": "浮牌与跳牌终于回到牌面，企鹅雕像稳稳落回公园。\n\n友枝町恢复普通，普通得让人觉得很珍贵。知世关掉摄像机，小樱松了口气，小可则开始关心今晚有没有布丁。\n\n你可以给这场追逐留一个收尾。"}],
+      "choices": [
+        {"id": "pudding", "text": "请大家吃布丁庆祝", "actions": [{"type": "ending", "target": "ending_pudding"}]},
+        {"id": "return", "text": "把迷路的小孩送回公园门口", "actions": [{"type": "ending", "target": "ending_return"}]},
+        {"id": "badge", "text": "收下知世做的临时队员徽章", "actions": [{"type": "ending", "target": "ending_badge"}]}
+      ]
+    },
+    "ending_pudding": {
+      "id": "ending_pudding",
+      "chapter": "结局",
+      "time": "甜品店",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "小可把布丁吃得非常认真，像刚刚拯救友枝町的是它的胃口。\n\n小樱忍不住笑，李小狼别过脸，耳朵却红了。你坐在窗边，看街灯一盏盏亮起。\n\n【结局：布丁庆功宴】\n魔法事件结束后，甜点也算重要奖励。"}],
+      "choices": []
+    },
+    "ending_return": {
+      "id": "ending_return",
+      "chapter": "结局",
+      "time": "公园门口",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "你把迷路的小孩送回公园门口，她还以为刚才那场追逐是节日巡游。\n\n你没有戳破，只把她歪掉的帽子扶正。友枝町的秘密，有时就是这样被温柔地藏好。\n\n【结局：街角守护】\n今晚你守住的不只是牌，还有普通人的安心。"}],
+      "choices": []
+    },
+    "ending_badge": {
+      "id": "ending_badge",
+      "chapter": "结局",
+      "time": "大道寺宅门前",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "知世把一枚小徽章别到你衣襟上，徽章边缘绣着星星和企鹅。\n\n她说这是临时队员证明，下次出动还可以升级服装。你忽然有点担心，但也有点期待。\n\n【结局：友枝临时队员】\n你正式获得了被卷入下一场温柔麻烦的资格。"}],
+      "choices": []
+    }
+  }
+}

@@ -16,6 +16,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from fastapi import Response
+from starlette.requests import Request
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -26,6 +29,7 @@ from 修仙.constants import (
     BANK_LEVELS,
     CITY_MAX_LEVEL,
     ENCOUNTER_SECONDS,
+    DONGTIAN_ROUND_MIN_SECONDS,
     EXPLORE_MINUTES,
     MAX_LEVEL,
     REST_FAST_SECONDS,
@@ -74,6 +78,18 @@ from 修仙.修仙帮助.service import HelpService
 from 修仙.修仙百科.service import EncyclopediaService
 from 修仙.用户组.service import UserGroupService
 from 修仙.玩家.service import PlayerService
+from 修仙.洞天福地.bianling_color import bianling_color_config, finish_bianling_color, start_bianling_color
+from 修仙.洞天福地.hedan_furnace import finish_hedan_furnace, hedan_furnace_config, start_hedan_furnace
+from 修仙.洞天福地.lingguo_sum_ten import finish_lingguo_sum_ten, lingguo_sum_ten_config, start_lingguo_sum_ten
+from 修仙.洞天福地.lingpai_memory import finish_lingpai_memory, lingpai_memory_config, start_lingpai_memory
+from 修仙.洞天福地.lingxi_fishing import (
+    LINGXI_GAME_DURATION_SECONDS,
+    finish_lingxi_fishing,
+    lingxi_fishing_config,
+    start_lingxi_fishing,
+)
+from 修仙.洞天福地.lingquan_ten_drop import finish_lingquan_ten_drop, lingquan_ten_drop_config, start_lingquan_ten_drop
+from 修仙.洞天福地.service import DongtianService
 from 修仙.宗门.service import SectService
 from 修仙.纳戒.service import RingService
 from 修仙.保险箱.service import InsuranceBoxService
@@ -85,6 +101,8 @@ from 修仙.修仙界历史.service import XiuxianHistoryService
 
 seasonal_boss_service_module = import_module("修仙.首领.service")
 exploration_service_module = import_module("修仙.探险.service")
+dongtian_routes_module = import_module("修仙.洞天福地")
+dongtian_service_module = import_module("修仙.洞天福地.service")
 
 
 def main() -> None:
@@ -113,6 +131,7 @@ def main() -> None:
             _check_weapon_and_explore(services)
             _check_trade_and_treasure(services)
             _check_encyclopedia(services)
+            _check_dongtian(services)
             _check_history(services)
             _check_wormhole(services)
             _check_seasonal_boss(services)
@@ -147,6 +166,7 @@ def _build_services(db: XiuxianDB) -> dict[str, object]:
         "seasonal_boss": SeasonalBossService(db),
         "history": XiuxianHistoryService(db),
         "user_group": UserGroupService(db),
+        "dongtian": DongtianService(db),
     }
 
 
@@ -1943,6 +1963,575 @@ def _check_level_cap_discards(services: dict[str, object]) -> None:
     city = trade.db.fetch_one("SELECT city_level, build_exp FROM city_world_states WHERE location_id = ?", ("city_tianshu",))
     assert int(city["city_level"]) == 107
     assert int(city["build_exp"]) == 0
+
+
+def _lingxi_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端开局凭证、且已超过最短局时的灵溪结算数据。"""
+
+    config = lingxi_fishing_config(dongtian)
+    assert config["game_key"] == "lingxi-fishing"
+    assert config["game_token"]
+    round_info = start_lingxi_fishing(dongtian, {"gameToken": config["game_token"]})
+    old_issued_at = ts(now() - timedelta(seconds=LINGXI_GAME_DURATION_SECONDS + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _lingpai_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端牌序、且已超过最短局时的灵牌记忆结算数据。"""
+
+    config = lingpai_memory_config(dongtian)
+    assert config["game_key"] == "lingpai-memory"
+    assert config["game_token"]
+    round_info = start_lingpai_memory(dongtian, {"gameToken": config["game_token"]})
+    assert len(round_info["cards"]) == 16
+    old_issued_at = ts(now() - timedelta(seconds=DONGTIAN_ROUND_MIN_SECONDS + 91))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _lingquan_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端开局凭证、且已超过最短局时的灵泉结算数据。"""
+
+    config = lingquan_ten_drop_config(dongtian)
+    assert config["game_key"] == "lingquan-ten-drop"
+    assert config["game_token"]
+    round_info = start_lingquan_ten_drop(dongtian, {"gameToken": config["game_token"]})
+    reported_elapsed = max(0, int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds") or 0))
+    elapsed_seconds = max(DONGTIAN_ROUND_MIN_SECONDS + 1, min(reported_elapsed, 300))
+    old_issued_at = ts(now() - timedelta(seconds=elapsed_seconds + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _bianling_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端色阶、且已超过最短局时的辨灵试色结算数据。"""
+
+    config = bianling_color_config(dongtian)
+    assert config["game_key"] == "bianling-color"
+    assert config["game_token"]
+    round_info = start_bianling_color(dongtian, {"gameToken": config["game_token"]})
+    assert len(round_info["stages"]) == 45
+    reported_elapsed = max(0, int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds") or 0))
+    elapsed_seconds = max(DONGTIAN_ROUND_MIN_SECONDS + 1, min(reported_elapsed, 60))
+    old_issued_at = ts(now() - timedelta(seconds=elapsed_seconds + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _lingguo_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端开局凭证、且已超过最短局时的灵果结算数据。"""
+
+    config = lingguo_sum_ten_config(dongtian)
+    assert config["game_key"] == "lingguo-sum-ten"
+    assert config["game_token"]
+    round_info = start_lingguo_sum_ten(dongtian, {"gameToken": config["game_token"]})
+    assert round_info["difficulty"]["key"] in {"qingtian", "ningxin", "suowei"}
+    reported_elapsed = max(0, int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds") or 0))
+    elapsed_seconds = max(DONGTIAN_ROUND_MIN_SECONDS + 1, min(reported_elapsed, 150))
+    old_issued_at = ts(now() - timedelta(seconds=elapsed_seconds + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _hedan_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端开局凭证、且已超过最短局时的合丹炉结算数据。"""
+
+    config = hedan_furnace_config(dongtian)
+    assert config["game_key"] == "hedan-furnace"
+    assert config["game_token"]
+    round_info = start_hedan_furnace(dongtian, {"gameToken": config["game_token"]})
+    assert round_info["difficulty"]["key"] in {"wenhuo", "zhenhuo", "jiehuo"}
+    reported_elapsed = max(0, int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds") or 0))
+    elapsed_seconds = max(DONGTIAN_ROUND_MIN_SECONDS + 1, min(reported_elapsed, 150))
+    old_issued_at = ts(now() - timedelta(seconds=elapsed_seconds + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
+def _dongtian_request(cookies: dict[str, str] | None = None) -> Request:
+    """构造最小 HTTP 请求，用来测试洞天启动 token cookie。"""
+
+    headers: list[tuple[bytes, bytes]] = []
+    if cookies:
+        cookie_text = "; ".join(f"{key}={value}" for key, value in cookies.items())
+        headers.append((b"cookie", cookie_text.encode("latin-1")))
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/xiuxian/dongtian/hedan-furnace/config",
+            "query_string": b"",
+            "headers": headers,
+            "client": ("testclient", 0),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+    )
+
+
+def _check_dongtian_refresh_token_lock(dongtian: DongtianService) -> None:
+    """检查刷新页面不能换启动 token，也不能借新 token 结算旧局。"""
+
+    for title, config_func in (
+        ("灵溪垂钓", lingxi_fishing_config),
+        ("灵牌记忆", lingpai_memory_config),
+        ("灵泉十滴", lingquan_ten_drop_config),
+        ("辨灵试色", bianling_color_config),
+        ("灵果凑十", lingguo_sum_ten_config),
+        ("合丹炉", hedan_furnace_config),
+    ):
+        first_config = config_func(dongtian)
+        reused_config = config_func(dongtian, first_config["game_token"])
+        assert first_config["game_token"], title
+        assert first_config["reused_game_token"] is False, title
+        assert reused_config["game_token"] == first_config["game_token"], title
+        assert reused_config["reused_game_token"] is True, title
+
+    fruit_config = lingguo_sum_ten_config(dongtian)
+    fruit_round_a = start_lingguo_sum_ten(dongtian, {"gameToken": fruit_config["game_token"]})
+    fruit_round_b = start_lingguo_sum_ten(dongtian, {"gameToken": fruit_config["game_token"]})
+    assert fruit_round_a["difficulty"]["key"] == fruit_round_b["difficulty"]["key"]
+    try:
+        finish_lingguo_sum_ten(
+            dongtian,
+            {
+                "gameToken": fruit_config["game_token"],
+                "sessionId": fruit_round_a["session_id"],
+                "roundToken": fruit_round_a["round_token"],
+                "score": 20,
+                "clearedCells": 20,
+                "validClears": 2,
+                "elapsedSeconds": 20,
+            },
+        )
+        raise AssertionError("同一启动凭证不应并发保留多局未结算单局")
+    except ValueError as exc:
+        _must_contain(str(exc), "无效")
+
+    furnace_config = hedan_furnace_config(dongtian)
+    furnace_round_a = start_hedan_furnace(dongtian, {"gameToken": furnace_config["game_token"]})
+    furnace_round_b = start_hedan_furnace(dongtian, {"gameToken": furnace_config["game_token"]})
+    assert furnace_round_a["difficulty"]["key"] == furnace_round_b["difficulty"]["key"]
+
+    memory_config = lingpai_memory_config(dongtian)
+    memory_round_a = start_lingpai_memory(dongtian, {"gameToken": memory_config["game_token"]})
+    memory_round_b = start_lingpai_memory(dongtian, {"gameToken": memory_config["game_token"]})
+    assert memory_round_a["cards"] == memory_round_b["cards"]
+
+    color_config = bianling_color_config(dongtian)
+    color_round_a = start_bianling_color(dongtian, {"gameToken": color_config["game_token"]})
+    color_round_b = start_bianling_color(dongtian, {"gameToken": color_config["game_token"]})
+    assert color_round_a["stages"] == color_round_b["stages"]
+
+    cookie_name = dongtian_routes_module._game_token_cookie_name("hedan-furnace")
+    cookie_response = Response()
+    dongtian_routes_module._config_with_cookie(
+        _dongtian_request(),
+        cookie_response,
+        "hedan-furnace",
+        furnace_config,
+    )
+    set_cookie = cookie_response.headers.get("set-cookie", "")
+    assert cookie_name in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Path=/xiuxian/dongtian/hedan-furnace" in set_cookie
+
+    cookie_request = _dongtian_request({cookie_name: furnace_config["game_token"]})
+    cookie_token = dongtian_routes_module._game_token_cookie(cookie_request, "hedan-furnace")
+    reused_furnace_config = hedan_furnace_config(dongtian, cookie_token)
+    no_refresh_cookie = Response()
+    dongtian_routes_module._config_with_cookie(
+        cookie_request,
+        no_refresh_cookie,
+        "hedan-furnace",
+        reused_furnace_config,
+    )
+    assert reused_furnace_config["game_token"] == furnace_config["game_token"]
+    assert reused_furnace_config["reused_game_token"] is True
+    assert no_refresh_cookie.headers.get("set-cookie") is None
+
+    old_config = hedan_furnace_config(dongtian)
+    old_round = start_hedan_furnace(dongtian, {"gameToken": old_config["game_token"]})
+    new_config = hedan_furnace_config(dongtian)
+    assert old_config["game_token"] != new_config["game_token"]
+    try:
+        finish_hedan_furnace(
+            dongtian,
+            {
+                "gameToken": new_config["game_token"],
+                "sessionId": old_round["session_id"],
+                "roundToken": old_round["round_token"],
+                "score": 100,
+                "maxTile": 64,
+                "mergeCount": 5,
+                "moveCount": 12,
+                "elapsedSeconds": 30,
+            },
+        )
+        raise AssertionError("新启动凭证不应能结算旧单局凭证")
+    except ValueError as exc:
+        _must_contain(str(exc), "校验失败")
+
+
+def _check_dongtian(services: dict[str, object]) -> None:
+    """检查洞天福地入口、兑换码、转赠和收益曲线。"""
+
+    dongtian: DongtianService = services["dongtian"]  # type: ignore[assignment]
+    player: PlayerService = services["player"]  # type: ignore[assignment]
+    _check_dongtian_refresh_token_lock(dongtian)
+
+    original_static_dir = dongtian_service_module.DONGTIAN_STATIC_DIR
+    with TemporaryDirectory() as temp_dir:
+        game_dir = Path(temp_dir) / "fishing-demo"
+        game_dir.mkdir(parents=True)
+        (game_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>灵溪垂钓</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
+        fruit_dir = Path(temp_dir) / "lingguo-demo"
+        fruit_dir.mkdir(parents=True)
+        (fruit_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>灵果凑十</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
+        memory_dir = Path(temp_dir) / "lingpai-demo"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>灵牌记忆</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
+        color_dir = Path(temp_dir) / "bianling-demo"
+        color_dir.mkdir(parents=True)
+        (color_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>辨灵试色</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
+        furnace_dir = Path(temp_dir) / "hedan-demo"
+        furnace_dir.mkdir(parents=True)
+        (furnace_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>合丹炉</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
+        dongtian_service_module.DONGTIAN_STATIC_DIR = Path(temp_dir)
+        try:
+            entry_text = dongtian.games("u1")
+            _must_contain(entry_text, "[灵溪垂钓](")
+            _must_contain(entry_text, "/static/dongtian/fishing-demo/index.html")
+            _must_contain(entry_text, "[灵果凑十](")
+            _must_contain(entry_text, "/static/dongtian/lingguo-demo/index.html")
+            _must_contain(entry_text, "[灵牌记忆](")
+            _must_contain(entry_text, "/static/dongtian/lingpai-demo/index.html")
+            _must_contain(entry_text, "[辨灵试色](")
+            _must_contain(entry_text, "/static/dongtian/bianling-demo/index.html")
+            _must_contain(entry_text, "[合丹炉](")
+            _must_contain(entry_text, "/static/dongtian/hedan-demo/index.html")
+
+            try:
+                finish_lingxi_fishing(dongtian, {"score": 1, "caughtFish": []})
+                raise AssertionError("缺少洞天凭证的结算不应成功")
+            except ValueError as exc:
+                _must_contain(str(exc), "凭证")
+
+            fishing_payload = _lingxi_finish_payload(
+                dongtian,
+                {
+                    "score": 9999,
+                    "caughtFish": [
+                        {"typeNameEn": "goldenDragon", "score": 1800},
+                        {"typeNameEn": "shark", "score": 1600},
+                        {"typeNameEn": "swordfish", "score": 900},
+                        {"typeNameEn": "blueCrucian", "score": 500},
+                    ],
+                },
+            )
+            fishing_finish = finish_lingxi_fishing(
+                dongtian,
+                fishing_payload,
+            )
+            assert fishing_finish["game_key"] == "lingxi-fishing"
+            assert fishing_finish["game_title"] == "灵溪垂钓"
+            assert fishing_finish["accepted_score"] == 255
+            assert fishing_finish["caught_count"] == 4
+            assert any(line.startswith("基础原石 +") for line in fishing_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in fishing_finish["rewards"])
+            tampered_fishing_payload = dict(fishing_payload)
+            tampered_fishing_payload.update({"score": 1, "caughtFish": []})
+            fishing_retry = finish_lingxi_fishing(dongtian, tampered_fishing_payload)
+            assert fishing_retry["code"] == fishing_finish["code"]
+            assert fishing_retry["reissued"] is True
+            assert fishing_retry["accepted_score"] == 255
+            assert fishing_retry["caught_count"] == 4
+
+            empty_fishing_payload = _lingxi_finish_payload(
+                dongtian,
+                {
+                    "score": 9999,
+                    "caughtFish": [],
+                },
+            )
+            empty_fishing_finish = finish_lingxi_fishing(
+                dongtian,
+                empty_fishing_payload,
+            )
+            assert empty_fishing_finish["accepted_score"] == 0
+            assert empty_fishing_finish["caught_count"] == 0
+
+            memory_payload = _lingpai_finish_payload(
+                dongtian,
+                {
+                    "matchedPairs": 99,
+                    "flipCount": 999,
+                    "elapsedSeconds": 90,
+                    "completed": True,
+                },
+            )
+            memory_finish = finish_lingpai_memory(dongtian, memory_payload)
+            assert memory_finish["game_key"] == "lingpai-memory"
+            assert memory_finish["game_title"] == "灵牌记忆"
+            assert 0 < memory_finish["accepted_score"] <= 1000
+            assert memory_finish["matched_pairs"] == 8
+            assert memory_finish["flip_count"] == 120
+            assert memory_finish["completed"] is True
+            assert any(line.startswith("基础原石 +") for line in memory_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in memory_finish["rewards"])
+            memory_retry = finish_lingpai_memory(dongtian, memory_payload)
+            assert memory_retry["code"] == memory_finish["code"]
+            assert memory_retry["reissued"] is True
+
+            ten_drop_payload = _lingquan_finish_payload(
+                dongtian,
+                {
+                    "score": 9999,
+                    "levelsCleared": 99,
+                    "totalBursts": 9999,
+                    "maxChain": 999,
+                    "dropsLeft": 88,
+                    "elapsedSeconds": 300,
+                    "endReason": "timeout",
+                },
+            )
+            ten_drop_finish = finish_lingquan_ten_drop(dongtian, ten_drop_payload)
+            assert ten_drop_finish["game_key"] == "lingquan-ten-drop"
+            assert ten_drop_finish["game_title"] == "灵泉十滴"
+            assert ten_drop_finish["accepted_score"] == 5000
+            assert ten_drop_finish["levels_cleared"] == 30
+            assert ten_drop_finish["total_bursts"] == 900
+            assert ten_drop_finish["max_chain"] == 180
+            assert any(line.startswith("基础原石 +") for line in ten_drop_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in ten_drop_finish["rewards"])
+            ten_drop_retry = finish_lingquan_ten_drop(dongtian, ten_drop_payload)
+            assert ten_drop_retry["code"] == ten_drop_finish["code"]
+            assert ten_drop_retry["reissued"] is True
+
+            color_payload = _bianling_finish_payload(
+                dongtian,
+                {
+                    "levelsPassed": 999,
+                    "mistakes": 99,
+                    "elapsedSeconds": 60,
+                    "highestLayer": 99,
+                },
+            )
+            color_finish = finish_bianling_color(dongtian, color_payload)
+            assert color_finish["game_key"] == "bianling-color"
+            assert color_finish["game_title"] == "辨灵试色"
+            assert 0 <= color_finish["accepted_score"] <= 1200
+            assert color_finish["levels_passed"] <= 45
+            assert color_finish["mistakes"] == 20
+            assert color_finish["highest_layer"] <= 6
+            assert any(line.startswith("基础原石 +") for line in color_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in color_finish["rewards"])
+            color_retry = finish_bianling_color(dongtian, color_payload)
+            assert color_retry["code"] == color_finish["code"]
+            assert color_retry["reissued"] is True
+
+            fruit_payload = _lingguo_finish_payload(
+                dongtian,
+                {
+                    "score": 9999,
+                    "clearedCells": 999,
+                    "validClears": 999,
+                    "elapsedSeconds": 150,
+                },
+            )
+            fruit_finish = finish_lingguo_sum_ten(dongtian, fruit_payload)
+            assert fruit_finish["game_key"] == "lingguo-sum-ten"
+            assert fruit_finish["game_title"] == "灵果凑十"
+            assert 0 < fruit_finish["accepted_score"] <= 260
+            assert fruit_finish["cleared_cells"] <= 320
+            assert fruit_finish["valid_clears"] <= 120
+            assert fruit_finish["difficulty"] in {"清甜局", "凝神局", "锁味局"}
+            assert any(line.startswith("基础原石 +") for line in fruit_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in fruit_finish["rewards"])
+            fruit_retry = finish_lingguo_sum_ten(dongtian, fruit_payload)
+            assert fruit_retry["code"] == fruit_finish["code"]
+            assert fruit_retry["reissued"] is True
+
+            furnace_payload = _hedan_finish_payload(
+                dongtian,
+                {
+                    "score": 9999,
+                    "maxTile": 9999,
+                    "mergeCount": 999,
+                    "moveCount": 999,
+                    "elapsedSeconds": 150,
+                },
+            )
+            furnace_finish = finish_hedan_furnace(dongtian, furnace_payload)
+            assert furnace_finish["game_key"] == "hedan-furnace"
+            assert furnace_finish["game_title"] == "合丹炉"
+            assert furnace_finish["accepted_score"] == 4200
+            assert furnace_finish["max_tile"] == 4096
+            assert furnace_finish["merge_count"] <= 220
+            assert furnace_finish["move_count"] <= 240
+            assert furnace_finish["difficulty"] in {"文火炉", "真火炉", "劫火炉"}
+            assert any(line.startswith("基础原石 +") for line in furnace_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in furnace_finish["rewards"])
+            furnace_retry = finish_hedan_furnace(dongtian, furnace_payload)
+            assert furnace_retry["code"] == furnace_finish["code"]
+            assert furnace_retry["reissued"] is True
+
+            normal_payload = _lingxi_finish_payload(
+                dongtian,
+                {
+                    "score": 370,
+                    "caughtFish": [
+                        *[{"typeNameEn": "clownfish", "score": 5} for _ in range(9)],
+                        *[{"typeNameEn": "blueCrucian", "score": 10} for _ in range(5)],
+                        *[{"typeNameEn": "goldfish", "score": 15} for _ in range(4)],
+                        *[{"typeNameEn": "pufferfish", "score": 20} for _ in range(3)],
+                        *[{"typeNameEn": "swordfish", "score": 40} for _ in range(2)],
+                        {"typeNameEn": "shark", "score": 75},
+                    ],
+                },
+            )
+            normal_finish = finish_lingxi_fishing(
+                dongtian,
+                normal_payload,
+            )
+            assert normal_finish["accepted_score"] == 370
+            assert "基础原石 +136" in normal_finish["reward_preview"]
+            assert "基础经验 +11" in normal_finish["reward_preview"]
+            assert len([reward for reward in normal_finish["rewards"] if reward.get("type") == "ring_item"]) == 1
+
+            issued = dongtian.issue_code(
+                "fishing-demo",
+                "灵溪垂钓",
+                [
+                    {"type": "currency", "quantity": 100},
+                    {"type": "exp", "quantity": 30},
+                    {"type": "ring_item", "key": "xueqidan", "quantity": 2},
+                    {"type": "wish_token", "quantity": 1},
+                    {"type": "ring_item", "key": "kaikongqi", "quantity": 1},
+                ],
+                score=123,
+                meta={"fish": "青鳞鱼"},
+            )
+            assert issued["game_key"] == "fishing-demo"
+            assert not any(reward.get("key") == "kaikongqi" for reward in issued["rewards"])
+
+            before_player = player.player("u1")
+            assert before_player is not None
+            redeem_text = dongtian.redeem("u1", str(issued["code"]))
+            _must_contain(redeem_text, "灵溪垂钓 的异世回响")
+            _must_contain(redeem_text, "洞天收益系数：资源 100%｜恢复药 100%")
+            _must_contain(redeem_text, "原石 +100")
+            _must_contain(redeem_text, "经验 +30")
+            _must_contain(redeem_text, "纳戒获得 血契丹 x2")
+            _must_contain(redeem_text, "纳戒获得 流光签 x1")
+            assert "开孔器" not in redeem_text
+            after_player = player.player("u1")
+            assert after_player is not None
+            assert int(after_player["raw_stones"]) >= int(before_player["raw_stones"]) + 100
+            _must_contain(dongtian.redeem("u1", str(issued["code"])), "已经被兑换过")
+
+            issued_again = dongtian.issue_code(
+                "fishing-demo",
+                "灵溪垂钓",
+                [
+                    {"type": "currency", "quantity": 1000},
+                    {"type": "ring_item", "key": "xueqidan", "quantity": 10},
+                ],
+                score=456,
+            )
+            second_text = dongtian.redeem("u1", str(issued_again["code"]))
+            _must_contain(second_text, "洞天收益系数：资源 96.6%｜恢复药 98.3%")
+            _must_contain(second_text, "原石 +966")
+            _must_contain(second_text, "纳戒获得 血契丹 x9")
+
+            records_text = dongtian.records("u1")
+            _must_contain(records_text, "今日已兑换：**2** 次")
+            _must_contain(records_text, "当前资源收益系数：**93.5%**")
+            _must_contain(records_text, "灵溪垂钓｜分数 456｜原石 +966")
+        finally:
+            dongtian_service_module.DONGTIAN_STATIC_DIR = original_static_dir
 
 
 def _check_history(services: dict[str, object]) -> None:

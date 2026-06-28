@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>缘契</title>
+    <link rel="stylesheet" href="/static/yuanqi/core/theme.css?v=yuanqi-20260628">
+    <link rel="stylesheet" href="/static/yuanqi/core/style.css?v=yuanqi-20260628">
+    <link rel="stylesheet" href="/static/yuanqi/yuanqi.css?v=yuanqi-20260628">
+</head>
+<body>
+    <div class="game-container" id="game-root" aria-hidden="true">
+        <header class="game-header">
+            <h1 id="game-title">缘契</h1>
+            <div class="game-info">
+                <span id="time-display" class="time-display">--</span>
+                <span id="chapter-display" class="chapter-display">--</span>
+            </div>
+        </header>
+
+        <main class="game-main">
+            <div class="story-container" id="story-container">
+                <div id="story-text" class="story-text"></div>
+            </div>
+
+            <div class="choices-container" id="choices-container"></div>
+        </main>
+
+        <footer class="game-footer">
+            <div class="game-controls">
+                <button id="credits-btn" class="control-btn" type="button">署名</button>
+                <button id="settings-btn" class="control-btn" type="button">设置</button>
+            </div>
+            <div class="progress-bar" aria-hidden="true">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+        </footer>
+    </div>
+
+    <div id="settings-modal" class="modal" aria-hidden="true">
+        <div class="modal-content">
+            <button class="close" type="button" aria-label="关闭">&times;</button>
+            <h2>设置</h2>
+            <div class="settings-options">
+                <div class="setting-item">
+                    <label for="text-speed">文字速度</label>
+                    <input type="range" id="text-speed" min="1" max="100" value="50">
+                </div>
+                <div class="setting-item">
+                    <label for="sound-effects">音频</label>
+                    <input type="checkbox" id="sound-effects" checked>
+                </div>
+                <div class="theme-settings">
+                    <h3>主题</h3>
+                    <div class="setting-item">
+                        <label for="theme-selector">预设主题</label>
+                        <select id="theme-selector" class="theme-select"></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="credits-modal" class="modal" aria-hidden="true">
+        <div class="modal-content">
+            <button class="close" type="button" aria-label="关闭">&times;</button>
+            <h2>音乐署名</h2>
+            <div class="credits-list">
+                <p>本页使用的乌鸦可商用音乐素材已按项目内二次压缩后引入。</p>
+                <p>当前只保留精选通用曲目，不整包入库。</p>
+                <p>署名：音乐由 乌鸦Producer 提供</p>
+                <p>来源目录：static/yuanqi/audio/crow</p>
+                <p>说明：这些素材用于修仙项目内的剧情演出、静场、战斗、结局和支线背景音乐。</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="welcome-screen" class="welcome-screen">
+        <div class="welcome-content">
+            <h1 id="welcome-title" class="welcome-title">缘契</h1>
+            <p id="welcome-subtitle" class="welcome-subtitle">一段只属于此刻的故事</p>
+            <div id="welcome-description" class="welcome-description"></div>
+            <button id="start-game-btn" class="start-game-btn" type="button">开始</button>
+        </div>
+    </div>
+
+    <section id="yuanqi-gate" class="yuanqi-gate" aria-labelledby="yuanqi-title">
+        <form id="yuanqi-form" class="yuanqi-panel" autocomplete="off">
+            <p class="yuanqi-kicker">修仙界 · 缘契</p>
+            <h1 id="yuanqi-title">缘契开启</h1>
+            <label for="yuanqi-name">角色名</label>
+            <input id="yuanqi-name" name="name" type="text" maxlength="24" required>
+            <label for="yuanqi-code">开启码</label>
+            <input id="yuanqi-code" name="code" type="text" maxlength="32" required>
+            <p id="yuanqi-status" class="yuanqi-status" role="status" aria-live="polite"></p>
+            <button id="yuanqi-submit" class="yuanqi-submit" type="submit">进入缘契</button>
+        </form>
+    </section>
+
+    <script src="/static/yuanqi/core/bundle-validator.js?v=yuanqi-20260628"></script>
+    <script src="/static/yuanqi/core/audio-manager.js?v=yuanqi-20260628"></script>
+    <script src="/static/yuanqi/core/game.js?v=yuanqi-20260628"></script>
+    <script src="/static/yuanqi/yuanqi-driver.js?v=yuanqi-20260628"></script>
+</body>
+</html>

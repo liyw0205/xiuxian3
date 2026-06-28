@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "douluo_shrek_gate",
+    "title": "史莱克门前",
+    "subtitle": "怪物学院的门很破，但门后站着一群会发光的人。",
+    "startScene": "start",
+    "defaultTheme": "nature",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "入学",
+    "settingsButton": "设置",
+    "loadingText": "怪物徽章正在翻面...",
+    "welcome": [
+      "{{name}}来到史莱克学院门前，门牌歪着，队伍却排得很长。",
+      "有人为名声而来，有人为证明而来，你只想看看自己到底能不能被称作怪物。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.31, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"focus": 0, "bravery": 0, "bond": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "nature", "label": "村野"}, {"id": "warm", "label": "晨光"}, {"id": "dark", "label": "斗魂"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "学院门口",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "负责报名的老师半躺在椅子上，眼皮都懒得抬。门后传来戴沐白和考生交手的动静，魂力撞在空气里，像一面鼓被敲响。\n\n你站到桌前，报名费已经放下，老师却只问了一句：你凭什么进史莱克？"},
+        {"type": "dialogue", "speaker": "报名老师", "content": "普通天才我们不要。说说看，{{name}}，你怪在哪里？"}
+      ],
+      "choices": [
+        {"id": "answer_skill", "text": "展示魂力控制，把一片叶悬在掌心", "actions": [{"type": "state.add", "path": "stats.focus", "value": 2}, {"type": "goto", "target": "first_test"}]},
+        {"id": "answer_courage", "text": "不解释，直接走向实战考场", "actions": [{"type": "state.add", "path": "stats.bravery", "value": 2}, {"type": "goto", "target": "first_test"}]},
+        {"id": "answer_team", "text": "说你想找能并肩的人，而不只是赢的人", "actions": [{"type": "state.add", "path": "stats.bond", "value": 2}, {"type": "goto", "target": "first_test"}]}
+      ]
+    },
+    "first_test": {
+      "id": "first_test",
+      "chapter": "第二幕",
+      "time": "实战场",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "赵无极站在场地中央，宽大的影子压过来。唐三、小舞、宁荣荣、朱竹清已经摆开阵势，你忽然被推到同一条线上。\n\n这不是单挑，也不是表演。香刚点燃，压力就像山一样落下。"},
+        {"type": "dialogue", "speaker": "赵无极", "content": "一炷香。撑过去，才有资格谈入学。"}
+      ],
+      "choices": [
+        {"id": "cover_aux", "text": "先保护辅助位，让队伍站稳", "actions": [{"type": "state.add", "path": "stats.bond", "value": 2}, {"type": "goto", "target": "counter"}]},
+        {"id": "find_gap", "text": "观察赵无极起手，寻找出手空隙", "actions": [{"type": "state.add", "path": "stats.focus", "value": 2}, {"type": "goto", "target": "counter"}]},
+        {"id": "bait_hit", "text": "主动诱敌，替同伴吃下第一波压力", "actions": [{"type": "state.add", "path": "stats.bravery", "value": 2}, {"type": "goto", "target": "counter"}]}
+      ]
+    },
+    "counter": {
+      "id": "counter",
+      "chapter": "第三幕",
+      "time": "一炷香半",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "烟灰落下半截，所有人的呼吸都乱了。\n\n唐三的蓝银草被震断，小舞踉跄后退，宁荣荣的光还在努力撑住。你知道这一击不能只靠谁单独完成，必须有人把所有人的节奏接起来。"}
+      ],
+      "choices": [
+        {"id": "chain", "text": "把自己的魂技接进唐三的控制里", "actions": [{"type": "state.add", "path": "stats.focus", "value": 1}, {"type": "state.add", "path": "stats.bond", "value": 1}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "shout", "text": "喊出下一步，让所有人同时变阵", "actions": [{"type": "state.add", "path": "stats.bond", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "rush", "text": "冲到最前面，为最后一击争一息", "actions": [{"type": "state.add", "path": "stats.bravery", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "香尽",
+      "blocks": [{"type": "text", "content": "香火终于烧尽，场地上所有人都灰头土脸。\n\n赵无极拍了拍衣袖，没有夸谁，只扔来一枚怪物徽章。那枚徽章滚到你脚边，沾着尘土，却比任何金牌都亮。\n\n今晚你可以决定，自己要以什么身份留在史莱克。"}],
+      "choices": [
+        {"id": "student", "text": "收下徽章，成为新生", "actions": [{"type": "ending", "target": "ending_student"}]},
+        {"id": "captain", "text": "把徽章举起，约大家明天一起训练", "actions": [{"type": "ending", "target": "ending_team"}]},
+        {"id": "silent", "text": "把徽章擦干净，记住今天的狼狈", "actions": [{"type": "ending", "target": "ending_silent"}]}
+      ]
+    },
+    "ending_student": {
+      "id": "ending_student",
+      "chapter": "结局",
+      "time": "宿舍前",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "你成了史莱克的新生。\n\n破旧宿舍、粗糙饭菜、严苛训练，全都和想象中不一样。可当一群同样狼狈的人在门前笑起来时，你忽然觉得这里确实像家。\n\n【结局：怪物新生】\n你的怪物徽章第一次发亮，照见的是并肩而行的路。"}],
+      "choices": []
+    },
+    "ending_team": {
+      "id": "ending_team",
+      "chapter": "结局",
+      "time": "训练场",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "第二天清晨，你比集合时间早到。\n\n不一会儿，唐三来了，小舞来了，朱竹清也沉默地站到旁边。没人说昨天有多险，但所有人都知道，一个队伍就是从这种沉默里长出来的。\n\n【结局：七怪旁席】\n你不必抢走谁的光，只要站在队伍里，光就会多一束。"}],
+      "choices": []
+    },
+    "ending_silent": {
+      "id": "ending_silent",
+      "chapter": "结局",
+      "time": "夜色",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "你独自坐在门槛上，把徽章上的尘土擦干净。\n\n今天你撑住了，但也看清自己还差得远。史莱克不奖励自满，它只把更高的路摆在你面前。\n\n【结局：第一场败与胜】\n你把狼狈收进口袋，准备明天重新开始。"}],
+      "choices": []
+    }
+  }
+}

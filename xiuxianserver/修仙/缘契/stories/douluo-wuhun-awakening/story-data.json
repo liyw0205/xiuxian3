@@ -1,0 +1,183 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "douluo_wuhun_awakening",
+    "title": "武魂觉醒夜",
+    "subtitle": "圣魂村的灯还没灭，你也站上了觉醒台。",
+    "startScene": "start",
+    "defaultTheme": "warm",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "入梦",
+    "settingsButton": "设置",
+    "loadingText": "觉醒石正在亮起...",
+    "welcome": [
+      "{{name}}走进圣魂村祠堂时，窗外蓝银草被夜风压弯。",
+      "今晚不是旁观别人的传奇，今晚你也要听见自己的武魂回应。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {
+    "flags": {},
+    "stats": {"heart": 0, "will": 0, "trust": 0},
+    "relations": {},
+    "inventory": {}
+  },
+  "themes": [
+    {"id": "warm", "label": "灯火"},
+    {"id": "nature", "label": "蓝银"},
+    {"id": "cool", "label": "星夜"}
+  ],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "圣魂村祠堂",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "觉醒石围成一圈，像被谁从星空里摘下来的小月亮。\n\n唐三刚从台上退下，掌心蓝银草轻轻摇动。村里的孩子们还在低声议论，你却被素云涛叫到了灯下。\n\n他看了看你，又看了看忽然亮起的觉醒石，语气比刚才认真了些。"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "素云涛",
+          "content": "{{name}}，把手放上来。不要怕，武魂会告诉你，它愿意成为什么。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "steady",
+          "text": "稳稳把手放在觉醒石上",
+          "actions": [{"type": "state.add", "path": "stats.will", "value": 2}, {"type": "goto", "target": "spark"}]
+        },
+        {
+          "id": "listen_grass",
+          "text": "先听一听脚边蓝银草的声音",
+          "actions": [{"type": "state.add", "path": "stats.heart", "value": 2}, {"type": "goto", "target": "spark"}]
+        },
+        {
+          "id": "smile",
+          "text": "朝唐三点头，给自己一点勇气",
+          "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "goto", "target": "spark"}]
+        }
+      ]
+    },
+    "spark": {
+      "id": "spark",
+      "chapter": "第二幕",
+      "time": "觉醒台",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "光从觉醒石里涌出，先是温热，随后像一阵潮水推过经脉。\n\n你的掌心没有立刻出现定形的武魂，只有一缕细细的蓝光、一声低沉的锤鸣、以及远处塔铃般的回响。三种可能一同悬在你面前。\n\n祠堂安静下来，连窗外的虫鸣都像在等你选择。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "grass",
+          "text": "握住那缕蓝光，让它缠上指尖",
+          "actions": [{"type": "state.add", "path": "stats.heart", "value": 2}, {"type": "flag.set", "path": "blueSilver", "value": true}, {"type": "goto", "target": "night_test"}]
+        },
+        {
+          "id": "hammer",
+          "text": "回应锤鸣，承受掌心的重量",
+          "actions": [{"type": "state.add", "path": "stats.will", "value": 2}, {"type": "flag.set", "path": "clearSky", "value": true}, {"type": "goto", "target": "night_test"}]
+        },
+        {
+          "id": "tower",
+          "text": "追随塔铃，让光落在身后同伴身上",
+          "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "flag.set", "path": "glassTower", "value": true}, {"type": "goto", "target": "night_test"}]
+        }
+      ]
+    },
+    "night_test": {
+      "id": "night_test",
+      "chapter": "第三幕",
+      "time": "村外麦场",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "觉醒刚结束，村外忽然传来犬吠。几只受惊的魂兽从林边冲出，麦场上的孩子们被吓得散开。\n\n你还不熟悉自己的力量，却已经站在了最靠前的位置。唐三抬起手，蓝银草在脚边铺开，素云涛拔出长剑，灯火在风里乱晃。"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "唐三",
+          "content": "别急着硬拼。我们把它们引开，村子就不会乱。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "bind",
+          "text": "用新生武魂牵住魂兽脚步",
+          "actions": [{"type": "state.add", "path": "stats.heart", "value": 1}, {"type": "state.add", "path": "stats.trust", "value": 1}, {"type": "goto", "target": "final_choice"}]
+        },
+        {
+          "id": "front",
+          "text": "站到麦场中央，挡住最危险的方向",
+          "actions": [{"type": "state.add", "path": "stats.will", "value": 2}, {"type": "goto", "target": "final_choice"}]
+        },
+        {
+          "id": "lead",
+          "text": "带着孩子们退到祠堂后门",
+          "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "goto", "target": "final_choice"}]
+        }
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "天亮前",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "魂兽退回森林，麦场上只剩被踩乱的草叶。\n\n素云涛在登记册上写下你的名字，又停笔看了你很久。唐三把一枚干净的蓝银草叶递给你，像递出一场刚开始的旅途。\n\n从圣魂村到诺丁学院，再到更远的魂师世界，你可以选择第一步怎么走。"
+        }
+      ],
+      "choices": [
+        {"id": "academy", "text": "去诺丁学院，把基础练到扎实", "actions": [{"type": "ending", "target": "ending_academy"}]},
+        {"id": "village", "text": "留一晚，教村里孩子别怕自己的光", "actions": [{"type": "ending", "target": "ending_village"}]},
+        {"id": "forest", "text": "跟着唐三去林边，看蓝银草的尽头", "actions": [{"type": "ending", "target": "ending_forest"}]}
+      ]
+    },
+    "ending_academy": {
+      "id": "ending_academy",
+      "chapter": "结局",
+      "time": "诺丁路上",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "你背着简单的行囊离开圣魂村。\n\n清晨的路很长，远处学院钟声像在等一名迟到的新生。你知道自己的武魂还弱，却也知道它已经回应过你。\n\n【结局：初级魂师证】\n你的名字写进诺丁学院新生册，从第一堂课开始，传奇不再只属于别人。"}],
+      "choices": []
+    },
+    "ending_village": {
+      "id": "ending_village",
+      "chapter": "结局",
+      "time": "圣魂村晨光",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "你没有急着走。\n\n孩子们围着你，摸一摸觉醒石留下的余温，又小声问自己的武魂会不会也很普通。你把昨夜的事讲给他们听：普通也可以保护人，弱小也能先站出来。\n\n【结局：村口第一课】\n多年后，有人说圣魂村那晚多了一个愿意点灯的人。"}],
+      "choices": []
+    },
+    "ending_forest": {
+      "id": "ending_forest",
+      "chapter": "结局",
+      "time": "林边",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "你和唐三走到林边，蓝银草在脚下铺成柔软的路。\n\n他没有说大道理，只教你把魂力送到最细的一片叶上。那一瞬间，你看见草叶相连，像一张温柔却坚韧的网。\n\n【结局：蓝银同路】\n你的第一次修炼没有惊天动地，却稳稳记住了一个道理：能护住身边的人，就是最好的开始。"}],
+      "choices": []
+    }
+  }
+}

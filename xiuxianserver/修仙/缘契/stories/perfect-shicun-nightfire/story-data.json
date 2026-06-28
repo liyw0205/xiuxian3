@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "perfect_shicun_nightfire",
+    "title": "石村夜火",
+    "subtitle": "大荒的夜很深，石村的火却愿意为你多亮一刻。",
+    "startScene": "start",
+    "defaultTheme": "nature",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "入荒",
+    "settingsButton": "设置",
+    "loadingText": "兽奶陶罐正在温热...",
+    "welcome": [
+      "{{name}}醒在石村的篝火边，耳边是大荒深处的兽吼。",
+      "焦黑柳木垂下一缕嫩枝，像在确认你是否真的愿意留下。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.29, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"wild": 0, "warmth": 0, "dao": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "nature", "label": "大荒"}, {"id": "warm", "label": "篝火"}, {"id": "dark", "label": "夜色"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "石村篝火",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "石村的孩子们围着陶罐抢兽奶，老人们在火边磨骨箭。你还没弄清自己为何来到这里，手里已经被塞了一块温热的烤肉。\n\n小不点蹲在你旁边，眼睛亮得像刚捡到宝骨。远处山林忽然震动，夜鸟成片飞起。"},
+        {"type": "dialogue", "speaker": "小不点", "content": "{{name}}，等会儿要是有凶兽来，你跟我们站一块儿，不许自己跑丢。"}
+      ],
+      "choices": [
+        {"id": "eat", "text": "接过烤肉，认真说一声谢谢", "actions": [{"type": "state.add", "path": "stats.warmth", "value": 2}, {"type": "goto", "target": "bone_sign"}]},
+        {"id": "watch", "text": "看老人刻骨纹，把纹路记在心里", "actions": [{"type": "state.add", "path": "stats.dao", "value": 2}, {"type": "goto", "target": "bone_sign"}]},
+        {"id": "stand", "text": "把骨矛握紧，站到村口方向", "actions": [{"type": "state.add", "path": "stats.wild", "value": 2}, {"type": "goto", "target": "bone_sign"}]}
+      ]
+    },
+    "bone_sign": {
+      "id": "bone_sign",
+      "chapter": "第二幕",
+      "time": "柳木之下",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "柳木垂下的嫩枝轻轻一点，地面出现一枚骨文。\n\n你看不懂全部，却能感觉到其中的意思：守护不是躲在强者身后，而是在火快灭的时候，愿意添上一把柴。\n\n村外的黑影越来越近，石村的孩子们已经排成一线。"}
+      ],
+      "choices": [
+        {"id": "learn", "text": "临摹骨文，让它落进掌心", "actions": [{"type": "state.add", "path": "stats.dao", "value": 2}, {"type": "goto", "target": "night_beast"}]},
+        {"id": "call", "text": "招呼孩子们退到火光照得到的地方", "actions": [{"type": "state.add", "path": "stats.warmth", "value": 2}, {"type": "goto", "target": "night_beast"}]},
+        {"id": "charge", "text": "和小不点一起冲向村口", "actions": [{"type": "state.add", "path": "stats.wild", "value": 2}, {"type": "goto", "target": "night_beast"}]}
+      ]
+    },
+    "night_beast": {
+      "id": "night_beast",
+      "chapter": "第三幕",
+      "time": "村口石墙",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "凶兽撞上石墙，碎石飞溅。小不点一拳砸出，气血像小太阳一样炸开。\n\n你被那股力量震得耳鸣，却没有后退。掌心骨文发亮，村口篝火忽然拔高，照出凶兽眼里的惧意。"}
+      ],
+      "choices": [
+        {"id": "shield", "text": "把骨文按进石墙，稳住缺口", "actions": [{"type": "state.add", "path": "stats.dao", "value": 1}, {"type": "state.add", "path": "stats.warmth", "value": 1}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "throw", "text": "投出骨矛，替小不点断开追击", "actions": [{"type": "state.add", "path": "stats.wild", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "fire", "text": "举起火把，让全村一起喊出声", "actions": [{"type": "state.add", "path": "stats.warmth", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "天将亮",
+      "blocks": [{"type": "text", "content": "凶兽退入大荒，石村重新安静下来。\n\n小不点把兽奶陶罐推到你面前，柳枝在晨风里轻轻晃动。你知道自己只是来此一夜，却也真的为这座村子添过火。\n\n离开前，你可以带走一样东西。"}],
+      "choices": [
+        {"id": "milk", "text": "带走一只温热的兽奶陶罐", "actions": [{"type": "ending", "target": "ending_milk"}]},
+        {"id": "bone", "text": "带走一枚刻着守护纹的骨片", "actions": [{"type": "ending", "target": "ending_bone"}]},
+        {"id": "ash", "text": "带走篝火里最后一点余烬", "actions": [{"type": "ending", "target": "ending_ash"}]}
+      ]
+    },
+    "ending_milk": {
+      "id": "ending_milk",
+      "chapter": "结局",
+      "time": "村路",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "陶罐很小，却一路都是暖的。\n\n你听见身后孩子们笑闹，小不点还在嚷着再来一罐。大荒危险得不像话，可石村偏偏把日子过得热气腾腾。\n\n【结局：兽奶同席】\n你记住了大荒第一课：吃饱，站稳，然后保护身边的人。"}],
+      "choices": []
+    },
+    "ending_bone": {
+      "id": "ending_bone",
+      "chapter": "结局",
+      "time": "柳影下",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "骨片上的纹路并不复杂，却在你掌心亮了一瞬。\n\n柳枝轻轻扫过你的肩，像一句无声的告别。你没有得到惊世宝术，却得到了能在黑夜里站住的理由。\n\n【结局：石村骨纹】\n以后每当你想退后，那枚骨片都会提醒你：火还没灭。"}],
+      "choices": []
+    },
+    "ending_ash": {
+      "id": "ending_ash",
+      "chapter": "结局",
+      "time": "晨雾",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "你把一点余烬收进石盒。\n\n它很快暗下去，却没有彻底冷。大荒的风吹过村口，你忽然明白，石村之所以能熬过长夜，不是因为无人害怕，而是害怕时仍有人添柴。\n\n【结局：夜火未熄】\n你带走一粒火种，也把自己的名字留在了篝火旁。"}],
+      "choices": []
+    }
+  }
+}

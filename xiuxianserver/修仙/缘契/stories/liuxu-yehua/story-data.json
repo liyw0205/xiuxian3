@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "liuxu_yehua",
+    "title": "柳墟夜话",
+    "subtitle": "一株焦柳，一座荒村，一枚愿意等到天亮的青金叶。",
+    "startScene": "start",
+    "defaultTheme": "nature",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "入夜",
+    "settingsButton": "设置",
+    "loadingText": "夜风正穿过柳墟...",
+    "welcome": [
+      "{{name}}在黄昏时走进柳墟，村口的焦柳只剩半截树身。",
+      "老人说它已经死了很多年，可每到入夜，仍会有人听见叶声。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.45,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "sad": {"src": "sad.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.36, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {
+    "flags": {},
+    "stats": {"willow": 0, "village": 0, "courage": 0},
+    "relations": {},
+    "inventory": {}
+  },
+  "themes": [
+    {"id": "nature", "label": "青柳"},
+    {"id": "dark", "label": "夜色"},
+    {"id": "warm", "label": "灯火"}
+  ],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一夜",
+      "time": "柳墟村口",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "柳墟很小，小到一阵风就能把全村的灯火吹得同时摇晃。\n\n村口那株焦柳站在灰土里，树身被雷火劈开，裂缝深处却藏着一点青光。村民绕着它走，孩子们却会偷偷把折断的玩具埋在树根下，好像它还能替人保存愿望。\n\n你停在树前时，青光忽然亮了一下。"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "柳影",
+          "content": "{{name}}，今晚山外有雾。若你愿意听我说完一段旧事，便替这座村子守到天明。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "bow",
+          "text": "向焦柳行礼，听她说旧事",
+          "actions": [{"type": "state.add", "path": "stats.willow", "value": 2}, {"type": "goto", "target": "old_story"}]
+        },
+        {
+          "id": "ask",
+          "text": "问她：这雾从哪里来？",
+          "actions": [{"type": "state.add", "path": "stats.courage", "value": 2}, {"type": "goto", "target": "old_story"}]
+        },
+        {
+          "id": "look_village",
+          "text": "先回头看一眼村里的灯",
+          "actions": [{"type": "state.add", "path": "stats.village", "value": 2}, {"type": "goto", "target": "old_story"}]
+        }
+      ]
+    },
+    "old_story": {
+      "id": "old_story",
+      "chapter": "第一夜",
+      "time": "焦柳之下",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "柳影从裂缝里走出，白衣像月下的雾。她没有神像的威严，反而像一个走了很远、终于能坐下来喘口气的人。\n\n她说很多年前，黑雾第一次入村时，村民把她当成最后的神。她也真的挡住了雾，却因此烧尽本体，只剩一缕残念守在树中。\n\n今夜黑雾又要回来。不同的是，这次村里已经有人会点灯、会修墙、会牵着孩子往安全处走。"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "柳影",
+          "content": "我不想再做他们唯一的依靠。你帮我看看，他们是不是已经能站住了。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "repair_wall",
+          "text": "去村墙边补上被风吹开的缺口",
+          "actions": [{"type": "state.add", "path": "stats.village", "value": 2}, {"type": "goto", "target": "fog_arrives"}]
+        },
+        {
+          "id": "take_leaf",
+          "text": "接过柳影递来的青金叶",
+          "actions": [{"type": "item.add", "id": "green_gold_leaf", "count": 1}, {"type": "state.add", "path": "stats.willow", "value": 2}, {"type": "goto", "target": "fog_arrives"}]
+        },
+        {
+          "id": "light_torches",
+          "text": "把祠堂里的灯一盏盏点起来",
+          "actions": [{"type": "state.add", "path": "stats.courage", "value": 1}, {"type": "state.add", "path": "stats.village", "value": 1}, {"type": "goto", "target": "fog_arrives"}]
+        }
+      ]
+    },
+    "fog_arrives": {
+      "id": "fog_arrives",
+      "chapter": "第二夜",
+      "time": "村墙外",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "夜半，山外鼓声滚来。\n\n黑雾贴着地面爬到村墙前，里面有旧兽骨摩擦的声音，也有许多听不清的低语。村民没有像传闻里那样四散奔逃，老人举灯，猎户搭箭，孩子们被送进祠堂。\n\n柳影站在焦柳枝头，残光很薄，却仍照着每个人的脸。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "hold_line",
+          "text": "站在灰线前，替第一排村民稳住阵脚",
+          "actions": [{"type": "state.add", "path": "stats.courage", "value": 2}, {"type": "goto", "target": "green_light"}]
+        },
+        {
+          "id": "guide_people",
+          "text": "沿墙奔走，把灯火连成一圈",
+          "actions": [{"type": "state.add", "path": "stats.village", "value": 2}, {"type": "goto", "target": "green_light"}]
+        },
+        {
+          "id": "call_willow",
+          "text": "举起青金叶，呼唤柳影别独自燃尽",
+          "actions": [{"type": "state.add", "path": "stats.willow", "value": 2}, {"type": "goto", "target": "green_light"}]
+        }
+      ]
+    },
+    "green_light": {
+      "id": "green_light",
+      "chapter": "破晓前",
+      "time": "灰线之上",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "第一波黑雾撞上村墙，火把几乎同时压低。\n\n下一刻，焦柳裂缝里涌出青金色的光。它没有像传说中那样独自吞没黑夜，而是落到每一盏灯、每一支箭、每一只发抖却没有松开的手上。\n\n柳影看着这一幕，终于笑了一下。"
+        },
+        {
+          "type": "dialogue",
+          "speaker": "柳影",
+          "content": "原来他们真的长大了。{{name}}，最后一步，由你来选。"
+        }
+      ],
+      "choices": [
+        {
+          "id": "root_fire",
+          "text": "把青光引回树根，让焦柳重新抽芽",
+          "actions": [{"type": "ending", "target": "ending_sprout"}]
+        },
+        {
+          "id": "village_dawn",
+          "text": "带着村民一起撑到第一缕日光",
+          "actions": [{"type": "ending", "target": "ending_dawn"}]
+        },
+        {
+          "id": "remember_story",
+          "text": "记下她的名字，让夜话不再失传",
+          "actions": [{"type": "ending", "target": "ending_story"}]
+        }
+      ]
+    },
+    "ending_sprout": {
+      "id": "ending_sprout",
+      "chapter": "结局",
+      "time": "新芽",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "你把青光按回焦柳根下。\n\n灰黑的树皮缓慢裂开，一点新芽从死木里探出头。它很小，小到需要低头才能看见，可整个柳墟都安静下来，像怕惊扰了这次迟来的重生。\n\n柳影的身形淡去前，轻轻碰了碰你的额头。\n\n【结局：焦柳新芽】\n柳墟从此多了一株会在夜里发光的新柳。它不再替所有人承受一切，只在风急雨冷时提醒人们：灯要一起点。"
+        }
+      ],
+      "choices": []
+    },
+    "ending_dawn": {
+      "id": "ending_dawn",
+      "chapter": "结局",
+      "time": "日出",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "你没有让任何人退回祠堂深处。\n\n老人、猎户、孩子的兄长、刚学会举灯的少女，全都站在灰线之后。黑雾被第一缕日光照散时，村民们没有欢呼，只有很长很长的一口气。\n\n柳影坐在焦柳枝上，看着他们把倒塌的石块重新垒起。\n\n【结局：村灯未熄】\n这一夜之后，柳墟仍会害怕黑夜，却不再只等神明救它。"
+        }
+      ],
+      "choices": []
+    },
+    "ending_story": {
+      "id": "ending_story",
+      "chapter": "结局",
+      "time": "碑前",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [
+        {
+          "type": "text",
+          "content": "天亮后，你在焦柳旁立了一块小碑。\n\n碑上没有写神迹，只写：曾有一株柳，在最深的夜里陪村子等天明。孩子们围过来，一个字一个字念，念到最后，忽然有人把新的愿望埋在树根下。\n\n风穿过焦柳，像有人很轻地应了一声。\n\n【结局：夜话留名】\n柳墟终于不只记得恐惧，也记得那个教它们站起来的人。"
+        }
+      ],
+      "choices": []
+    }
+  }
+}

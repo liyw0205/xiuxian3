@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "douluo_seagod_tide",
+    "title": "海神岛潮声",
+    "subtitle": "潮水会退，考验不会；海风把你的名字送上圣柱。",
+    "startScene": "start",
+    "defaultTheme": "cool",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "登岛",
+    "settingsButton": "设置",
+    "loadingText": "海潮正在涨起...",
+    "welcome": [
+      "海神岛的浪声包围了{{name}}。",
+      "圣柱之下，所有人的影子都被潮水拉长，像一场即将开始的誓约。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.33, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"faith": 0, "tide": 0, "guard": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "cool", "label": "海潮"}, {"id": "nature", "label": "岛风"}, {"id": "dark", "label": "深海"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "海神圣柱",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "海马圣柱升起蓝金色的光，海浪绕过礁石，一层一层拍到你的靴边。\n\n唐三站在不远处，目光沉静；伙伴们没有催促你。波塞西的声音像从远海传来，轻得没有压迫，却让每个人都挺直了背。"},
+        {"type": "dialogue", "speaker": "波塞西", "content": "{{name}}，海神岛只问一件事：潮来时，你愿意守住什么？"}
+      ],
+      "choices": [
+        {"id": "self", "text": "守住自己的信念", "actions": [{"type": "state.add", "path": "stats.faith", "value": 2}, {"type": "goto", "target": "first_wave"}]},
+        {"id": "friends", "text": "守住同行的伙伴", "actions": [{"type": "state.add", "path": "stats.guard", "value": 2}, {"type": "goto", "target": "first_wave"}]},
+        {"id": "sea", "text": "守住对大海的敬畏", "actions": [{"type": "state.add", "path": "stats.tide", "value": 2}, {"type": "goto", "target": "first_wave"}]}
+      ]
+    },
+    "first_wave": {
+      "id": "first_wave",
+      "chapter": "第二幕",
+      "time": "环形海",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "第一考开始得毫无缓冲。\n\n环形海翻起巨浪，海魂兽在水下拖出庞大的影子。你必须穿过浪线，不能伤害守岛的生灵，也不能让自己被潮水吞回原点。\n\n每一次落脚都像踩在会碎的玻璃上。"}
+      ],
+      "choices": [
+        {"id": "ride_wave", "text": "借浪势前进，不和大海硬碰", "actions": [{"type": "state.add", "path": "stats.tide", "value": 2}, {"type": "goto", "target": "pillar_call"}]},
+        {"id": "open_path", "text": "用魂技开路，为后面的人留出空隙", "actions": [{"type": "state.add", "path": "stats.guard", "value": 2}, {"type": "goto", "target": "pillar_call"}]},
+        {"id": "hold_breath", "text": "咬牙潜入水下，从暗流中穿过", "actions": [{"type": "state.add", "path": "stats.faith", "value": 2}, {"type": "goto", "target": "pillar_call"}]}
+      ]
+    },
+    "pillar_call": {
+      "id": "pillar_call",
+      "chapter": "第三幕",
+      "time": "圣柱回音",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "你冲上对岸时，圣柱上的纹路忽然亮了一线。\n\n那不是最高等级的神赐，也不是注定成神的预言，只是一道准确落在你身上的光。它像在说：你走过来了，所以下一步也可以继续走。\n\n海风把你的名字送回众人耳边。"}
+      ],
+      "choices": [
+        {"id": "thank_sea", "text": "向海面行礼，感谢这场考验", "actions": [{"type": "state.add", "path": "stats.tide", "value": 1}, {"type": "state.add", "path": "stats.faith", "value": 1}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "pull_friend", "text": "回身拉起落后的伙伴", "actions": [{"type": "state.add", "path": "stats.guard", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "look_far", "text": "看向更远的海阶，准备下一考", "actions": [{"type": "state.add", "path": "stats.faith", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "月上海面",
+      "blocks": [{"type": "text", "content": "夜晚降临，海神岛点起蓝色灯火。\n\n你坐在礁石上，听见浪声反复拍打同一句话：通过不是终点，选择如何继续才是。\n\n今夜，你可以把第一考的潮声留给自己、伙伴或未来。"}],
+      "choices": [
+        {"id": "mark", "text": "把圣柱印记刻进护腕", "actions": [{"type": "ending", "target": "ending_mark"}]},
+        {"id": "promise", "text": "和伙伴约定下一考一起过", "actions": [{"type": "ending", "target": "ending_promise"}]},
+        {"id": "tide", "text": "独自练到潮声与呼吸同步", "actions": [{"type": "ending", "target": "ending_tide"}]}
+      ]
+    },
+    "ending_mark": {
+      "id": "ending_mark",
+      "chapter": "结局",
+      "time": "礁石边",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "你把圣柱印记刻进护腕内侧。\n\n它不显眼，却会在你每次握拳时碰到腕骨。那一点微凉提醒你，自己确实穿过了环形海。\n\n【结局：潮声刻印】\n你带着海神岛的第一道认可，走向更高的海阶。"}],
+      "choices": []
+    },
+    "ending_promise": {
+      "id": "ending_promise",
+      "chapter": "结局",
+      "time": "营火旁",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "营火烧到很晚，大家把狼狈讲成笑话。\n\n你们没有豪言壮语，只把下一考的时间、路线、配合一个个说清。真正可靠的约定，常常就是这样具体。\n\n【结局：同潮而行】\n明天的浪会更高，但你们已经知道彼此会站在哪里。"}],
+      "choices": []
+    },
+    "ending_tide": {
+      "id": "ending_tide",
+      "chapter": "结局",
+      "time": "午夜海阶",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "夜深后，你又回到海阶下。\n\n潮水一次次推来，你一次次调整呼吸。直到某一刻，浪声不再像敌人，而像一名严厉却公平的老师。\n\n【结局：海阶夜修】\n你没有惊动任何人，只悄悄把下一次通过的可能，多练出了一分。"}],
+      "choices": []
+    }
+  }
+}

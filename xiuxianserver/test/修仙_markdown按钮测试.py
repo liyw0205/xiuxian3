@@ -290,16 +290,28 @@ def test_button_tags_keep_command_text() -> None:
 def test_parameter_button_templates_use_type_2() -> None:
     """建立宗门这类缺参数入口使用 type=2，避免点击后直接发送半截命令。"""
 
-    keyboard = MarkdownKeyboard.from_commands(["建立宗门", "加入宗门 青云宗"]).to_content()
-    buttons = keyboard["content"]["rows"][0]["buttons"]
+    keyboard = MarkdownKeyboard.from_commands(["建立宗门", "创建用户 名称", "切磋 玩家名", "洞天兑换"]).to_content()
+    buttons = [item for row in keyboard["content"]["rows"] for item in row["buttons"]]
     create_action = buttons[0]["action"]
-    join_action = buttons[1]["action"]
+    new_player_action = buttons[1]["action"]
+    spar_action = buttons[2]["action"]
+    dongtian_action = buttons[3]["action"]
     assert buttons[0]["render_data"]["label"] == "建立宗门"
     assert create_action["data"] == "建立宗门 x y 宗门名"
     assert create_action["type"] == 2
     assert create_action["enter"] is False
-    assert join_action["data"] == "加入宗门 青云宗"
-    assert join_action["type"] == 1
+    assert buttons[1]["render_data"]["label"] == "创建用户"
+    assert new_player_action["data"] == "创建用户 名称"
+    assert new_player_action["type"] == 2
+    assert new_player_action["enter"] is False
+    assert buttons[2]["render_data"]["label"] == "切磋"
+    assert spar_action["data"] == "切磋 玩家名"
+    assert spar_action["type"] == 2
+    assert spar_action["enter"] is False
+    assert buttons[3]["render_data"]["label"] == "兑换码"
+    assert dongtian_action["data"] == "洞天兑换 兑换码"
+    assert dongtian_action["type"] == 2
+    assert dongtian_action["enter"] is False
 
 
 def test_reply_text_with_button_tags_to_markdown() -> None:
@@ -761,7 +773,33 @@ def test_command_guide_buttons() -> None:
     assert message is not None
     rows = message["keyboard"]["content"]["rows"]
     commands = [item["action"]["data"] for row in rows for item in row["buttons"]]
-    assert commands == ["指南 成长", "指南 行囊", "指南 战斗", "指南 交易", "指南 世界"]
+    assert commands == [
+        "指南 成长",
+        "指南 账户",
+        "指南 行囊",
+        "指南 奖励",
+        "指南 武器",
+        "指南 装备",
+        "指南 铭刻",
+        "指南 探险",
+        "指南 战斗",
+        "指南 首领",
+        "指南 交易",
+        "指南 出售",
+        "指南 宗门",
+        "指南 世界",
+    ]
+
+    explore_message = markdown_message_from_text(help_service.command_guide("探险"))
+    assert explore_message is not None
+    explore_commands = [
+        item["action"]["data"]
+        for row in explore_message["keyboard"]["content"]["rows"]
+        for item in row["buttons"]
+    ]
+    assert explore_commands[:4] == ["地图", "位置", "探险列表", "导航 地点名"]
+    assert "探险 地点名" in explore_commands
+    assert "结束探险" in explore_commands
 
     battle_message = markdown_message_from_text(help_service.command_guide("战斗"))
     assert battle_message is not None
@@ -770,10 +808,19 @@ def test_command_guide_buttons() -> None:
         for row in battle_message["keyboard"]["content"]["rows"]
         for item in row["buttons"]
     ]
-    assert battle_commands[:4] == ["地图", "探险列表", "探险状态", "结束探险"]
-    assert "首领" in battle_commands
-    assert "虫洞奖励" in battle_commands
+    assert battle_commands[:4] == ["战斗日志", "切磋 玩家名", "接受切磋 玩家名", "拒绝切磋 玩家名"]
+    assert "决斗 玩家名 数量" in battle_commands
     assert battle_commands[-1] == "指南"
+
+    boss_message = markdown_message_from_text(help_service.command_guide("首领"))
+    assert boss_message is not None
+    boss_commands = [
+        item["action"]["data"]
+        for row in boss_message["keyboard"]["content"]["rows"]
+        for item in row["buttons"]
+    ]
+    assert boss_commands[:4] == ["首领", "首领状态", "挑战首领", "首领排行"]
+    assert "虫洞奖励" in boss_commands
 
     trade_message = markdown_message_from_text(help_service.command_guide("交易"))
     assert trade_message is not None
@@ -783,8 +830,19 @@ def test_command_guide_buttons() -> None:
         for item in row["buttons"]
     ]
     assert "商场推荐" in trade_commands
-    assert "自动出售" in trade_commands
-    assert "出售全部 武器" in trade_commands
+    assert "跑商奖励" in trade_commands
+    assert "藏宝图出价 数量" in trade_commands
+
+    sell_message = markdown_message_from_text(help_service.command_guide("出售"))
+    assert sell_message is not None
+    sell_commands = [
+        item["action"]["data"]
+        for row in sell_message["keyboard"]["content"]["rows"]
+        for item in row["buttons"]
+    ]
+    assert "自动出售" in sell_commands
+    assert "出售全部 武器" in sell_commands
+    assert "二手市场上架 物品名 数量 价格" in sell_commands
 
 
 def test_web_help_uses_hidden_web_links() -> None:
@@ -812,6 +870,7 @@ def main() -> None:
     test_plain_suggestion_uses_default_markdown_buttons()
     test_button_tags_to_markdown()
     test_button_tags_keep_command_text()
+    test_parameter_button_templates_use_type_2()
     test_reply_text_with_button_tags_to_markdown()
     test_reply_keeps_long_handwritten_business_buttons()
     test_reply_header_notice_line_is_second_line()

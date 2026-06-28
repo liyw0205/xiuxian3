@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>辨灵试色</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0e1218;
+      --panel: #171e27;
+      --line: rgba(255,255,255,.12);
+      --text: #f4f0e8;
+      --muted: #aeb8c4;
+      --accent: #8dd7ff;
+      --accent-2: #ffd36a;
+      --bad: #ff8c8c;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { display: grid; place-items: center; padding: 16px; }
+    main { width: min(620px, 100%); }
+    .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+    h1 { margin: 0 0 4px; font-size: clamp(28px, 7vw, 42px); line-height: 1; letter-spacing: 0; }
+    .sub { margin: 0; color: var(--muted); font-size: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .stat { padding: 10px 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; text-align: center; }
+    .stat b { display: block; font-size: 20px; color: var(--accent); }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .grid {
+      display: grid;
+      gap: 6px;
+      width: min(560px, 100%);
+      margin: 0 auto;
+      aspect-ratio: 1 / 1;
+      touch-action: manipulation;
+    }
+    .cell {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      min-width: 0;
+      min-height: 0;
+      cursor: pointer;
+    }
+    .cell:active { transform: scale(.97); }
+    .empty {
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+      line-height: 1.7;
+    }
+    .actions { display: flex; gap: 10px; margin-top: 12px; }
+    button.action {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #061018;
+      font-weight: 800;
+      padding: 12px 16px;
+      min-height: 44px;
+      cursor: pointer;
+      flex: 1;
+    }
+    button.action.secondary { background: #202a35; color: var(--text); border: 1px solid var(--line); }
+    button.action:disabled { opacity: .55; cursor: not-allowed; }
+    .result {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(5, 8, 12, .68);
+      backdrop-filter: blur(8px);
+    }
+    .result.show { display: grid; }
+    .result-card {
+      width: min(430px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #171e27;
+      padding: 18px;
+      box-shadow: 0 22px 70px rgba(0, 0, 0, .42);
+    }
+    .result-card h2 { margin: 0 0 8px; font-size: 24px; }
+    .result-desc { margin: 0 0 12px; color: var(--muted); line-height: 1.6; }
+    .code-label { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .code {
+      margin-top: 4px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.24);
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--accent-2);
+      word-break: break-all;
+    }
+    .command {
+      margin-top: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font-weight: 800;
+      word-break: break-all;
+    }
+    .rewards { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+    .copy-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .result-card > .action { margin-top: 8px; width: 100%; }
+    .error { color: var(--bad); }
+
+    @media (max-width: 460px) {
+      body { padding: 10px; align-items: start; }
+      .top { align-items: flex-start; flex-direction: column; }
+      .stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+      .grid { gap: 4px; }
+      .cell { border-radius: 6px; }
+      .actions { flex-direction: column; }
+      .copy-actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="top">
+      <div>
+        <h1>辨灵试色</h1>
+        <p class="sub">找出灵气偏色的一格，六十息后结算。</p>
+      </div>
+      <button class="action secondary" id="restart" type="button">重开</button>
+    </section>
+
+    <section class="stats" aria-live="polite">
+      <div class="stat"><b id="time">60</b><span>剩余</span></div>
+      <div class="stat"><b id="level">0</b><span>层数</span></div>
+      <div class="stat"><b id="layer">0</b><span>难层</span></div>
+      <div class="stat"><b id="mistakes">0</b><span>误触</span></div>
+    </section>
+
+    <section class="grid" id="grid" aria-label="辨灵色阵"></section>
+
+    <section class="actions">
+      <button class="action" id="start" type="button">开局</button>
+    </section>
+
+    <section class="result" id="result" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const API = "/xiuxian/dongtian/bianling-color";
+    const state = {
+      config: null,
+      round: null,
+      stages: [],
+      index: 0,
+      mistakes: 0,
+      startedAt: 0,
+      timer: null,
+      finished: false,
+      duration: 60
+    };
+
+    const els = {
+      grid: document.getElementById("grid"),
+      start: document.getElementById("start"),
+      restart: document.getElementById("restart"),
+      time: document.getElementById("time"),
+      level: document.getElementById("level"),
+      layer: document.getElementById("layer"),
+      mistakes: document.getElementById("mistakes"),
+      result: document.getElementById("result")
+    };
+
+    async function request(path, options = {}) {
+      const res = await fetch(API + path, {
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        ...options
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "洞天接口暂时没有回应");
+      return data;
+    }
+
+    async function loadConfig() {
+      state.config = await request("/config", { method: "GET", headers: undefined });
+      state.duration = Number(state.config.config?.game_duration || 60);
+      updateStats();
+    }
+
+    async function startGame() {
+      clearResult();
+      state.round = await request("/start", {
+        method: "POST",
+        body: JSON.stringify({ gameToken: state.config.game_token })
+      });
+      state.stages = state.round.stages || [];
+      state.index = 0;
+      state.mistakes = 0;
+      state.startedAt = Date.now();
+      state.finished = false;
+      els.start.disabled = true;
+      renderStage();
+      tick();
+      clearInterval(state.timer);
+      state.timer = setInterval(tick, 500);
+    }
+
+    function renderStage() {
+      const stage = state.stages[state.index];
+      if (!stage) {
+        els.grid.innerHTML = '<div class="empty">本局灵色已经辨尽，等六十息归档。</div>';
+        els.grid.style.gridTemplateColumns = "1fr";
+        updateStats();
+        return;
+      }
+      els.grid.innerHTML = "";
+      els.grid.style.gridTemplateColumns = `repeat(${stage.size}, 1fr)`;
+      const count = stage.size * stage.size;
+      for (let i = 0; i < count; i += 1) {
+        const cell = document.createElement("button");
+        cell.className = "cell";
+        cell.type = "button";
+        cell.style.background = i === stage.target_index ? stage.target : stage.base;
+        cell.setAttribute("aria-label", i === stage.target_index ? "灵气偏色" : "普通色块");
+        cell.addEventListener("click", () => choose(i));
+        els.grid.appendChild(cell);
+      }
+      updateStats();
+    }
+
+    function choose(index) {
+      if (!state.startedAt || state.finished) return;
+      const stage = state.stages[state.index];
+      if (!stage) return;
+      if (index === stage.target_index) {
+        state.index += 1;
+        renderStage();
+      } else {
+        state.mistakes += 1;
+        updateStats();
+      }
+    }
+
+    function tick() {
+      const left = Math.max(0, state.duration - elapsedSeconds());
+      els.time.textContent = String(left);
+      if (left <= 0 && state.startedAt && !state.finished) finishGame();
+    }
+
+    function elapsedSeconds() {
+      if (!state.startedAt) return 0;
+      return Math.min(state.duration, Math.floor((Date.now() - state.startedAt) / 1000));
+    }
+
+    function highestLayer() {
+      const lastStage = state.stages[Math.max(0, state.index - 1)];
+      return lastStage ? Number(lastStage.layer || 0) : 0;
+    }
+
+    function updateStats() {
+      els.level.textContent = String(state.index);
+      els.layer.textContent = String(highestLayer());
+      els.mistakes.textContent = String(state.mistakes);
+      els.time.textContent = String(Math.max(0, state.duration - elapsedSeconds()));
+    }
+
+    async function finishGame() {
+      if (!state.round || state.finished) return;
+      state.finished = true;
+      clearInterval(state.timer);
+      els.start.disabled = false;
+      updateStats();
+      for (const cell of els.grid.children) cell.disabled = true;
+      try {
+        const payload = {
+          gameToken: state.config.game_token,
+          sessionId: state.round.session_id,
+          roundToken: state.round.round_token,
+          levelsPassed: state.index,
+          mistakes: state.mistakes,
+          elapsedSeconds: elapsedSeconds(),
+          highestLayer: highestLayer()
+        };
+        const issued = await request("/finish", { method: "POST", body: JSON.stringify(payload) });
+        showResult(issued);
+      } catch (err) {
+        state.finished = false;
+        els.start.disabled = true;
+        showError(`${err.message || "结算失败"}，可以重试结算本局。`, true);
+      }
+    }
+
+    function showResult(issued) {
+      const code = issued.code || "";
+      const rewards = (issued.reward_preview || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>本局没有生成可兑换奖励。</li>";
+      els.result.className = "result show";
+      els.result.innerHTML = `
+        <div class="result-card" role="dialog" aria-modal="true" aria-label="辨灵试色结算">
+          <h2>辨灵收束</h2>
+          <p class="result-desc">层数 ${state.index}｜最高难层 ${highestLayer()}｜误触 ${state.mistakes}。兑换码十分钟内有效。</p>
+          <div class="code-label">洞天兑换码</div>
+          <div class="code">${escapeHtml(code)}</div>
+          <div class="command">洞天兑换 ${escapeHtml(code)}</div>
+          <ul class="rewards">${rewards}</ul>
+          <div class="copy-actions">
+            <button class="action" type="button" id="copyCommand">复制兑换命令</button>
+            <button class="action secondary" type="button" id="copyCode">复制兑换码</button>
+          </div>
+          <button class="action secondary" type="button" id="againFromResult">再来一局</button>
+        </div>
+      `;
+      document.getElementById("copyCommand").addEventListener("click", event => copyText(event.currentTarget, `洞天兑换 ${code}`, "已复制兑换命令"));
+      document.getElementById("copyCode").addEventListener("click", event => copyText(event.currentTarget, code, "已复制兑换码"));
+      document.getElementById("againFromResult").addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    }
+
+    function showError(message, retry = false) {
+      els.result.className = "result show";
+      els.result.innerHTML = `
+        <div class="result-card" role="dialog" aria-modal="true" aria-label="辨灵试色结算异常">
+          <h2>结算受阻</h2>
+          <div class="error">${escapeHtml(message)}</div>
+          ${retry ? '<button class="action" type="button" id="retryFinish">结算本局</button>' : '<button class="action secondary" type="button" id="closeResult">知道了</button>'}
+        </div>
+      `;
+      if (retry) {
+        document.getElementById("retryFinish")?.addEventListener("click", () => finishGame());
+      } else {
+        document.getElementById("closeResult")?.addEventListener("click", clearResult);
+      }
+    }
+
+    function clearResult() {
+      els.result.className = "result";
+      els.result.innerHTML = "";
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    async function copyText(button, text, copiedText) {
+      const original = button.textContent;
+      try {
+        await writeClipboard(text);
+        button.textContent = copiedText;
+      } catch {
+        button.textContent = "请长按复制";
+      }
+      window.setTimeout(() => { button.textContent = original; }, 1600);
+    }
+
+    async function writeClipboard(text) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+
+    els.start.addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    els.restart.addEventListener("click", () => startGame().catch(err => showError(err.message)));
+    loadConfig().catch(err => showError(err.message));
+  </script>
+</body>
+</html>

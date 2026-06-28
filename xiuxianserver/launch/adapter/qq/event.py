@@ -199,12 +199,16 @@ def _replace_mentions_with_ids(text: str, mentions: Any) -> str:
 
     修仙业务层已经约定：需要指定玩家的命令接收普通文本参数，平台 at
     需要先在驱动器层转换成原始入口 ID，再由用户组解析成主角色 ID。
+    机器人自己的 at 只表示“叫机器人处理这条消息”，不属于业务参数。
     """
 
     mention_ids = _mention_id_map(mentions)
+    you_ids = _you_mention_ids(mentions)
 
     def replace(match: re.Match) -> str:
         token = match.group(1).strip().lstrip("!")
+        if token in you_ids:
+            return " "
         value = mention_ids.get(token) or token
         return f" {value} " if value else " "
 

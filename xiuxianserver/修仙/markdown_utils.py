@@ -40,6 +40,12 @@ BUTTON_LABEL_EXACT_ALIASES = {
     "异界虫洞录": "虫洞录",
     "二手市场": "二手市场",
     "用户组": "用户组",
+    "开启缘契": "缘契",
+    "查看所有缘契": "缘契列表",
+    "缘契列表": "缘契列表",
+    "洞天福地": "洞天",
+    "洞天记录": "洞天记录",
+    "洞天兑换": "兑换码",
 }
 PARAMETER_BUTTON_EXACT_COMMANDS = {
     "建立宗门": "建立宗门 x y 宗门名",
@@ -55,19 +61,32 @@ PARAMETER_BUTTON_EXACT_COMMANDS = {
     "藏宝图出价": "藏宝图出价 数量",
     "存入货币": "存入货币 数量",
     "取出货币": "取出货币 数量",
+    "洞天兑换": "洞天兑换 兑换码",
+    "开启缘契": "开启缘契 剧本标题",
 }
 PARAMETER_BUTTON_PLACEHOLDERS = (
     " x y",
     "数量",
+    "编号",
+    "价格",
+    "名称",
     "物品名",
     "商品名",
     "地点名",
     "宗门名",
+    "剧本标题",
+    "玩家名",
+    "武器编号",
+    "技能书名",
+    "宝石名",
     "新名称",
     "登录码",
     "绑定码",
     "问题",
     "装备位",
+    "孔位",
+    "皮肤包名",
+    "兑换码",
 )
 ButtonCommand = str | dict[str, Any]
 
@@ -302,7 +321,7 @@ def _parameter_button_label(command: str) -> str:
 
     value = str(command or "").strip()
     if value in PARAMETER_BUTTON_EXACT_COMMANDS:
-        return value
+        return BUTTON_LABEL_EXACT_ALIASES.get(value, value)
     if not _is_parameter_button_command(value):
         return ""
     return value.split(maxsplit=1)[0]

@@ -1,0 +1,371 @@
+:root {
+  --bg: #121a2e;
+  --bg-deep: #0e1528;
+  --panel: #243152;
+  --text: #f0f4fc;
+  --muted: #94a8c4;
+  --accent: #5dcef5;
+  --accent-soft: rgba(93, 206, 245, 0.35);
+  --danger: #ff6b8a;
+  --success: #2ce8a8;
+  --cell-tile: rgba(72, 88, 128, 0.42);
+  --cell-tile-edge: rgba(255, 255, 255, 0.14);
+  --cell-size: clamp(36px, 6.2vw, 52px);
+  --gap: 7px;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 窄屏：格子间隙略紧 */
+@media (max-width: 640px) {
+  :root {
+    --gap: 5px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  background-color: var(--bg-deep);
+  /* 多层柔光：偏果味暖色 + 冷色平衡，避免纯黑压抑 */
+  background-image:
+    radial-gradient(ellipse 90% 70% at 88% 4%, rgba(255, 140, 105, 0.2) 0%, transparent 48%),
+    radial-gradient(ellipse 75% 55% at 6% 88%, rgba(99, 102, 241, 0.28) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 45% at 48% 100%, rgba(45, 212, 191, 0.12) 0%, transparent 42%),
+    radial-gradient(ellipse 100% 55% at 50% -5%, rgba(56, 189, 248, 0.14) 0%, transparent 38%),
+    linear-gradient(165deg, #1c2a4a 0%, var(--bg) 42%, #141c30 78%, var(--bg-deep) 100%);
+  background-attachment: fixed;
+}
+
+#board {
+  display: grid;
+  gap: var(--gap);
+  justify-content: center;
+  grid-template-columns: repeat(var(--cols), var(--cell-size));
+  padding: 2px;
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(80, 100, 150, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+
+.cell {
+  width: var(--cell-size);
+  height: var(--cell-size);
+  border-radius: 13px;
+  position: relative;
+  cursor: pointer;
+  isolation: isolate;
+  background-color: var(--cell-tile);
+  /* 棋盘格内水果贴图尽量大，底部留给数字 */
+  background-size: 94%;
+  background-position: center 34%;
+  background-repeat: no-repeat;
+  border: 1px solid var(--cell-tile-edge);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 3px 10px rgba(15, 23, 42, 0.35),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease,
+    border-color 0.15s ease;
+}
+
+.cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  /* 仅顶部薄高光，避免盖住水果贴图 */
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.04) 28%,
+    transparent 52%
+  );
+  opacity: 0.45;
+}
+
+.cell:hover {
+  filter: brightness(1.08) saturate(1.05);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.cell .num {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  z-index: 1;
+  font-weight: 800;
+  font-size: clamp(1.05rem, 4.5vw, 1.4rem);
+  color: #fff;
+  /* 多层暗边 + 外晕，压在水果贴上仍清晰 */
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 1px 0 rgba(0, 0, 0, 0.9),
+    0 2px 0 rgba(0, 0, 0, 0.75),
+    0 3px 6px rgba(0, 0, 0, 0.65),
+    0 0 10px rgba(15, 23, 42, 0.9),
+    0 0 18px rgba(15, 23, 42, 0.55),
+    0 -1px 0 rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.cell.selected {
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.5),
+    0 0 0 4px var(--accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 4px 16px var(--accent-soft);
+  filter: brightness(1.12) saturate(1.06);
+  border-color: rgba(93, 206, 245, 0.55);
+}
+
+.cell.pop {
+  animation: pop 0.35s ease forwards;
+}
+
+@keyframes pop {
+  to {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+.cell.shake {
+  animation: shake 0.45s ease;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+/*
+ * 平板及以下：须写在 #board / .cell 基础样式之后，否则会被覆盖。
+ * 列宽用 fr 均分 + 格子 aspect-ratio:1，避免用 100% 算 --cell-size 时出现极窄列、纵向被拉成竖条。
+ */
+@media (max-width: 1023px) {
+  .board-shell {
+    width: 100%;
+    max-width: min(100%, 430px);
+  }
+
+  #board {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    justify-content: stretch;
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  }
+
+  #board .cell {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+}
+
+/* 横屏手机高度很矮，不能让 8x11 棋盘按整屏宽度暴涨。 */
+@media (max-width: 1023px) and (orientation: landscape) {
+  .lingguo-layout {
+    display: grid !important;
+    grid-template-columns: minmax(0, 320px) minmax(260px, 1fr);
+    align-items: start !important;
+    gap: 12px !important;
+  }
+
+  .lingguo-stage {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    order: initial !important;
+  }
+
+  .lingguo-sidebar {
+    grid-column: 2;
+    grid-row: 1;
+    order: initial !important;
+  }
+
+  .lingguo-rules {
+    grid-column: 2;
+    grid-row: 2;
+    order: initial !important;
+  }
+
+  .board-shell {
+    max-width: min(100%, 310px);
+  }
+}
+
+.selection-rect {
+  position: absolute;
+  border: 2px dashed rgba(93, 206, 245, 0.95);
+  background: linear-gradient(
+    135deg,
+    rgba(93, 206, 245, 0.2) 0%,
+    rgba(129, 140, 248, 0.14) 100%
+  );
+  border-radius: 10px;
+  pointer-events: none;
+  display: none;
+  z-index: 5;
+  box-shadow: 0 0 20px rgba(93, 206, 245, 0.25);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: linear-gradient(
+    165deg,
+    rgba(52, 65, 95, 0.92) 0%,
+    rgba(28, 38, 58, 0.96) 100%
+  );
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 40px rgba(8, 12, 28, 0.45);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 100;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast.bad {
+  border-color: rgba(239, 71, 111, 0.5);
+  color: #ffb3c1;
+}
+
+.toast.good {
+  border-color: rgba(6, 214, 160, 0.45);
+  color: #b5f5e8;
+}
+
+.round-timer {
+  margin-bottom: 0;
+}
+
+.round-timer__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.round-timer__row strong {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.round-timer__track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(20, 28, 48, 0.55);
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.round-timer__fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7c3aed, #3b82f6, var(--accent));
+  box-shadow: 0 0 14px rgba(93, 206, 245, 0.45);
+  transform: scaleX(1);
+  transform-origin: right center;
+  will-change: transform;
+}
+
+button {
+  font-family: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* 棋盘外框：玻璃质感 + 轻色边（在 App 根节点挂 class） */
+.board-shell {
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(100, 116, 168, 0.12) 38%,
+    rgba(30, 42, 72, 0.55) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 12px 40px rgba(8, 12, 32, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+/* 侧栏信息卡片 */
+.app-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(56, 72, 108, 0.55) 0%,
+    rgba(28, 38, 60, 0.88) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 24px rgba(8, 14, 32, 0.35);
+  backdrop-filter: blur(8px);
+}
+
+.app-title {
+  background: linear-gradient(105deg, #ffffff 0%, #c5d7ff 42%, #ffc8a8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 2px rgba(8, 12, 28, 0.35));
+}
+
+.app-muted {
+  color: var(--muted);
+}

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "cardcaptor_clear_morning",
+    "title": "透明牌的晨光",
+    "subtitle": "看不见的牌掠过清晨，你要相信看得见的心意。",
+    "startScene": "start",
+    "defaultTheme": "cool",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "迎晨",
+    "settingsButton": "设置",
+    "loadingText": "透明牌正在折射晨光...",
+    "welcome": [
+      "{{name}}在友枝中学的晨雾里，看见一段栏杆忽然消失。",
+      "小樱握着新的钥匙站在操场边，眉头紧张，却没有逃开。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.27, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.36, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"trust": 0, "insight": 0, "gentle": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "cool", "label": "晨雾"}, {"id": "warm", "label": "朝阳"}, {"id": "rainbow", "label": "透明"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "友枝中学操场",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "操场边的栏杆像被橡皮擦掉一截，随后又在晨光里慢慢显形。\n\n透明牌的气息不像库洛牌那样熟悉，它更像一封没有写完的信。小樱看向你，眼神里有一点不安，也有更多坚定。"},
+        {"type": "dialogue", "speaker": "小樱", "content": "{{name}}，这次的牌和以前不一样。但我想试着理解它。"}
+      ],
+      "choices": [
+        {"id": "trust", "text": "告诉小樱：我相信你能做到", "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "goto", "target": "invisible_path"}]},
+        {"id": "observe", "text": "观察消失与显形的边界", "actions": [{"type": "state.add", "path": "stats.insight", "value": 2}, {"type": "goto", "target": "invisible_path"}]},
+        {"id": "protect", "text": "先把早到的同学引到另一侧校门", "actions": [{"type": "state.add", "path": "stats.gentle", "value": 2}, {"type": "goto", "target": "invisible_path"}]}
+      ]
+    },
+    "invisible_path": {
+      "id": "invisible_path",
+      "chapter": "第二幕",
+      "time": "透明走廊",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "走廊一段段变透明，课桌、窗帘、粉笔字都像浮在空气里。\n\n知世的摄像机捕捉不到牌的全貌，只拍到晨光被折成细碎的线。李小狼用罗盘定住方位，提醒你们：它就在附近，却一直避开目光。"}
+      ],
+      "choices": [
+        {"id": "trace_light", "text": "沿着晨光折线追踪牌的方向", "actions": [{"type": "state.add", "path": "stats.insight", "value": 2}, {"type": "goto", "target": "heart_signal"}]},
+        {"id": "walk_slow", "text": "放慢脚步，别让它觉得被追赶", "actions": [{"type": "state.add", "path": "stats.gentle", "value": 2}, {"type": "goto", "target": "heart_signal"}]},
+        {"id": "hold_line", "text": "站在走廊尽头，给小樱留出施法空间", "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "goto", "target": "heart_signal"}]}
+      ]
+    },
+    "heart_signal": {
+      "id": "heart_signal",
+      "chapter": "第三幕",
+      "time": "天台晨风",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "透明牌停在天台边缘，身形仍看不清，只有一圈淡淡的光。\n\n它不像在逃，更像不知道该怎样被看见。小樱举起钥匙，新的魔法阵在脚下展开，晨风把所有人的校服衣角吹得猎猎作响。"}
+      ],
+      "choices": [
+        {"id": "call_name", "text": "帮小樱喊出：你可以被看见", "actions": [{"type": "state.add", "path": "stats.trust", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "mirror", "text": "用窗玻璃反光照出牌的轮廓", "actions": [{"type": "state.add", "path": "stats.insight", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "soft_words", "text": "轻声说：不想被看见也没关系", "actions": [{"type": "state.add", "path": "stats.gentle", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "第一节课前",
+      "blocks": [{"type": "text", "content": "透明牌终于落到小樱掌心，牌面像清晨玻璃一样明亮。\n\n广播里响起上课预备铃，友枝中学又恢复了普通校园的样子。小樱把牌收好，认真向你道谢。\n\n这份晨光，可以被你用三种方式记住。"}],
+      "choices": [
+        {"id": "card", "text": "看一眼透明牌的牌面", "actions": [{"type": "ending", "target": "ending_card"}]},
+        {"id": "class", "text": "和大家一起赶去第一节课", "actions": [{"type": "ending", "target": "ending_class"}]},
+        {"id": "roof", "text": "在天台多站一会儿，看晨雾散去", "actions": [{"type": "ending", "target": "ending_roof"}]}
+      ]
+    },
+    "ending_card": {
+      "id": "ending_card",
+      "chapter": "结局",
+      "time": "天台门口",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "透明牌的牌面映出你的脸，又映出小樱松了一口气的笑。\n\n你忽然明白，看见并不一定是抓住，也可以是认真承认对方存在。\n\n【结局：被晨光看见】\n这张牌没有留下喧闹，只留下一个很轻的早晨。"}],
+      "choices": []
+    },
+    "ending_class": {
+      "id": "ending_class",
+      "chapter": "结局",
+      "time": "教室",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "你们踩着预备铃冲进教室，头发被晨风吹得乱七八糟。\n\n老师看了你们一眼，只说下次早点到。小樱和知世悄悄对视，然后一起忍笑。\n\n【结局：差点迟到的守护者】\n魔法事件结束得刚刚好，普通生活也被稳稳接住。"}],
+      "choices": []
+    },
+    "ending_roof": {
+      "id": "ending_roof",
+      "chapter": "结局",
+      "time": "天台晨光",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "你在天台多站了一会儿，看晨雾慢慢散开。\n\n栏杆、树影、操场白线重新清晰。刚才发生的一切像梦，却又真实地留在心里。\n\n【结局：透明晨风】\n你记住了这张牌，也记住了温柔有时比看穿更重要。"}],
+      "choices": []
+    }
+  }
+}

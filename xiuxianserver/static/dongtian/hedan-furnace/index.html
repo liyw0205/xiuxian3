@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>合丹炉</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-label="合丹炉状态">
+      <div>
+        <p class="eyebrow">洞天福地</p>
+        <h1>合丹炉</h1>
+      </div>
+      <div class="timer">
+        <span id="timeLeft">150</span>
+        <small>秒</small>
+      </div>
+    </section>
+
+    <section class="game-shell" aria-label="合丹炉游戏">
+      <div class="board-wrap">
+        <div id="board" class="board" aria-label="丹炉棋盘"></div>
+      </div>
+
+      <aside class="side">
+        <div class="stats">
+          <div>
+            <span>得分</span>
+            <strong id="score">0</strong>
+          </div>
+          <div>
+            <span>最高丹胚</span>
+            <strong id="maxTile">2</strong>
+          </div>
+          <div>
+            <span>合丹</span>
+            <strong id="mergeCount">0</strong>
+          </div>
+          <div>
+            <span>有效手</span>
+            <strong id="moveCount">0</strong>
+          </div>
+        </div>
+
+        <div class="furnace">
+          <span id="difficultyLabel">候火</span>
+          <p id="difficultyText">正在探入洞天炉火。</p>
+        </div>
+
+        <button id="startButton" class="primary" type="button">开炉</button>
+        <p id="statusText" class="status">载入洞天凭证中。</p>
+      </aside>
+    </section>
+
+    <section id="settlement" class="settlement" hidden aria-label="结算弹窗">
+      <div class="settlement-card">
+        <h2>丹成</h2>
+        <p id="settleMessage">兑换码生成中。</p>
+        <div id="codeBlock" class="code-block" hidden>
+          <div>
+            <div class="label">发送给机器人</div>
+            <div id="commandBox" class="command"></div>
+          </div>
+          <div>
+            <div class="label">兑换码</div>
+            <div id="codeBox" class="code"></div>
+          </div>
+        </div>
+        <ul id="rewardPreview" class="reward"></ul>
+        <div class="copy-actions">
+          <button id="copyCommandButton" class="ghost" type="button" hidden>复制兑换命令</button>
+          <button id="copyCodeButton" class="ghost" type="button" hidden>复制兑换码</button>
+        </div>
+        <button id="againButton" class="primary" type="button">再开一炉</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="./js/app.js"></script>
+</body>
+</html>

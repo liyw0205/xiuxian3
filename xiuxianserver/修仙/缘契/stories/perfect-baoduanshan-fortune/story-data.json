@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "perfect_baoduanshan_fortune",
+    "title": "百断山夺造化",
+    "subtitle": "小世界开门，宝光乱飞；这一次你也能抢到自己的造化。",
+    "startScene": "start",
+    "defaultTheme": "warm",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "入山",
+    "settingsButton": "设置",
+    "loadingText": "百断山钥正在震动...",
+    "welcome": [
+      "{{name}}踏进百断山时，山门后的灵雾已经卷成漩涡。",
+      "这里到处都是机缘，也到处都是不讲理的追逐。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.32, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.31, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"luck": 0, "speed": 0, "heart": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "warm", "label": "宝光"}, {"id": "nature", "label": "山林"}, {"id": "cool", "label": "灵雾"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "百断山门",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "小世界刚开，所有人都往里冲。有人盯着十凶骨，有人盯着灵药，有人盯着别人怀里的袋子。\n\n你刚站稳，就看见小不点抱着陶罐从山坡上跑下来，身后一串人追得鸡飞狗跳。"},
+        {"type": "dialogue", "speaker": "小不点", "content": "{{name}}，快选一边！追宝，救人，还是先跑？"}
+      ],
+      "choices": [
+        {"id": "treasure", "text": "追向宝光最亮的山谷", "actions": [{"type": "state.add", "path": "stats.luck", "value": 2}, {"type": "goto", "target": "valley"}]},
+        {"id": "rescue", "text": "先扶起被灵雾困住的孩子", "actions": [{"type": "state.add", "path": "stats.heart", "value": 2}, {"type": "goto", "target": "valley"}]},
+        {"id": "run", "text": "跟着小不点绕路，别被人群踩扁", "actions": [{"type": "state.add", "path": "stats.speed", "value": 2}, {"type": "goto", "target": "valley"}]}
+      ]
+    },
+    "valley": {
+      "id": "valley",
+      "chapter": "第二幕",
+      "time": "灵药谷",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "灵药谷里香气浓得像雨后泥土。几株老药拔腿就跑，叶子还会扇人耳光。\n\n你差点被一株长生药幼苗甩进泥坑，幸好旁边飞来一颗打神石，砰地一下把它弹回路线。"}
+      ],
+      "choices": [
+        {"id": "net", "text": "用外衣兜住乱跑的灵药", "actions": [{"type": "state.add", "path": "stats.luck", "value": 2}, {"type": "goto", "target": "chase"}]},
+        {"id": "share", "text": "把采到的灵果分给受伤的人", "actions": [{"type": "state.add", "path": "stats.heart", "value": 2}, {"type": "goto", "target": "chase"}]},
+        {"id": "jump", "text": "踩着藤蔓跳上山壁，抢占高处", "actions": [{"type": "state.add", "path": "stats.speed", "value": 2}, {"type": "goto", "target": "chase"}]}
+      ]
+    },
+    "chase": {
+      "id": "chase",
+      "chapter": "第三幕",
+      "time": "断崖上",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "断崖尽头，一块骨书碎片悬在光里。\n\n追兵、凶禽、灵药、打神石全挤到同一条窄路上。小不点回头冲你一笑，那笑容分明写着：这地方越乱越好玩。\n\n骨书碎片开始下坠。"}
+      ],
+      "choices": [
+        {"id": "catch", "text": "跃下断崖，在半空抓住骨书", "actions": [{"type": "state.add", "path": "stats.speed", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "block", "text": "挡住追兵，让小不点去抓", "actions": [{"type": "state.add", "path": "stats.heart", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "stone", "text": "把打神石抛出去，砸偏凶禽爪子", "actions": [{"type": "state.add", "path": "stats.luck", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "山门将合",
+      "blocks": [{"type": "text", "content": "百断山开始震动，小世界要关门了。\n\n你怀里多了灵果、骨片和一身泥点。小不点把战利品摊在石头上，认真分成几份，好像刚才追逐的人不是他。\n\n你可以挑一份属于自己的造化。"}],
+      "choices": [
+        {"id": "bone", "text": "收下骨书碎片，回去慢慢参悟", "actions": [{"type": "ending", "target": "ending_bone"}]},
+        {"id": "fruit", "text": "收下灵果，当场分给同行的人", "actions": [{"type": "ending", "target": "ending_fruit"}]},
+        {"id": "stone", "text": "收下打神石的友情盖章", "actions": [{"type": "ending", "target": "ending_stone"}]}
+      ]
+    },
+    "ending_bone": {
+      "id": "ending_bone",
+      "chapter": "结局",
+      "time": "归路",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "骨书碎片只有半掌大，却沉得像一座山。\n\n你看不懂全部符文，但每当魂识靠近，它都会回你一点微光。百断山没有白来，你真的抢到了一份能陪你走远的造化。\n\n【结局：半卷骨书】\n从今以后，你也有了可以反复参悟的秘密。"}],
+      "choices": []
+    },
+    "ending_fruit": {
+      "id": "ending_fruit",
+      "chapter": "结局",
+      "time": "山门外",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "你把灵果切开，给每个狼狈逃出来的人分了一口。\n\n有人笑你傻，这么好的东西竟然不独吞。可当疲惫的人重新站起来时，你觉得这口甘甜已经发挥了最大的用处。\n\n【结局：同分灵果】\n造化不是只进一个人的袋子，也可以变成一群人活着回家的力气。"}],
+      "choices": []
+    },
+    "ending_stone": {
+      "id": "ending_stone",
+      "chapter": "结局",
+      "time": "断崖下",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "打神石在你肩上轻轻一磕，说这是友情盖章。\n\n你疼得吸气，它却得意地滚来滚去。小不点笑得直不起腰，百断山的紧张忽然被这一下砸散了。\n\n【结局：打神石认证】\n你得到的不是最贵重的宝物，却是最会闹腾的同行证明。"}],
+      "choices": []
+    }
+  }
+}

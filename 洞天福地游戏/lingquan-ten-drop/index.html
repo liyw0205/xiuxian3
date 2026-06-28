@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>灵泉十滴</title>
+  <style>
+    :root {
+      --app-height: 100dvh;
+      color-scheme: dark;
+      font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #081320;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 18%, #2dd4bf 0%, #0f766e 26%, #0f172a 74%);
+    }
+    body { touch-action: manipulation; }
+
+    .game-shell {
+      min-height: var(--app-height);
+      width: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      display: grid;
+      place-items: center;
+      padding: max(12px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom));
+      color: #ecfeff;
+    }
+
+    .game-layout {
+      width: min(1040px, 100%);
+      display: grid;
+      grid-template-columns: minmax(280px, 520px) minmax(220px, 300px);
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+    }
+
+    .board-wrap {
+      position: relative;
+      width: min(92vw, 520px);
+      aspect-ratio: 1;
+      border: 6px solid rgba(207, 250, 254, 0.74);
+      border-radius: 14px;
+      overflow: hidden;
+      background: rgba(8, 47, 73, 0.42);
+      box-shadow: 0 26px 90px rgba(2, 6, 23, 0.5), inset 0 0 34px rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(10px);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: pointer;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .side {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .title-block {
+      text-align: left;
+      text-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+    }
+    .title-block h1 {
+      margin: 0;
+      font-size: clamp(2rem, 5vw, 4rem);
+      line-height: 1;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+    .title-block p {
+      margin: 8px 0 0;
+      color: rgba(236, 254, 255, 0.82);
+      font-size: 14px;
+      line-height: 1.6;
+      font-weight: 600;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .stat {
+      min-height: 74px;
+      border: 1px solid rgba(207, 250, 254, 0.22);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(2, 6, 23, 0.28);
+      box-shadow: 0 12px 34px rgba(2, 6, 23, 0.22);
+      backdrop-filter: blur(10px);
+    }
+    .stat span {
+      display: block;
+      color: rgba(207, 250, 254, 0.7);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .stat strong {
+      display: block;
+      margin-top: 4px;
+      color: #ffffff;
+      font-size: clamp(1.25rem, 4vw, 2rem);
+      line-height: 1.05;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .meter {
+      border: 1px solid rgba(110, 231, 183, 0.22);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(6, 78, 59, 0.24);
+    }
+    .meter-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(209, 250, 229, 0.86);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .meter-track {
+      margin-top: 8px;
+      height: 10px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(2, 6, 23, 0.42);
+    }
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #99f6e4, #22c55e, #bef264);
+      transition: width 0.22s ease;
+    }
+
+    .actions {
+      display: grid;
+      gap: 8px;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 16px;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:active { transform: translateY(1px) scale(0.99); }
+    button:disabled {
+      cursor: wait;
+      opacity: 0.62;
+    }
+    .primary {
+      color: #06251f;
+      background: linear-gradient(90deg, #bef264, #34d399, #22d3ee);
+      box-shadow: 0 16px 38px rgba(45, 212, 191, 0.28);
+    }
+    .secondary {
+      color: #ecfeff;
+      background: rgba(2, 6, 23, 0.36);
+      border: 1px solid rgba(207, 250, 254, 0.24);
+    }
+
+    .message {
+      min-height: 58px;
+      border: 1px solid rgba(207, 250, 254, 0.18);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(2, 6, 23, 0.34);
+      color: rgba(236, 254, 255, 0.86);
+      font-size: 13px;
+      line-height: 1.55;
+      font-weight: 650;
+      word-break: break-word;
+    }
+    .code-line {
+      margin-top: 8px;
+      display: block;
+      color: #fef3c7;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .reward-preview {
+      margin-top: 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .reward-preview-title {
+      color: rgba(209, 250, 229, 0.72);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .reward-preview-item {
+      display: block;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(236, 253, 245, 0.92);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(2, 6, 23, 0.58);
+      backdrop-filter: blur(6px);
+      z-index: 30;
+    }
+    .modal.show { display: grid; }
+    .modal-card {
+      width: min(430px, 100%);
+      border: 1px solid rgba(207, 250, 254, 0.3);
+      border-radius: 12px;
+      padding: 18px;
+      text-align: center;
+      background: rgba(15, 23, 42, 0.86);
+      box-shadow: 0 20px 70px rgba(2, 6, 23, 0.52);
+    }
+    .modal-card h2 {
+      margin: 0;
+      color: #ffffff;
+      font-size: 1.55rem;
+      font-weight: 900;
+    }
+    .modal-card p {
+      margin: 10px 0 16px;
+      color: rgba(236, 254, 255, 0.78);
+      line-height: 1.6;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .modal-code-block {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+      text-align: left;
+    }
+    .modal-code-block[hidden] { display: none; }
+    .modal-label {
+      color: rgba(207, 250, 254, 0.66);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .modal-command,
+    .modal-code {
+      border-radius: 8px;
+      padding: 10px 12px;
+      word-break: break-all;
+      font-weight: 900;
+    }
+    .modal-command {
+      border: 1px solid rgba(207, 250, 254, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: #ecfeff;
+    }
+    .modal-code {
+      background: rgba(2, 6, 23, 0.38);
+      color: #fef3c7;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: .04em;
+    }
+    .modal-preview {
+      display: grid;
+      gap: 6px;
+      margin: 12px 0 0;
+    }
+    .modal-preview:empty { display: none; }
+    .modal-preview span {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(236, 253, 245, 0.92);
+      font-size: 12px;
+      font-weight: 800;
+      text-align: left;
+    }
+    .modal-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .modal-actions button:last-child {
+      grid-column: 1 / -1;
+    }
+    .modal-actions button[hidden] { display: none; }
+
+    @media (max-width: 760px) {
+      .game-layout {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .side { width: min(92vw, 520px); }
+      .title-block { text-align: center; }
+      .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stat {
+        min-height: 58px;
+        padding: 8px 6px;
+        text-align: center;
+      }
+      .stat span { font-size: 10px; }
+      .stat strong { font-size: 1.15rem; }
+    }
+
+    @media (max-height: 560px) and (orientation: landscape) {
+      .game-shell {
+        place-items: start center;
+        padding-top: 8px;
+      }
+      .game-layout {
+        grid-template-columns: minmax(240px, 46vh) minmax(320px, 1fr);
+        align-items: start;
+        width: min(980px, 100%);
+      }
+      .board-wrap { width: min(46vh, 420px); }
+      .title-block h1 { font-size: 1.75rem; }
+      .title-block p { display: none; }
+      .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stat { min-height: 56px; }
+      .actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .message { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="game-shell">
+    <section class="game-layout" aria-label="灵泉十滴">
+      <div class="board-wrap">
+        <canvas id="gameCanvas" width="480" height="480"></canvas>
+        <div class="modal" id="resultModal">
+          <div class="modal-card">
+            <h2 id="modalTitle">灵泉收束</h2>
+            <p id="modalText">本次试炼已经结算。</p>
+            <div class="modal-code-block" id="modalCodeBlock" hidden>
+              <div>
+                <div class="modal-label">发送给机器人</div>
+                <div class="modal-command" id="modalCommand"></div>
+              </div>
+              <div>
+                <div class="modal-label">兑换码</div>
+                <div class="modal-code" id="modalCode"></div>
+              </div>
+            </div>
+            <div class="modal-preview" id="modalPreview"></div>
+            <div class="modal-actions">
+              <button class="secondary" id="copyCommandButton" hidden>复制兑换命令</button>
+              <button class="secondary" id="copyCodeButton" hidden>复制兑换码</button>
+              <button class="primary" id="modalButton">知道了</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="title-block">
+          <h1>灵泉十滴</h1>
+          <p>点化水珠，引动四向连锁。五分钟一局，可随时结算本局。</p>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><span>时间</span><strong id="timeDisplay">5:00</strong></div>
+          <div class="stat"><span>水滴</span><strong id="dropsDisplay">10</strong></div>
+          <div class="stat"><span>关卡</span><strong id="levelDisplay">1</strong></div>
+          <div class="stat"><span>分数</span><strong id="scoreDisplay">0</strong></div>
+        </div>
+
+        <div class="meter">
+          <div class="meter-row">
+            <span>最高连锁 <b id="chainDisplay">0</b></span>
+            <span>总爆裂 <b id="burstDisplay">0</b></span>
+          </div>
+          <div class="meter-track"><div class="meter-fill" id="timeFill"></div></div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="startButton">开启试炼</button>
+          <button class="secondary" id="claimButton" disabled>结算本局</button>
+          <div class="message" id="messageBox">正在叩问灵泉入口...</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const GAME_KEY = "lingquan-ten-drop";
+    const COLS = 6;
+    const ROWS = 6;
+    const CELL_SIZE = 80;
+    const SPEED = 8;
+    const DEFAULT_DURATION = 300;
+
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const timeDisplay = document.getElementById("timeDisplay");
+    const dropsDisplay = document.getElementById("dropsDisplay");
+    const levelDisplay = document.getElementById("levelDisplay");
+    const scoreDisplay = document.getElementById("scoreDisplay");
+    const chainDisplay = document.getElementById("chainDisplay");
+    const burstDisplay = document.getElementById("burstDisplay");
+    const timeFill = document.getElementById("timeFill");
+    const startButton = document.getElementById("startButton");
+    const claimButton = document.getElementById("claimButton");
+    const messageBox = document.getElementById("messageBox");
+    const resultModal = document.getElementById("resultModal");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalText = document.getElementById("modalText");
+    const modalCodeBlock = document.getElementById("modalCodeBlock");
+    const modalCommand = document.getElementById("modalCommand");
+    const modalCode = document.getElementById("modalCode");
+    const modalPreview = document.getElementById("modalPreview");
+    const copyCommandButton = document.getElementById("copyCommandButton");
+    const copyCodeButton = document.getElementById("copyCodeButton");
+    const modalButton = document.getElementById("modalButton");
+
+    let configData = null;
+    let session = null;
+    let grid = [];
+    let bullets = [];
+    let burstQueue = [];
+    let floatingTexts = [];
+    let level = 1;
+    let dropsLeft = 10;
+    let levelsCleared = 0;
+    let totalBursts = 0;
+    let currentChain = 0;
+    let maxChain = 0;
+    let roundStartAt = 0;
+    let durationSeconds = DEFAULT_DURATION;
+    let gameState = "idle";
+    let isAnimating = false;
+    let finishing = false;
+
+    function setViewportHeight() {
+      const height = Math.max(320, Math.round(window.visualViewport?.height || window.innerHeight));
+      document.documentElement.style.setProperty("--app-height", `${height}px`);
+    }
+    setViewportHeight();
+    window.addEventListener("resize", setViewportHeight);
+    window.addEventListener("orientationchange", setViewportHeight);
+    window.visualViewport?.addEventListener("resize", setViewportHeight);
+    window.visualViewport?.addEventListener("scroll", setViewportHeight);
+
+    function endpoint(route) {
+      const apiPath = `/xiuxian/dongtian/${GAME_KEY}/${route}`;
+      if (window.location.pathname.includes("/static/dongtian/")) return apiPath;
+      const base = (window.XIUXIAN_API_BASE || "http://127.0.0.1:8443").replace(/\/+$/, "");
+      return `${base}${apiPath}`;
+    }
+
+    async function fetchJson(url, init) {
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        let detail = "洞天泉口暂时没有回应。";
+        try {
+          const error = await response.json();
+          detail = error.detail || detail;
+        } catch {}
+        throw new Error(detail);
+      }
+      return response.json();
+    }
+
+    async function loadConfig() {
+      try {
+        configData = await fetchJson(endpoint("config"));
+        durationSeconds = Number(configData.config?.game_duration || DEFAULT_DURATION);
+        setMessage("灵泉入口已开启，点击开启试炼。");
+        startButton.disabled = false;
+      } catch (error) {
+        setMessage(error.message || "洞天泉口暂时没有回应。");
+        startButton.disabled = true;
+      }
+      updateHUD();
+    }
+
+    async function startRound() {
+      if (!configData?.game_token || finishing) return;
+      startButton.disabled = true;
+      claimButton.disabled = true;
+      setMessage("正在向洞天取单局凭证...");
+      try {
+        const round = await fetchJson(endpoint("start"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gameToken: configData.game_token }),
+        });
+        session = {
+          gameToken: configData.game_token,
+          sessionId: round.session_id,
+          roundToken: round.round_token,
+        };
+        startNewRun();
+        setMessage("试炼开始。连锁越干净，洞天回响越亮。");
+      } catch (error) {
+        setMessage(error.message || "开局失败，请稍后再试。");
+        startButton.disabled = false;
+      }
+    }
+
+    function startNewRun() {
+      level = 1;
+      levelsCleared = 0;
+      totalBursts = 0;
+      currentChain = 0;
+      maxChain = 0;
+      dropsLeft = 10;
+      roundStartAt = Date.now();
+      gameState = "playing";
+      finishing = false;
+      hideModal();
+      initLevel();
+      updateHUD();
+      claimButton.disabled = false;
+      startButton.textContent = "试炼进行中";
+    }
+
+    function initLevel() {
+      grid = Array.from({ length: COLS }, () => Array(ROWS).fill(0));
+      bullets = [];
+      burstQueue = [];
+      floatingTexts = [];
+      isAnimating = false;
+      currentChain = 0;
+
+      const maxDrops = Math.floor(COLS * ROWS * 0.8);
+      const dropsToPlace = Math.max(5, maxDrops - Math.floor((level - 1) * 0.85));
+      const positions = [];
+      for (let c = 0; c < COLS; c++) {
+        for (let r = 0; r < ROWS; r++) positions.push({ c, r });
+      }
+      positions.sort(() => Math.random() - 0.5);
+      for (let i = 0; i < Math.min(dropsToPlace, positions.length); i++) {
+        const pos = positions[i];
+        grid[pos.c][pos.r] = Math.floor(Math.random() * 4) + 1;
+      }
+    }
+
+    function elapsedSeconds() {
+      if (!roundStartAt) return 0;
+      return Math.max(0, Math.floor((Date.now() - roundStartAt) / 1000));
+    }
+
+    function remainingSeconds() {
+      return Math.max(0, durationSeconds - elapsedSeconds());
+    }
+
+    function calculateScore() {
+      const elapsed = Math.min(durationSeconds, elapsedSeconds());
+      const target = levelsCleared * 24;
+      const efficiency = levelsCleared > 0 && elapsed < target ? Math.min(420, (target - elapsed) * 3) : 0;
+      return Math.max(0, Math.min(5000, levelsCleared * 170 + totalBursts * 5 + maxChain * 16 + dropsLeft * 6 + efficiency));
+    }
+
+    function updateHUD() {
+      const left = remainingSeconds();
+      const minutes = Math.floor(left / 60);
+      const seconds = String(left % 60).padStart(2, "0");
+      timeDisplay.textContent = `${minutes}:${seconds}`;
+      dropsDisplay.textContent = String(dropsLeft);
+      levelDisplay.textContent = String(level);
+      scoreDisplay.textContent = String(calculateScore());
+      chainDisplay.textContent = String(maxChain);
+      burstDisplay.textContent = String(totalBursts);
+      const progress = durationSeconds > 0 ? (left / durationSeconds) * 100 : 0;
+      timeFill.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+    }
+
+    function setMessage(text, code, preview = []) {
+      messageBox.innerHTML = "";
+      const line = document.createElement("span");
+      line.textContent = text;
+      messageBox.appendChild(line);
+      if (code) {
+        const codeLine = document.createElement("span");
+        codeLine.className = "code-line";
+        codeLine.textContent = `洞天兑换 ${code}`;
+        messageBox.appendChild(codeLine);
+      }
+      const safePreview = Array.isArray(preview)
+        ? preview.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6)
+        : [];
+      if (safePreview.length > 0) {
+        const previewBox = document.createElement("div");
+        previewBox.className = "reward-preview";
+        const previewTitle = document.createElement("span");
+        previewTitle.className = "reward-preview-title";
+        previewTitle.textContent = "基础奖励预览";
+        previewBox.appendChild(previewTitle);
+        for (const item of safePreview) {
+          const previewItem = document.createElement("span");
+          previewItem.className = "reward-preview-item";
+          previewItem.textContent = item;
+          previewBox.appendChild(previewItem);
+        }
+        messageBox.appendChild(previewBox);
+      }
+    }
+
+    function showModal(title, text, result = null) {
+      modalTitle.textContent = title;
+      modalText.textContent = text;
+      const code = result?.code || "";
+      modalCodeBlock.hidden = !code;
+      copyCommandButton.hidden = !code;
+      copyCodeButton.hidden = !code;
+      modalCommand.textContent = code ? `洞天兑换 ${code}` : "";
+      modalCode.textContent = code;
+      modalPreview.innerHTML = "";
+      const preview = Array.isArray(result?.reward_preview) ? result.reward_preview : [];
+      for (const item of preview.slice(0, 6)) {
+        const line = String(item || "").trim();
+        if (!line) continue;
+        const span = document.createElement("span");
+        span.textContent = line;
+        modalPreview.appendChild(span);
+      }
+      resultModal.classList.add("show");
+    }
+
+    function hideModal() {
+      resultModal.classList.remove("show");
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 4;
+      for (let c = 0; c < COLS; c++) {
+        for (let r = 0; r < ROWS; r++) {
+          const x = c * CELL_SIZE;
+          const y = r * CELL_SIZE;
+          roundedRect(x + 4, y + 4, CELL_SIZE - 8, CELL_SIZE - 8, 12);
+          ctx.fillStyle = "rgba(236, 254, 255, 0.13)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(207, 250, 254, 0.36)";
+          ctx.stroke();
+          drawDrop(c, r, grid[c][r]);
+        }
+      }
+      for (const bullet of bullets) drawBullet(bullet.cx, bullet.cy);
+      for (const text of floatingTexts) {
+        ctx.globalAlpha = text.alpha;
+        ctx.font = "900 24px Microsoft YaHei, sans-serif";
+        ctx.textAlign = "center";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(2, 6, 23, 0.78)";
+        ctx.strokeText(text.text, text.x, text.y);
+        ctx.fillStyle = "#fef3c7";
+        ctx.fillText(text.text, text.x, text.y);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawDrop(c, r, size) {
+      if (size <= 0 || size > 4) return;
+      const cx = c * CELL_SIZE + CELL_SIZE / 2;
+      const cy = r * CELL_SIZE + CELL_SIZE / 2;
+      const wobble = Math.sin(Date.now() / 160 + c * 7 + r) * 1.4;
+      const radius = [0, 11, 17, 23, 30][size] + wobble;
+      const grad = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.38, 2, cx, cy, radius * 1.25);
+      grad.addColorStop(0, "#ecfeff");
+      grad.addColorStop(0.25, "#99f6e4");
+      grad.addColorStop(0.62, "#22c55e");
+      grad.addColorStop(1, "#064e3b");
+      ctx.save();
+      ctx.shadowColor = "rgba(2, 6, 23, 0.34)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      if (size === 3) {
+        ctx.moveTo(cx, cy - radius);
+        ctx.bezierCurveTo(cx + radius, cy - radius * 0.7, cx + radius * 0.86, cy + radius, cx, cy + radius);
+        ctx.bezierCurveTo(cx - radius * 0.86, cy + radius, cx - radius, cy - radius * 0.7, cx, cy - radius);
+      } else {
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.fillStyle = "rgba(255,255,255,0.86)";
+      ctx.beginPath();
+      ctx.ellipse(cx - radius * 0.35, cy - radius * 0.38, Math.max(3, radius * 0.28), Math.max(2, radius * 0.14), -0.65, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBullet(x, y) {
+      const grad = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, 8);
+      grad.addColorStop(0, "#ecfeff");
+      grad.addColorStop(0.45, "#86efac");
+      grad.addColorStop(1, "#047857");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function roundedRect(x, y, w, h, r) {
+      const radius = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + w - radius, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+      ctx.lineTo(x + w, y + h - radius);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+      ctx.lineTo(x + radius, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    function update() {
+      if (gameState !== "playing") return;
+      if (remainingSeconds() <= 0 && !finishing) {
+        finishRound("timeout");
+        return;
+      }
+
+      let animating = false;
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.cx += b.vx;
+        b.cy += b.vy;
+        if (b.cx < 0 || b.cx > canvas.width || b.cy < 0 || b.cy > canvas.height) {
+          b.dead = true;
+          continue;
+        }
+        const c = Math.floor(b.cx / CELL_SIZE);
+        const r = Math.floor(b.cy / CELL_SIZE);
+        const centerX = c * CELL_SIZE + CELL_SIZE / 2;
+        const centerY = r * CELL_SIZE + CELL_SIZE / 2;
+        if (c >= 0 && c < COLS && r >= 0 && r < ROWS && grid[c][r] > 0) {
+          if (Math.abs(b.cx - centerX) <= Math.max(4, Math.abs(b.vx) / 2) && Math.abs(b.cy - centerY) <= Math.max(4, Math.abs(b.vy) / 2)) {
+            grid[c][r]++;
+            if (grid[c][r] >= 5) burstQueue.push({ c, r });
+            b.dead = true;
+          }
+        }
+      }
+      bullets = bullets.filter((b) => !b.dead);
+
+      if (burstQueue.length > 0) {
+        const queue = burstQueue.splice(0);
+        for (const b of queue) burstCell(b.c, b.r);
+      }
+
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const text = floatingTexts[i];
+        text.y -= 0.8;
+        text.life--;
+        text.alpha = Math.max(0, text.life / 60);
+        if (text.life <= 0) floatingTexts.splice(i, 1);
+      }
+
+      animating = bullets.length > 0 || burstQueue.length > 0;
+      if (isAnimating && !animating) checkWinLoss();
+      isAnimating = animating;
+      updateHUD();
+    }
+
+    function burstCell(c, r) {
+      if (grid[c][r] <= 0) return;
+      grid[c][r] = 0;
+      const cx = c * CELL_SIZE + CELL_SIZE / 2;
+      const cy = r * CELL_SIZE + CELL_SIZE / 2;
+      bullets.push({ cx, cy, vx: SPEED, vy: 0 });
+      bullets.push({ cx, cy, vx: -SPEED, vy: 0 });
+      bullets.push({ cx, cy, vx: 0, vy: SPEED });
+      bullets.push({ cx, cy, vx: 0, vy: -SPEED });
+      currentChain++;
+      totalBursts++;
+      maxChain = Math.max(maxChain, currentChain);
+      if (currentChain >= 3) {
+        dropsLeft++;
+        floatingTexts.push({ text: "+1", x: cx, y: cy - 8, alpha: 1, life: 60 });
+      }
+    }
+
+    function checkWinLoss() {
+      const allEmpty = grid.every((col) => col.every((value) => value <= 0));
+      if (allEmpty) {
+        levelsCleared++;
+        level++;
+        dropsLeft++;
+        setMessage("本关灵泉清净，余波回赠一滴。");
+        initLevel();
+      } else if (dropsLeft <= 0) {
+        finishRound("failed");
+      }
+    }
+
+    function handleInput(clientX, clientY) {
+      if (gameState !== "playing" || isAnimating || finishing || dropsLeft <= 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (clientX - rect.left) * (canvas.width / rect.width);
+      const y = (clientY - rect.top) * (canvas.height / rect.height);
+      const c = Math.floor(x / CELL_SIZE);
+      const r = Math.floor(y / CELL_SIZE);
+      if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+      dropsLeft--;
+      currentChain = 0;
+      grid[c][r]++;
+      if (grid[c][r] >= 5) burstQueue.push({ c, r });
+      isAnimating = true;
+      updateHUD();
+    }
+
+    async function finishRound(reason) {
+      if (finishing || !["playing", "settlement_failed"].includes(gameState)) return;
+      const minSeconds = Number(configData?.config?.round_min_seconds || 10);
+      if (elapsedSeconds() < minSeconds && reason === "manual") {
+        setMessage(`灵泉还没完全映身，至少 ${minSeconds} 秒后再收取。`);
+        return;
+      }
+      finishing = true;
+      gameState = "settling";
+      claimButton.disabled = true;
+      startButton.disabled = true;
+      setMessage("正在把灵泉回响凝成兑换码...");
+      const payload = {
+        gameToken: session?.gameToken,
+        sessionId: session?.sessionId,
+        roundToken: session?.roundToken,
+        score: calculateScore(),
+        levelsCleared,
+        totalBursts,
+        maxChain,
+        dropsLeft,
+        elapsedSeconds: Math.min(durationSeconds, elapsedSeconds()),
+        endReason: reason,
+      };
+      try {
+        const result = await fetchJson(endpoint("finish"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const code = result.code || "";
+        const text = `${result.message || "灵泉试炼已经结算。"} 兑换码已生成。`;
+        setMessage(text, code, result.reward_preview || []);
+        showModal(reason === "timeout" ? "五分钟已至" : "灵泉收束", `认可分数 ${result.accepted_score ?? payload.score}。兑换码 10 分钟有效。`, result);
+        startButton.textContent = "再来一局";
+        startButton.disabled = false;
+        gameState = "ended";
+      } catch (error) {
+        setMessage(`${error.message || "结算失败"}，可以重试结算本局。`);
+        claimButton.disabled = false;
+        startButton.textContent = "新开一局";
+        startButton.disabled = true;
+        gameState = "settlement_failed";
+      } finally {
+        finishing = false;
+      }
+    }
+
+    canvas.addEventListener("mousedown", (event) => handleInput(event.clientX, event.clientY));
+    canvas.addEventListener("touchstart", (event) => {
+      event.preventDefault();
+      if (event.touches.length > 0) handleInput(event.touches[0].clientX, event.touches[0].clientY);
+    }, { passive: false });
+    startButton.addEventListener("click", startRound);
+    claimButton.addEventListener("click", () => finishRound("manual"));
+    modalButton.addEventListener("click", hideModal);
+    copyCommandButton.addEventListener("click", (event) => copyText(event.currentTarget, modalCommand.textContent, "已复制兑换命令"));
+    copyCodeButton.addEventListener("click", (event) => copyText(event.currentTarget, modalCode.textContent, "已复制兑换码"));
+
+    async function copyText(button, text, copiedText) {
+      const original = button.textContent;
+      try {
+        await writeClipboard(text);
+        button.textContent = copiedText;
+      } catch {
+        button.textContent = "请长按复制";
+      }
+      window.setTimeout(() => { button.textContent = original; }, 1600);
+    }
+
+    async function writeClipboard(text) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    initLevel();
+    updateHUD();
+    loadConfig();
+    loop();
+  </script>
+</body>
+</html>

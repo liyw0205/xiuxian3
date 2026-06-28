@@ -310,7 +310,7 @@ EXTREME_BOOK_DEFS = _extreme_book_defs()
 WISH_DEFAULT_POOL_ID = "default_liuguang"
 WISH_VOUCHERS = (
     ("liuguang_voucher", "流光凭证"),
-    ("xuanqi_voucher", "玄契凭证"),
+    ("yuanqi_voucher", "缘契凭证"),
     ("xingming_voucher", "星命凭证"),
     ("guixu_voucher", "归墟凭证"),
     ("tianqi_voucher", "天启凭证"),
@@ -334,7 +334,7 @@ WISH_DEFAULT_PRIZES = (
     ("world_build_jichu_2", WISH_DEFAULT_POOL_ID, "backpack_item", "world_build_jichu_1", "建设物资 x2", 2, 350, "{}"),
     ("world_relic_weiyun_1", WISH_DEFAULT_POOL_ID, "backpack_item", "world_relic_weiyun_1", "古物 x1", 1, 350, "{}"),
     ("voucher_liuguang", WISH_DEFAULT_POOL_ID, "voucher", "liuguang_voucher", "流光凭证", 1, 240, "{}"),
-    ("voucher_xuanqi", WISH_DEFAULT_POOL_ID, "voucher", "xuanqi_voucher", "玄契凭证", 1, 240, "{}"),
+    ("voucher_yuanqi", WISH_DEFAULT_POOL_ID, "voucher", "yuanqi_voucher", "缘契凭证", 1, 240, "{}"),
     ("voucher_xingming", WISH_DEFAULT_POOL_ID, "voucher", "xingming_voucher", "星命凭证", 1, 240, "{}"),
     ("voucher_guixu", WISH_DEFAULT_POOL_ID, "voucher", "guixu_voucher", "归墟凭证", 1, 240, "{}"),
     ("voucher_tianqi", WISH_DEFAULT_POOL_ID, "voucher", "tianqi_voucher", "天启凭证", 1, 240, "{}"),
@@ -1870,6 +1870,51 @@ class XiuxianDB:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS dongtian_codes (
+                code TEXT PRIMARY KEY,
+                game_key TEXT NOT NULL,
+                game_title TEXT NOT NULL,
+                score INTEGER NOT NULL DEFAULT 0,
+                reward_json TEXT NOT NULL DEFAULT '[]',
+                granted_json TEXT NOT NULL DEFAULT '[]',
+                meta_json TEXT NOT NULL DEFAULT '{}',
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                claimed_by TEXT NOT NULL DEFAULT '',
+                claimed_at TEXT,
+                reward_rate REAL NOT NULL DEFAULT 1.0,
+                medicine_rate REAL NOT NULL DEFAULT 1.0
+            );
+
+            CREATE TABLE IF NOT EXISTS dongtian_game_tokens (
+                token_hash TEXT PRIMARY KEY,
+                game_key TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS dongtian_rounds (
+                session_id TEXT PRIMARY KEY,
+                game_key TEXT NOT NULL,
+                game_token_hash TEXT NOT NULL DEFAULT '',
+                round_token_hash TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                issued_code TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS yuanqi_codes (
+                code TEXT PRIMARY KEY,
+                player_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                requested_story_id TEXT NOT NULL DEFAULT '',
+                used_story_id TEXT NOT NULL DEFAULT '',
+                used_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS player_journals (
                 client_id TEXT NOT NULL,
                 milestone_key TEXT NOT NULL,
@@ -1993,6 +2038,15 @@ class XiuxianDB:
             CREATE INDEX IF NOT EXISTS idx_wormhole_participants_client ON wormhole_participants(client_id, reward_claimed);
             CREATE INDEX IF NOT EXISTS idx_wormhole_challenge_records_event ON wormhole_challenge_records(wormhole_id, client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_game_logs_client ON game_logs(client_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_codes_claimed ON dongtian_codes(claimed_by, claimed_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_codes_expires ON dongtian_codes(expires_at, claimed_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_game_tokens_game ON dongtian_game_tokens(game_key, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_game_tokens_expires ON dongtian_game_tokens(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_rounds_game ON dongtian_rounds(game_key, expires_at, consumed_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_rounds_token ON dongtian_rounds(game_key, game_token_hash, consumed_at, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_dongtian_rounds_expires ON dongtian_rounds(expires_at, consumed_at);
+            CREATE INDEX IF NOT EXISTS idx_yuanqi_codes_player ON yuanqi_codes(player_id, issued_at);
+            CREATE INDEX IF NOT EXISTS idx_yuanqi_codes_expires ON yuanqi_codes(expires_at, used_at);
             CREATE INDEX IF NOT EXISTS idx_player_journals_client ON player_journals(client_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_player_titles_client ON player_titles(client_id, active);
             CREATE INDEX IF NOT EXISTS idx_player_lifetime_stats_key ON player_lifetime_stats(stat_key, stat_value);

@@ -28,6 +28,8 @@ _include_child_router(router, "后台接口")
 _include_child_router(router, "用户组")
 _include_child_router(router, "修仙帮助")
 _include_child_router(router, "战斗日志")
+_include_child_router(router, "洞天福地")
+_include_child_router(router, "缘契")
 
 __all__ = ["router"]
 

@@ -20,6 +20,7 @@ from .constants import (
     DEFAULT_LOCATION,
     DEFAULT_WEIGHT_LIMIT,
     DIRECT_FLOW_RETENTION_DAYS,
+    DONGTIAN_CODE_RETENTION_DAYS,
     EQUIPMENT_SLOTS,
     FIXED_EQUIPMENT_SLOT_FACTORS,
     MAX_LEVEL,
@@ -1446,6 +1447,32 @@ class CoreService:
             """
             DELETE FROM game_logs
             WHERE datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
+            """,
+            (cutoff_at,),
+        )
+        conn.execute(
+            """
+            DELETE FROM dongtian_codes
+            WHERE datetime(replace(COALESCE(claimed_at, expires_at), 'T', ' ')) < datetime(replace(?, 'T', ' '), ?)
+            """,
+            (ts(), f"-{DONGTIAN_CODE_RETENTION_DAYS} days"),
+        )
+        conn.execute("DELETE FROM dongtian_game_tokens WHERE expires_at <= ?", (ts(),))
+        conn.execute(
+            """
+            DELETE FROM dongtian_rounds
+            WHERE (consumed_at IS NULL AND expires_at <= ?)
+               OR (
+                   consumed_at IS NOT NULL
+                   AND datetime(replace(consumed_at, 'T', ' ')) < datetime(replace(?, 'T', ' '), ?)
+               )
+            """,
+            (ts(), ts(), f"-{DONGTIAN_CODE_RETENTION_DAYS} days"),
+        )
+        conn.execute(
+            """
+            DELETE FROM yuanqi_codes
+            WHERE datetime(replace(COALESCE(used_at, expires_at), 'T', ' ')) < datetime(replace(?, 'T', ' '))
             """,
             (cutoff_at,),
         )

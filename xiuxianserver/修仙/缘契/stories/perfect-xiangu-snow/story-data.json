@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "pure-text-game@1.0.0",
+  "game": {
+    "id": "perfect_xiangu_snow",
+    "title": "仙古门前的风雪",
+    "subtitle": "仙古遗地门前风雪很冷，可总有人把热血带到门内。",
+    "startScene": "start",
+    "defaultTheme": "cool",
+    "assetBaseUrl": "/static/yuanqi/audio"
+  },
+  "ui": {
+    "startButton": "赴约",
+    "settingsButton": "设置",
+    "loadingText": "仙古花契正在开合...",
+    "welcome": [
+      "{{name}}来到仙古遗地门前时，风雪已经盖住半截石阶。",
+      "远处帝关战旗隐约可见，像一条通往未来的长线。"
+    ]
+  },
+  "audio": {
+    "defaultVolume": 0.42,
+    "tracks": {
+      "calm": {"src": "calm.mp3", "volume": 0.28, "loop": true, "fadeIn": true},
+      "mystery": {"src": "mystery.mp3", "volume": 0.33, "loop": true, "fadeIn": true},
+      "battle": {"src": "battle.mp3", "volume": 0.30, "loop": true, "fadeIn": true},
+      "ending": {"src": "ending.mp3", "volume": 0.34, "loop": true, "fadeIn": true},
+      "victory": {"src": "victory.mp3", "volume": 0.38, "loop": false, "fadeIn": true}
+    }
+  },
+  "initialState": {"flags": {}, "stats": {"vow": 0, "mercy": 0, "blade": 0}, "relations": {}, "inventory": {}},
+  "themes": [{"id": "cool", "label": "风雪"}, {"id": "dark", "label": "边荒"}, {"id": "warm", "label": "热血"}],
+  "scenes": {
+    "start": {
+      "id": "start",
+      "chapter": "第一幕",
+      "time": "仙古门前",
+      "onEnter": [{"type": "bgm.play", "id": "mystery"}],
+      "blocks": [
+        {"type": "text", "content": "仙古遗地的门还没开，各族天骄已经站满雪原。有人闭目养神，有人擦拭兵器，有人把杀意藏在笑里。\n\n你踩上第一阶石梯，发现雪下压着一枚破旧战牌。战牌上刻着两个字：帝关。"},
+        {"type": "dialogue", "speaker": "守门残影", "content": "{{name}}，入仙古者，先问心。你来此，是为名，为人，还是为路？"}
+      ],
+      "choices": [
+        {"id": "fame", "text": "为证明自己也能站到最高处", "actions": [{"type": "state.add", "path": "stats.blade", "value": 2}, {"type": "goto", "target": "snow_gate"}]},
+        {"id": "people", "text": "为把弱小者也带过风雪", "actions": [{"type": "state.add", "path": "stats.mercy", "value": 2}, {"type": "goto", "target": "snow_gate"}]},
+        {"id": "road", "text": "为看清帝路尽头究竟是什么", "actions": [{"type": "state.add", "path": "stats.vow", "value": 2}, {"type": "goto", "target": "snow_gate"}]}
+      ]
+    },
+    "snow_gate": {
+      "id": "snow_gate",
+      "chapter": "第二幕",
+      "time": "门缝开启",
+      "onEnter": [{"type": "bgm.play", "id": "battle", "forceRestart": true}],
+      "blocks": [
+        {"type": "text", "content": "仙古门缝开出一线光，风雪立刻倒灌进去。\n\n一名受伤少年被人撞倒在石阶边，眼看要被灵压推下去；与此同时，门内有一株仙古花一闪而逝，香气几乎让所有人失神。\n\n选择只在一息之间。"}
+      ],
+      "choices": [
+        {"id": "save", "text": "拉住受伤少年，先让他站稳", "actions": [{"type": "state.add", "path": "stats.mercy", "value": 2}, {"type": "goto", "target": "inner_path"}]},
+        {"id": "flower", "text": "踏进门缝，追向仙古花光", "actions": [{"type": "state.add", "path": "stats.blade", "value": 2}, {"type": "goto", "target": "inner_path"}]},
+        {"id": "hold", "text": "撑住战牌，为后面的人挡住灵压", "actions": [{"type": "state.add", "path": "stats.vow", "value": 2}, {"type": "goto", "target": "inner_path"}]}
+      ]
+    },
+    "inner_path": {
+      "id": "inner_path",
+      "chapter": "第三幕",
+      "time": "仙古雪林",
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [
+        {"type": "text", "content": "门内不是春色，而是一片寂静雪林。\n\n树枝挂满冰晶，冰晶里映出许多已经远去的战影。你听见边荒鼓声，也听见有人在很久以前说：后来者，别把路走窄。\n\n一条岔路通向宝药，一条岔路通向战旗，一条岔路通向无人收埋的旧骨。"}
+      ],
+      "choices": [
+        {"id": "medicine", "text": "去采宝药，先保住活人的命", "actions": [{"type": "state.add", "path": "stats.mercy", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "flag", "text": "去扶战旗，让它重新迎风", "actions": [{"type": "state.add", "path": "stats.vow", "value": 2}, {"type": "goto", "target": "final_choice"}]},
+        {"id": "bone", "text": "去旧骨前行礼，再取走遗落兵刃", "actions": [{"type": "state.add", "path": "stats.blade", "value": 2}, {"type": "goto", "target": "final_choice"}]}
+      ]
+    },
+    "final_choice": {
+      "id": "final_choice",
+      "chapter": "终幕",
+      "time": "雪停时",
+      "blocks": [{"type": "text", "content": "风雪终于停了。\n\n你站在仙古门内，身上有伤，掌心却多了一点很亮的光。那光不问你来自哪里，只问你接下来愿意把它照向何处。\n\n仙古给你的第一份回礼，就在面前。"}],
+      "choices": [
+        {"id": "medicine", "text": "把宝药带回门口，救治伤者", "actions": [{"type": "ending", "target": "ending_medicine"}]},
+        {"id": "flag", "text": "把战旗插到雪林最高处", "actions": [{"type": "ending", "target": "ending_flag"}]},
+        {"id": "blade", "text": "带着旧刃继续向深处走", "actions": [{"type": "ending", "target": "ending_blade"}]}
+      ]
+    },
+    "ending_medicine": {
+      "id": "ending_medicine",
+      "chapter": "结局",
+      "time": "门前石阶",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "ending"}],
+      "blocks": [{"type": "text", "content": "你把宝药碾碎，敷在伤者胸口。\n\n有人错过了第一波机缘，却因此活着跨进仙古门。那少年红着眼向你行礼，你摆摆手，只觉得风雪没那么冷了。\n\n【结局：雪中回春】\n你的第一份仙古造化，没有藏进袋子，而是变成了别人的下一口气。"}],
+      "choices": []
+    },
+    "ending_flag": {
+      "id": "ending_flag",
+      "chapter": "结局",
+      "time": "雪林高处",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "victory", "loop": false}],
+      "blocks": [{"type": "text", "content": "你把旧战旗插上雪林最高处。\n\n旗面破得厉害，却在风里展开。远处似乎有无数战影回头，看了后来者一眼，然后继续走向更远的边关。\n\n【结局：帝关远望】\n你还没抵达帝关，但已有一面旗记住了你的名字。"}],
+      "choices": []
+    },
+    "ending_blade": {
+      "id": "ending_blade",
+      "chapter": "结局",
+      "time": "雪林深处",
+      "isEnding": true,
+      "onEnter": [{"type": "bgm.play", "id": "calm"}],
+      "blocks": [{"type": "text", "content": "旧刃入手时，冰雪在刃口化开。\n\n它并不锋利，却很安静，像曾经握着它的人已经把话都留在沉默里。你带着它向深处走去，每一步都比来时更稳。\n\n【结局：旧刃新路】\n仙古没有替你决定未来，只把一条能走下去的路交到你手里。"}],
+      "choices": []
+    }
+  }
+}

@@ -38,7 +38,7 @@ GOLD_PRIZE_IDS = {
     "currency_5000",
     "exp_1500",
     "voucher_liuguang",
-    "voucher_xuanqi",
+    "voucher_yuanqi",
     "voucher_xingming",
     "voucher_guixu",
     "voucher_tianqi",

@@ -30,6 +30,7 @@ import 修仙.探险 as exploration_module
 import 修仙.武器 as weapon_module
 import 修仙.修仙百科 as encyclopedia_module
 import 修仙.银行 as bank_module
+import 修仙.洞天福地 as dongtian_module
 import 修仙.修仙帮助 as help_module
 import 修仙.玩家 as player_module
 import 修仙.世界皮肤 as world_skin_module
@@ -57,6 +58,7 @@ from 修仙.探险.service import ExplorationService
 from 修仙.武器.service import WeaponService
 from 修仙.修仙百科.service import EncyclopediaService
 from 修仙.银行.service import BankService
+from 修仙.洞天福地.service import DongtianService
 from 修仙.修仙帮助.service import HelpService
 from 修仙.玩家.service import PlayerService
 from 修仙.世界皮肤.service import WorldSkinService
@@ -76,6 +78,7 @@ WS_MODULES = (
     world_skin_module,
     sect_module,
     bank_module,
+    dongtian_module,
     ring_module,
     backpack_module,
     insurance_module,
@@ -131,10 +134,20 @@ async def main_async() -> None:
             _must_reply(manager, "player_ws", "修行成长")
 
             await _dispatch(manager, "player_ws", "指南 战斗")
-            _must_reply(manager, "player_ws", "指南·探险战斗")
+            _must_reply(manager, "player_ws", "指南·玩家对战")
+            _must_reply(manager, "player_ws", "切磋 玩家名")
+            _must_reply(manager, "player_ws", "决斗 玩家名 数量")
+
+            await _dispatch(manager, "player_ws", "指南 首领")
+            _must_reply(manager, "player_ws", "指南·首领虫洞")
+            _must_reply(manager, "player_ws", "挑战首领")
+            _must_reply(manager, "player_ws", "虫洞奖励")
+
+            await _dispatch(manager, "player_ws", "指南 探险")
+            _must_reply(manager, "player_ws", "指南·地图探险")
             _must_reply(manager, "player_ws", "探险状态")
 
-            await _dispatch(manager, "player_ws", "指南 成长")
+            await _dispatch(manager, "player_ws", "指南 账户")
             _must_reply(manager, "player_ws", "用户组")
             await _dispatch(manager, "player_ws", "用户组")
             _must_reply(manager, "player_ws", "[用户组后台](")
@@ -152,6 +165,16 @@ async def main_async() -> None:
             _must_reply(manager, "player_ws", "缺少皮肤包名")
             await _dispatch(manager, "target_ws", "世界皮肤切换")
             _must_reply(manager, "target_ws", "只有主人可以切换世界皮肤")
+
+            await _dispatch(manager, "player_ws", "洞天福地")
+            _must_reply(manager, "player_ws", "灵溪垂钓")
+            _must_reply(manager, "player_ws", "/static/dongtian/lingxi-fishing/index.html")
+            _must_reply(manager, "player_ws", "灵泉十滴")
+            _must_reply(manager, "player_ws", "/static/dongtian/lingquan-ten-drop/index.html")
+            _must_reply(manager, "player_ws", "灵果凑十")
+            _must_reply(manager, "player_ws", "/static/dongtian/lingguo-sum-ten/index.html")
+            _must_reply(manager, "player_ws", "合丹炉")
+            _must_reply(manager, "player_ws", "/static/dongtian/hedan-furnace/index.html")
 
             login_challenge = user_group_module.service.create_login_challenge()
             await _dispatch(manager, "player_ws", f"用户组后台登录 {login_challenge['challenge_id']}")
@@ -498,6 +521,7 @@ def _patch_modules(db: XiuxianDB, manager: FakeManager) -> dict[str, Any]:
         world_skin_module: WorldSkinService(db),
         sect_module: SectService(db),
         bank_module: BankService(db),
+        dongtian_module: DongtianService(db),
         ring_module: RingService(db),
         backpack_module: BackpackService(db),
         insurance_module: InsuranceBoxService(db),
@@ -739,6 +763,9 @@ async def _assert_command_plan() -> None:
         "货币存入 100",
         "取出货币 50",
         "货币取出 50",
+        "洞天福地",
+        "洞天兑换 DT123456",
+        "洞天记录",
         "修仙日记",
         "查看修仙物品",
         "武器",
