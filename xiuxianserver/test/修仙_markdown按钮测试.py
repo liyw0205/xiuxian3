@@ -867,8 +867,7 @@ def test_daily_guide_uses_inline_command_links() -> None:
     assert "[领奖](mqqapi://aio/inlinecmd?" in text
     assert "command=%E9%A2%86%E5%8F%96%E5%AE%97%E9%97%A8%E5%A4%A7%E4%BC%9A%E5%A5%96%E5%8A%B1" in text
     payload = markdown_message_from_text(text)
-    assert payload is not None
-    assert "keyboard" not in payload["message"]
+    assert payload is None
 
 
 def test_web_help_uses_hidden_web_links() -> None:
