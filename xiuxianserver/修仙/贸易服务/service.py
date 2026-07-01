@@ -64,6 +64,7 @@ from ..rules import (
     special_sell_price_rate,
     special_sell_soft_line,
     trade_daily_reward_thresholds,
+    trade_fatigue_profit_rate,
     trade_global_soft_line,
     trade_player_soft_line,
     trade_profit_rate,
@@ -341,7 +342,7 @@ class TradeService(WeaponCore):
         return T.attach(panel.render(), T.buttons(*buttons))
 
     def recommend(self, client_id: str) -> str:
-        """按单位负重收益推荐当前能买的跑商路线。"""
+        """推荐当前可执行的跑商路线；当前城池无利润时兜底扫描全图买点。"""
 
         player, error = self.require_player(client_id)
         if error:
@@ -354,22 +355,42 @@ class TradeService(WeaponCore):
         if not options:
             return T.hint("当前没有能购买且有利润的跑商路线。", f"确认随身{currency_name()}和背包空间足够，或换一个商场地点再试。")
         panel = T.panel()
-        panel.section(f"{current}跑商推荐")
+        cross_location = any(str(option.get("source") or current) != current for option in options[:3])
+        panel.section("全图跑商推荐" if cross_location else f"{current}跑商推荐")
+        if cross_location:
+            panel.line(f"当前位置：{current}；当前城池暂无正收益路线，已改按全图买点推荐。")
         for index, option in enumerate(options[:3], start=1):
+            source = str(option.get("source") or current)
+            if source == current:
+                route_text = (
+                    f"商场购买 {option['item_name']} {option['quantity']} -> "
+                    f"导航 {option['target']} -> 商场出售 {option['item_name']} {option['quantity']}"
+                )
+            else:
+                route_text = (
+                    f"导航 {source} -> 商场购买 {option['item_name']} {option['quantity']} -> "
+                    f"导航 {option['target']} -> 商场出售 {option['item_name']} {option['quantity']}"
+                )
             panel.line(
-                f"{index}. 商场购买 {option['item_name']} {option['quantity']} -> "
-                f"导航 {option['target']} -> 商场出售 {option['item_name']} {option['quantity']}\n"
+                f"{index}. {route_text}\n"
                 f"预计净赚 **{money(option['total_profit'])}**｜单件 **{money(option['unit_profit'])}**｜"
-                f"{option['trade_type_label']}行情：{option['market_label']}"
+                f"{self._trade_reputation_text(option)}｜{option['trade_type_label']}行情：{option['market_label']}"
             )
-        return T.attach(
-            panel.render(),
-            T.buttons(
+        first_source = str(options[0].get("source") or current)
+        buttons = []
+        if first_source != current:
+            buttons.append(f"导航 {first_source}")
+        buttons.extend(
+            [
                 f"商场购买 {options[0]['item_name']} {options[0]['quantity']}",
                 f"导航 {options[0]['target']}",
                 f"商场出售 {options[0]['item_name']} {options[0]['quantity']}",
                 "自动出售",
-            ),
+            ]
+        )
+        return T.attach(
+            panel.render(),
+            T.buttons(*buttons[:4]),
         )
 
     def records(self, client_id: str) -> str:
@@ -395,9 +416,16 @@ class TradeService(WeaponCore):
         panel = T.panel()
         panel.section("跑商记录")
         for row in rows:
+            extra = ""
+            if row["action"] == "sell":
+                effective_quantity = int(row["effective_quantity"] or 0)
+                fatigue_quantity = int(row["fatigue_quantity"] or 0)
+                extra = f"｜商誉 {effective_quantity}"
+                if fatigue_quantity > 0:
+                    extra += f"｜散商 {fatigue_quantity}"
             panel.line(
                 f"{self._action_text(row['action'])}｜{(row['name'] or row['item_id'])} x{row['quantity']}｜"
-                f"**{money(row['total_price'])}**｜{row['location_name']}"
+                f"**{money(row['total_price'])}**｜{row['location_name']}{extra}"
             )
         return panel.render()
 
@@ -418,14 +446,27 @@ class TradeService(WeaponCore):
             market_state["player_soft_line"],
             market_state["global_soft_line"],
         )
+        fatigue_rate = trade_fatigue_profit_rate(
+            market_state["player_fatigue_used"],
+            market_state["player_soft_line"],
+        )
+        player_remaining = max(0, market_state["player_soft_line"] - market_state["player_used"])
+        global_remaining = max(0, market_state["global_soft_line"] - market_state["global_used"])
+        available_reputation = min(player_remaining, global_remaining)
         panel.line(f"近{TRADE_ACTIVE_WINDOW_DAYS}天活跃：**{market_state['active_count']}** 人")
-        panel.line(
-            f"今日个人普通出售：**{market_state['player_used']}/{market_state['player_soft_line']}** 件收益线"
-        )
-        panel.line(
-            f"今日全服普通出售：**{market_state['global_used']}/{market_state['global_soft_line']}** 件收益线"
-        )
-        panel.line(f"当前普通跑商利润倍率：**{int(current_rate * 100)}%**，只影响利润部分，不限制买卖")
+        panel.line(f"今日个人商誉：**{market_state['player_used']}/{market_state['player_soft_line']}** 件")
+        panel.line(f"今日个人散商：**{market_state['player_fatigue_used']}** 件")
+        panel.line(f"今日全服商机：**{market_state['global_used']}/{market_state['global_soft_line']}** 件")
+        if available_reputation > 0:
+            panel.line(
+                f"当前可用商誉：**{available_reputation}** 件；商誉利润倍率：**{int(current_rate * 100)}%**；"
+                f"当前散商倍率 **{int(fatigue_rate * 100)}%**，不限制买卖"
+            )
+        else:
+            panel.line(
+                f"当前可用商誉：**0** 件；后续普通跑商按散商倍率 **{int(fatigue_rate * 100)}%** "
+                "结算利润部分，不限制买卖"
+            )
         panel.line("当前跑商特产都是纯经济货物；价格基准更高，但仍计入普通跑商收益线")
         panel.line(f"同地点买入后 **{TRADE_RESALE_LOCK_HOURS}** 小时内不能原地出售")
         panel.line(f"跑商单件利润率最高约 **{int(TRADE_MAX_PROFIT_RATE * 100)}%**")
@@ -455,27 +496,21 @@ class TradeService(WeaponCore):
             stat = conn.execute(
                 """
                 SELECT
-                    COALESCE(SUM(CASE WHEN action = 'sell' THEN quantity ELSE 0 END), 0) AS quantity,
-                    COALESCE(SUM(
-                        CASE
-                            WHEN action = 'sell' THEN total_price - fee
-                            WHEN action = 'buy' THEN -(total_price + fee)
-                            ELSE 0
-                        END
-                    ), 0) AS net_profit
+                    COALESCE(SUM(effective_quantity), 0) AS quantity,
+                    COALESCE(SUM(effective_profit), 0) AS net_profit
                 FROM trade_records
                 WHERE client_id = ?
                   AND business_day = ?
-                  AND action IN ('buy', 'sell')
+                  AND action = 'sell'
                 """,
                 (client_id, day),
             ).fetchone()
             quantity = int(stat["quantity"] if stat else 0)
             net_profit = int(stat["net_profit"] if stat else 0)
             if quantity <= 0:
-                return T.hint("今天还没有普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。<商场推荐>")
+                return T.hint("今天还没有商誉内普通跑商出售记录。", "发送：商场推荐，买入后导航到外地，再发送：商场出售 商品名 数量。<商场推荐>")
             if net_profit <= 0:
-                return T.hint("今日普通跑商还没有形成净利润。", "先把货物卖到更高价地点，再领取跑商奖励。<商场推荐>")
+                return T.hint("今日商誉内普通跑商还没有形成净利润。", "先把货物卖到更高价地点，再领取跑商奖励。<商场推荐>")
             market_state = self._trade_market_state_conn(conn, client_id)
             min_quantity, min_net = trade_daily_reward_thresholds(market_state["player_soft_line"])
             if quantity < min_quantity and net_profit < min_net:
@@ -503,7 +538,7 @@ class TradeService(WeaponCore):
                 "跑商奖励",
                 f"day={day}, quantity={quantity}, net_profit={net_profit}, reward={reward}",
             )
-        return T.success(f"跑商奖励领取成功：今日出售 {quantity} 件，普通跑商净利润 {money(net_profit)}，奖励{currency_amount(reward)}。")
+        return T.success(f"跑商奖励领取成功：今日商誉出售 {quantity} 件，普通跑商净利润 {money(net_profit)}，奖励{currency_amount(reward)}。")
 
     def special_sell(self, client_id: str, message: str) -> str:
         """在特殊收购地点出售战利品。"""
@@ -829,7 +864,12 @@ class TradeService(WeaponCore):
     def _trade_options(self, client_id: str, player: dict) -> list[dict]:
         """计算当前位置可执行的跑商路线。"""
 
-        current = player["location_name"]
+        current = str(player["location_name"])
+        return self._trade_options_for_location(client_id, player, current, current)
+
+    def _trade_options_for_location(self, client_id: str, player: dict, source: str, current: str) -> list[dict]:
+        """计算指定买点到其他城池的正收益路线。"""
+
         buy_fee_rate = self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE)
         sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
         raw_stones = int(player["raw_stones"])
@@ -837,43 +877,48 @@ class TradeService(WeaponCore):
         with self.db.transaction() as conn:
             market_state = self._trade_market_state_conn(conn, client_id)
 
-        for item in self._location_goods(current):
-            buy_price, _ = self.price(current, item["item_id"])
+        for item in self._location_goods(source):
+            buy_price, _ = self.price(source, item["item_id"])
             quantity = self._max_buy_quantity(client_id, item, buy_price, buy_fee_rate, raw_stones)
             if quantity <= 0:
                 continue
             for loc in all_trade_locations(self.db):
-                if loc["name"] == current:
+                if loc["name"] == source:
                     continue
                 _, sell_price = self.price(loc["name"], item["item_id"])
                 sell_price = self._profit_capped_sell_price(buy_price, sell_price)
-                profit_rate = self._trade_profit_rate_for_quantity(market_state, quantity)
-                sell_price = self._profit_adjusted_sell_price(buy_price, sell_price, profit_rate)
+                plan = self._trade_sale_plan(market_state, quantity, buy_price, sell_price, buy_fee_rate, sell_fee_rate)
+                total_profit = int(plan["total_profit"])
+                if total_profit <= 0:
+                    continue
 
                 buy_total = buy_price * quantity
                 buy_fee = int(buy_total * buy_fee_rate)
-                sell_total = sell_price * quantity
-                sell_fee = int(sell_total * sell_fee_rate)
-                unit_profit = int(sell_price * (1 - sell_fee_rate)) - int(buy_price * (1 + buy_fee_rate))
-                total_profit = sell_total - sell_fee - buy_total - buy_fee
-                if total_profit <= 0:
-                    continue
 
                 option = {
                     "item_id": item["item_id"],
                     "item_name": item["name"],
+                    "source": source,
                     "quantity": quantity,
                     "target": loc["name"],
                     "target_x": loc["x"],
                     "target_y": loc["y"],
                     "buy_price": buy_price,
-                    "sell_price": sell_price,
+                    "sell_price": plan["average_sell_price"],
+                    "effective_sell_price": plan["effective_sell_price"],
+                    "fatigue_sell_price": plan["fatigue_sell_price"],
                     "buy_total": buy_total,
                     "buy_fee": buy_fee,
-                    "sell_total": sell_total,
-                    "sell_fee": sell_fee,
-                    "unit_profit": unit_profit,
+                    "sell_total": plan["total_price"],
+                    "sell_fee": plan["fee"],
+                    "unit_profit": plan["unit_profit"],
                     "total_profit": total_profit,
+                    "effective_quantity": plan["effective_quantity"],
+                    "fatigue_quantity": plan["fatigue_quantity"],
+                    "effective_rate": plan["effective_rate"],
+                    "fatigue_rate": plan["fatigue_rate"],
+                    "effective_profit": plan["effective_profit"],
+                    "fatigue_profit": plan["fatigue_profit"],
                     "profit_per_weight": total_profit / max(1, int(item["weight"]) * quantity),
                 }
                 item_effect = load_json(item.get("effect"), {})
@@ -888,6 +933,16 @@ class TradeService(WeaponCore):
         options.sort(key=lambda row: (row["total_profit"], row["profit_per_weight"]), reverse=True)
         return options
 
+    def _global_trade_options(self, client_id: str, player: dict) -> list[dict]:
+        """扫描全部买点，给推荐页兜底；不改变玩家当前位置。"""
+
+        current = str(player["location_name"])
+        options: list[dict] = []
+        for loc in all_trade_locations(self.db):
+            options.extend(self._trade_options_for_location(client_id, player, str(loc["name"]), current))
+        options.sort(key=lambda row: (row["total_profit"], row["profit_per_weight"]), reverse=True)
+        return options
+
     def _recommended_trade_options(self, client_id: str, player: dict, limit: int = 3) -> list[dict]:
         """生成玩家看到的推荐路线。
 
@@ -897,6 +952,8 @@ class TradeService(WeaponCore):
         """
 
         options = self._trade_options(client_id, player)
+        if not options:
+            options = self._global_trade_options(client_id, player)
         if len(options) <= 1:
             return options
 
@@ -926,6 +983,20 @@ class TradeService(WeaponCore):
             if len(result) >= limit:
                 break
         return result
+
+    @staticmethod
+    def _trade_reputation_text(option: dict) -> str:
+        """格式化商誉/散商拆分，避免展示层各处重复拼接。"""
+
+        effective_quantity = int(option.get("effective_quantity") or 0)
+        fatigue_quantity = int(option.get("fatigue_quantity") or 0)
+        parts: list[str] = []
+        if effective_quantity > 0:
+            parts.append(f"商誉 {effective_quantity} 件")
+        if fatigue_quantity > 0:
+            fatigue_rate = int(float(option.get("fatigue_rate") or 0) * 100)
+            parts.append(f"散商 {fatigue_quantity} 件({fatigue_rate}%)" if fatigue_rate > 0 else f"散商 {fatigue_quantity} 件")
+        return "｜".join(parts) if parts else "商誉 0 件"
 
     def _trade_route_score(self, client_id: str, current: str, option: dict) -> float:
         """计算跑商推荐分。
@@ -1006,37 +1077,77 @@ class TradeService(WeaponCore):
         if locked_text:
             return locked_text
         last_buy_price = self._last_trade_buy_price(client_id, item["item_id"])
-        sell_price = self._profit_capped_sell_price(last_buy_price, sell_price)
-        profit_rate = 1.0
+        cost_price = last_buy_price if last_buy_price > 0 else max(0, int(item.get("base_price") or 0))
+        sell_price = self._profit_capped_sell_price(cost_price, sell_price)
+        plan: dict[str, int | float] = {}
         medicine_text = ""
         with self.db.transaction() as conn:
             market_state = self._trade_market_state_conn(conn, client_id)
-            profit_rate = self._trade_profit_rate_for_quantity(market_state, quantity)
-            sell_price = self._profit_adjusted_sell_price(last_buy_price, sell_price, profit_rate)
-            total = sell_price * quantity
-            fee = int(total * self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE))
+            plan = self._trade_sale_plan(
+                market_state,
+                quantity,
+                cost_price,
+                sell_price,
+                self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE),
+                self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE),
+            )
+            total = int(plan["total_price"])
+            fee = int(plan["fee"])
             if not self.remove_backpack_conn(conn, client_id, item["item_id"], quantity):
                 return T.hint(f"背包中 {item['name']} 数量不足。", "发送：背包 确认数量，或继续探险/购买获取。")
             self._grant_raw_stones_conn(conn, client_id, total - fee)
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, location_id, business_day, created_at)
-                VALUES (?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?)
+                (client_id, action, item_id, quantity, effective_quantity, fatigue_quantity,
+                 total_price, fee, effective_profit, fatigue_profit, location_name, location_id, business_day, created_at)
+                VALUES (?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (client_id, item["item_id"], quantity, total, fee, location_name, location_id, business_day(), ts()),
+                (
+                    client_id,
+                    item["item_id"],
+                    quantity,
+                    int(plan["effective_quantity"]),
+                    int(plan["fatigue_quantity"]),
+                    total,
+                    fee,
+                    int(plan["effective_profit"]),
+                    int(plan["fatigue_profit"]),
+                    location_name,
+                    location_id,
+                    business_day(),
+                    ts(),
+                ),
             )
-            self._add_heat_conn(conn, location_name, item["item_id"], sell_count=quantity, location_id=location_id)
+            self._add_heat_conn(
+                conn,
+                location_name,
+                item["item_id"],
+                sell_count=int(plan["effective_quantity"]),
+                location_id=location_id,
+            )
             self._write_game_log_conn(
                 conn,
                 client_id,
                 "商场出售",
-                f"item={item['item_id']}, quantity={quantity}, total={total}, fee={fee}",
+                (
+                    f"item={item['item_id']}, quantity={quantity}, "
+                    f"effective={int(plan['effective_quantity'])}, fatigue={int(plan['fatigue_quantity'])}, "
+                    f"total={total}, fee={fee}"
+                ),
             )
             medicine_text = self.world_material.maybe_carry_medicine(conn, client_id, location_name)
         text = f"出售成功：{item['name']} x{quantity}，收入 {money(total - fee)}，手续费 {money(fee)}。"
-        if last_buy_price > 0 and profit_rate < 0.995:
-            text += f" 今日跑商利润倍率 {int(profit_rate * 100)}%。"
+        effective_quantity = int(plan["effective_quantity"])
+        fatigue_quantity = int(plan["fatigue_quantity"])
+        if cost_price > 0:
+            text += f" 商誉成交 {effective_quantity} 件"
+            if fatigue_quantity > 0:
+                text += f"，散商低收益 {fatigue_quantity} 件"
+            if effective_quantity > 0:
+                text += f"，当前商誉倍率 {int(float(plan['effective_rate']) * 100)}%。"
+            else:
+                text += "，今日商誉已用尽。"
         if medicine_text:
             text += "\n商路顺药：" + medicine_text
         if discover:
@@ -1077,20 +1188,20 @@ class TradeService(WeaponCore):
         """按净收入挑一个商场出售点。"""
 
         last_buy_price = self._last_trade_buy_price(client_id, str(item["item_id"]))
+        cost_price = last_buy_price if last_buy_price > 0 else max(0, int(item.get("base_price") or 0))
+        buy_fee_rate = self._trade_fee_rate(client_id, TRADE_BUY_FEE_RATE)
         sell_fee_rate = self._trade_fee_rate(client_id, TRADE_SELL_FEE_RATE)
         with self.db.transaction() as conn:
             market_state = self._trade_market_state_conn(conn, client_id)
-        profit_rate = self._trade_profit_rate_for_quantity(market_state, quantity)
         best: dict | None = None
         best_value = -1
         for row in all_trade_locations(self.db):
             if self._resale_lock_text(client_id, str(item["item_id"]), row["name"]):
                 continue
             _buy, sell_price = self.price(row["name"], str(item["item_id"]), save=True)
-            sell_price = self._profit_capped_sell_price(last_buy_price, sell_price)
-            sell_price = self._profit_adjusted_sell_price(last_buy_price, sell_price, profit_rate)
-            total = sell_price * quantity
-            net = total - int(total * sell_fee_rate)
+            sell_price = self._profit_capped_sell_price(cost_price, sell_price)
+            plan = self._trade_sale_plan(market_state, quantity, cost_price, sell_price, buy_fee_rate, sell_fee_rate)
+            net = int(plan["total_price"]) - int(plan["fee"])
             if net > best_value:
                 best_value = net
                 best = dict(row)
@@ -1326,6 +1437,69 @@ class TradeService(WeaponCore):
         adjusted = cost + int(profit * safe_rate)
         return max(1, min(raw_price, adjusted))
 
+    def _trade_sale_plan(
+        self,
+        market_state: dict[str, int],
+        quantity: int,
+        buy_price: int,
+        sell_price: int,
+        buy_fee_rate: float,
+        sell_fee_rate: float,
+    ) -> dict[str, int | float]:
+        """拆分本次出售的商誉成交和散商成交。
+
+        商誉成交同时受个人剩余额度和全服剩余商机约束，会写入公共市场统计、
+        买卖热度和每日跑商奖励；散商成交只给低收益现金，不挤占全服商机。
+        """
+
+        amount = max(0, int(quantity))
+        cost = max(0, int(buy_price))
+        capped_sell = max(1, int(sell_price))
+        player_remaining = max(0, int(market_state["player_soft_line"]) - int(market_state["player_used"]))
+        global_remaining = max(0, int(market_state["global_soft_line"]) - int(market_state["global_used"]))
+        effective_quantity = min(amount, player_remaining, global_remaining)
+        fatigue_quantity = max(0, amount - effective_quantity)
+
+        effective_rate = self._trade_profit_rate_for_quantity(market_state, effective_quantity) if effective_quantity > 0 else 0.0
+        effective_sell_price = (
+            self._profit_adjusted_sell_price(cost, capped_sell, effective_rate)
+            if effective_quantity > 0
+            else 0
+        )
+        fatigue_rate = self._trade_fatigue_rate_for_quantity(market_state, fatigue_quantity) if fatigue_quantity > 0 else 0.0
+        fatigue_sell_price = (
+            self._profit_adjusted_sell_price(cost, capped_sell, fatigue_rate)
+            if fatigue_quantity > 0
+            else 0
+        )
+
+        effective_total = effective_sell_price * effective_quantity
+        fatigue_total = fatigue_sell_price * fatigue_quantity
+        effective_fee = int(effective_total * sell_fee_rate)
+        fatigue_fee = int(fatigue_total * sell_fee_rate)
+        effective_cost = cost * effective_quantity + int(cost * effective_quantity * buy_fee_rate)
+        fatigue_cost = cost * fatigue_quantity + int(cost * fatigue_quantity * buy_fee_rate)
+        effective_profit = max(0, effective_total - effective_fee - effective_cost)
+        fatigue_profit = max(0, fatigue_total - fatigue_fee - fatigue_cost)
+        total_price = effective_total + fatigue_total
+        fee = effective_fee + fatigue_fee
+
+        return {
+            "effective_quantity": effective_quantity,
+            "fatigue_quantity": fatigue_quantity,
+            "effective_rate": effective_rate,
+            "fatigue_rate": fatigue_rate,
+            "effective_sell_price": effective_sell_price,
+            "fatigue_sell_price": fatigue_sell_price,
+            "average_sell_price": total_price // amount if amount > 0 else 0,
+            "total_price": total_price,
+            "fee": fee,
+            "effective_profit": effective_profit,
+            "fatigue_profit": fatigue_profit,
+            "total_profit": effective_profit + fatigue_profit,
+            "unit_profit": (effective_profit + fatigue_profit) // amount if amount > 0 else 0,
+        }
+
     @staticmethod
     def _trade_group(item: dict) -> str:
         """读取跑商规则大类；展示名不参与价格规则。"""
@@ -1359,7 +1533,7 @@ class TradeService(WeaponCore):
         day = business_day()
         global_row = conn.execute(
             """
-            SELECT COALESCE(SUM(quantity), 0) AS quantity
+            SELECT COALESCE(SUM(effective_quantity), 0) AS quantity
             FROM trade_records
             JOIN item_defs i ON i.item_id = trade_records.item_id
             WHERE business_day = ? AND action = 'sell'
@@ -1368,7 +1542,9 @@ class TradeService(WeaponCore):
         ).fetchone()
         player_row = conn.execute(
             """
-            SELECT COALESCE(SUM(quantity), 0) AS quantity
+            SELECT
+                COALESCE(SUM(effective_quantity), 0) AS quantity,
+                COALESCE(SUM(fatigue_quantity), 0) AS fatigue_quantity
             FROM trade_records
             JOIN item_defs i ON i.item_id = trade_records.item_id
             WHERE business_day = ? AND action = 'sell' AND client_id = ?
@@ -1377,12 +1553,14 @@ class TradeService(WeaponCore):
         ).fetchone()
         global_used = int(global_row["quantity"] if global_row else 0)
         player_used = int(player_row["quantity"] if player_row else 0)
+        player_fatigue_used = int(player_row["fatigue_quantity"] if player_row else 0)
         return {
             "active_count": active_count,
             "global_soft_line": global_soft_line,
             "global_used": global_used,
             "player_soft_line": player_soft_line,
             "player_used": player_used,
+            "player_fatigue_used": player_fatigue_used,
         }
 
     @staticmethod
@@ -1395,6 +1573,16 @@ class TradeService(WeaponCore):
             int(market_state["global_used"]) + middle_quantity,
             int(market_state["player_soft_line"]),
             int(market_state["global_soft_line"]),
+        )
+
+    @staticmethod
+    def _trade_fatigue_rate_for_quantity(market_state: dict[str, int], quantity: int) -> float:
+        """用本次散商数量的中点估算批量散商的边际倍率。"""
+
+        middle_quantity = max(0, int(quantity)) // 2
+        return trade_fatigue_profit_rate(
+            int(market_state["player_fatigue_used"]) + middle_quantity,
+            int(market_state["player_soft_line"]),
         )
 
     def _active_trade_player_count_conn(self, conn) -> int:

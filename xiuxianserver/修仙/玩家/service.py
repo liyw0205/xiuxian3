@@ -132,12 +132,15 @@ class PlayerService(CoreService):
         panel.line(f"技能节奏：{combat_info['skill_tempo']}")
         panel.line(f"当前武器：{weapon_text}")
         panel.hr()
+        panel.section("装备数值")
+        panel.lines(self._status_equipment_lines(client_id))
+        panel.hr()
         panel.line(f"自动用药：{'开启' if player['auto_use_medicine'] else '关闭'}｜战斗日志：{mode_text(player)}")
         panel.line(f"今日加成：{self._daily_bonus_total_text(client_id)}")
         nemesis_text = self._nemesis_text(client_id)
         if nemesis_text:
             panel.line(f"死敌：{nemesis_text}")
-        return T.attach(panel.render(), T.buttons("修仙信息", "休息", "地图"))
+        return T.attach(panel.render(), T.buttons("修仙信息", "装备", "武器", "休息", "地图"))
 
     def _location_terrain(self, player: dict) -> str:
         """读取当前位置地貌；空地和玩家自建宗门坐标显示为荒野。"""
@@ -582,6 +585,46 @@ class PlayerService(CoreService):
             return ["无"]
         return parts
 
+    def _status_equipment_lines(self, client_id: str) -> list[str]:
+        """生成状态面板里的装备数值明细。"""
+
+        breakdown = self.fixed_equipment_bonus_breakdown(client_id)
+        level_bonuses = dict(breakdown.get("level_bonuses") or {})
+        gem_bonuses = dict(breakdown.get("gem_bonuses") or {})
+        return [
+            (
+                f"装备：总Lv {int(breakdown.get('total_level') or 0)}｜"
+                f"孔位 {int(breakdown.get('open_holes') or 0)}/{int(breakdown.get('max_holes') or 0)}｜"
+                f"宝石 {int(breakdown.get('gem_count') or 0)}颗"
+            ),
+            f"装备等级：{self._flat_equipment_bonus_text(level_bonuses)}",
+            f"镶嵌宝石：{self._flat_equipment_bonus_text(gem_bonuses)}",
+            f"宝石特效：{self._gem_percent_bonus_text(gem_bonuses)}",
+        ]
+
+    @staticmethod
+    def _flat_equipment_bonus_text(bonuses: dict) -> str:
+        """展示血气、精神、防御这类直接数值。"""
+
+        return (
+            f"血气 +{int(bonuses.get('max_hp_bonus') or 0)}｜"
+            f"精神 +{int(bonuses.get('max_mp_bonus') or 0)}｜"
+            f"防御 +{int(bonuses.get('defense_bonus') or 0)}"
+        )
+
+    @staticmethod
+    def _gem_percent_bonus_text(bonuses: dict) -> str:
+        """展示镶嵌宝石提供的百分比特效。"""
+
+        trade_bonus = float(bonuses.get("trade_bonus") or 0)
+        return (
+            f"闪避 +{float(bonuses.get('dodge_bonus') or 0) * 100:.1f}%｜"
+            f"恢复 +{float(bonuses.get('recover_bonus') or 0) * 100:.1f}%｜"
+            f"探险 +{float(bonuses.get('explore_bonus') or 0) * 100:.1f}%｜"
+            f"跑商手续费 -{trade_bonus * 100:.1f}%｜"
+            f"抗暴 +{float(bonuses.get('crit_resist_bonus') or 0) * 100:.1f}%"
+        )
+
     def _daily_bonus_lines(self, client_id: str) -> list[str]:
         """生成今日气运和今日合计加成。"""
 
@@ -751,15 +794,9 @@ class PlayerService(CoreService):
             client_id,
             "trade_net",
             """
-            SELECT COALESCE(SUM(
-                CASE
-                    WHEN action = 'sell' THEN total_price - fee
-                    WHEN action = 'buy' THEN -(total_price + fee)
-                    ELSE 0
-                END
-            ), 0) AS total
+            SELECT COALESCE(SUM(effective_profit), 0) AS total
             FROM trade_records
-            WHERE client_id = ? AND action IN ('buy', 'sell')
+            WHERE client_id = ? AND action = 'sell'
             """,
             (client_id,),
         )

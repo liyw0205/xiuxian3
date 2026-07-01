@@ -20,10 +20,11 @@ from .service import medicine_embryo_reward
 LINGPAI_MEMORY_KEY = "lingpai-memory"
 LINGPAI_MEMORY_TITLE = "灵牌记忆"
 LINGPAI_DURATION_SECONDS = 90
-LINGPAI_PAIR_COUNT = 8
+LINGPAI_PAIR_COUNT = 12
 LINGPAI_CARD_COUNT = LINGPAI_PAIR_COUNT * 2
-LINGPAI_FLIP_CAP = 120
+LINGPAI_FLIP_CAP = 64
 LINGPAI_SCORE_CAP = 1000
+LINGPAI_SERVER_PAIR_SECONDS = 4.6
 LINGPAI_SYMBOLS = (
     "青莲",
     "赤羽",
@@ -33,6 +34,10 @@ LINGPAI_SYMBOLS = (
     "月魄",
     "雷纹",
     "云篆",
+    "霜印",
+    "焰符",
+    "玉简",
+    "星珀",
 )
 
 
@@ -81,7 +86,9 @@ def start_lingpai_memory(service: DongtianIssuer, payload: dict[str, Any]) -> di
             "pair_count": LINGPAI_PAIR_COUNT,
             "card_count": LINGPAI_CARD_COUNT,
             "flip_cap": LINGPAI_FLIP_CAP,
+            "round_min_seconds": DONGTIAN_ROUND_MIN_SECONDS,
             "cards": _deck_for_round(game_token, session_id, round_token),
+            "score_cap": LINGPAI_SCORE_CAP,
         }
     )
     return round_info
@@ -174,8 +181,8 @@ def _lingpai_memory_rewards(result: LingpaiMemoryResult) -> list[dict[str, Any]]
         rewards.append(medicine_embryo_reward("xueqidan" if score % 2 == 0 else "yinmingcao"))
     if result.completed or score >= 700:
         rewards.append(medicine_embryo_reward("huichunlu" if score % 2 else "ningshenlu"))
-    if result.completed and result.flip_count <= 36:
-        chance = min(220, 20 + score // 12 + max(0, 40 - result.flip_count) * 4)
+    if result.completed and result.flip_count <= 44:
+        chance = min(220, 20 + score // 12 + max(0, 48 - result.flip_count) * 3)
         if _chance_per_10000(chance):
             rewards.append({"type": "wish_token", "quantity": 1})
     return rewards
@@ -189,7 +196,8 @@ def _sanitize_lingpai_memory_payload(
     """清洗灵牌记忆前端成绩，并按时间和翻牌密度重裁。"""
 
     matched_pairs = min(LINGPAI_PAIR_COUNT, max(0, _safe_int(payload.get("matchedPairs") or payload.get("matched_pairs"))))
-    flip_count = min(LINGPAI_FLIP_CAP, max(0, _safe_int(payload.get("flipCount") or payload.get("flip_count"))))
+    raw_flip_count = max(0, _safe_int(payload.get("flipCount") or payload.get("flip_count")))
+    flip_count = min(LINGPAI_FLIP_CAP, raw_flip_count)
     elapsed_seconds = min(
         LINGPAI_DURATION_SECONDS,
         max(0, _safe_int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds"))),
@@ -199,16 +207,16 @@ def _sanitize_lingpai_memory_payload(
 
     effective_seconds = max(DONGTIAN_ROUND_MIN_SECONDS, elapsed_seconds)
     matched_pairs = min(matched_pairs, flip_count // 2)
-    matched_pairs = min(matched_pairs, int(effective_seconds / 3.0) + 1)
+    matched_pairs = min(matched_pairs, int(effective_seconds / LINGPAI_SERVER_PAIR_SECONDS) + 1)
     matched_pairs = max(0, matched_pairs)
-    completed = bool(payload.get("completed")) and matched_pairs >= LINGPAI_PAIR_COUNT
+    completed = bool(payload.get("completed")) and matched_pairs >= LINGPAI_PAIR_COUNT and raw_flip_count <= LINGPAI_FLIP_CAP
 
     minimal_flips = max(1, matched_pairs * 2)
     extra_flips = max(0, flip_count - minimal_flips)
-    pair_score = matched_pairs * 78
-    complete_bonus = 180 if completed else 0
-    efficiency_bonus = max(0, 120 - extra_flips * 4)
-    time_bonus = max(0, int((LINGPAI_DURATION_SECONDS - elapsed_seconds) * 0.9)) if completed else 0
+    pair_score = matched_pairs * 54
+    complete_bonus = 190 if completed else 0
+    efficiency_bonus = max(0, 150 - extra_flips * 5)
+    time_bonus = max(0, int(LINGPAI_DURATION_SECONDS - elapsed_seconds)) if completed else 0
     score = min(LINGPAI_SCORE_CAP, max(0, pair_score + complete_bonus + efficiency_bonus + time_bonus))
     return LingpaiMemoryResult(
         score=score,

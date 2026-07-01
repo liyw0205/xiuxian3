@@ -12,7 +12,6 @@
   const PLAYER_H = 32;
   const PLATFORM_H = 10;
   const SPIKE_ZONE_H = 22;
-  const STORAGE_KEY = "dongtian_zhuiyuan_best";
 
   const PLAT_NORMAL = 0;
   const PLAT_MOVING = 1;
@@ -28,7 +27,6 @@
   const retryFinishBtn = document.getElementById("retry-finish-btn");
   const copyCommandBtn = document.getElementById("copy-command-btn");
   const copyCodeBtn = document.getElementById("copy-code-btn");
-  const bestScoreStart = document.getElementById("best-score-start");
   const startStatus = document.getElementById("start-status");
   const resultTitle = document.getElementById("result-title");
   const resultSummary = document.getElementById("result-summary");
@@ -42,6 +40,7 @@
   const wrapper = document.getElementById("game-wrapper");
 
   let renderScale = 1;
+  let compactDevice = false;
 
   let configData = null;
   let session = null;
@@ -51,7 +50,6 @@
   let particles = [];
   let keys = {};
   let layers = 0;
-  let bestLayers = 0;
   let frameCount = 0;
   let roundStartAt = 0;
   let scrollSpeed = 1;
@@ -65,11 +63,19 @@
   function setViewportHeight() {
     const height = Math.max(320, Math.round(window.visualViewport?.height || window.innerHeight));
     document.documentElement.style.setProperty("--app-height", `${height}px`);
+    compactDevice = detectCompactDevice();
     setupCanvasScale();
   }
 
+  function detectCompactDevice() {
+    const coarsePointer = window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches || false;
+    return coarsePointer || window.innerWidth <= 720 || window.innerHeight <= 640;
+  }
+
   function setupCanvasScale() {
-    const scale = Math.max(1, Math.min(2.5, window.devicePixelRatio || 1));
+    // 手机端优先稳帧率：坠渊每帧绘制平台、角色、粒子和 HUD，DPR 太高会明显吃性能。
+    const maxScale = compactDevice ? 1.45 : 2.25;
+    const scale = Math.max(1, Math.min(maxScale, window.devicePixelRatio || 1));
     if (scale === renderScale && canvas.width === Math.round(W * scale)) return;
     renderScale = scale;
     canvas.width = Math.round(W * renderScale);
@@ -355,7 +361,8 @@
   }
 
   function spawnBreakParticles(platform) {
-    for (let i = 0; i < 6; i += 1) {
+    const count = compactDevice ? 3 : 6;
+    for (let i = 0; i < count; i += 1) {
       particles.push({
         x: platform.x + Math.random() * platform.w,
         y: platform.y,
@@ -373,7 +380,6 @@
     gameState = "ended";
     cancelAnimationFrame(loopId);
     if (player) player.alive = false;
-    updateBest();
     finishPayload = {
       gameToken: session?.gameToken,
       sessionId: session?.sessionId,
@@ -437,16 +443,6 @@
     }
   }
 
-  function updateBest() {
-    if (layers > bestLayers) {
-      bestLayers = layers;
-      try {
-        localStorage.setItem(STORAGE_KEY, String(bestLayers));
-      } catch {}
-      bestScoreStart.textContent = String(bestLayers);
-    }
-  }
-
   function elapsedSeconds() {
     if (!roundStartAt) return 0;
     return Math.max(0, Math.min(DURATION_SECONDS, Math.floor((Date.now() - roundStartAt) / 1000)));
@@ -479,6 +475,14 @@
     bg.addColorStop(1, "#03050d");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
+
+    if (compactDevice) {
+      ctx.fillStyle = `rgba(45, 212, 191, ${0.035 + pulse * 0.01})`;
+      ctx.fillRect(0, 0, W, 118);
+      ctx.fillStyle = "rgba(124, 58, 237, 0.04)";
+      ctx.fillRect(0, H - 150, W, 150);
+      return;
+    }
 
     const halo = ctx.createRadialGradient(W / 2, 92, 10, W / 2, 92, 210);
     halo.addColorStop(0, `rgba(45, 212, 191, ${0.2 + pulse * 0.03})`);
@@ -539,7 +543,7 @@
     const shimmer = Math.sin(frameCount * 0.06 + platform.shimmer) * 0.45 + 0.55;
 
     ctx.save();
-    ctx.shadowBlur = 10 + shimmer * 4;
+    ctx.shadowBlur = compactDevice ? 0 : 10 + shimmer * 4;
     ctx.shadowColor = c.glow;
     const stone = ctx.createLinearGradient(0, y, 0, y + platform.h + 7);
     stone.addColorStop(0, c.top);
@@ -613,7 +617,8 @@
 
   function drawAbyssMist() {
     ctx.save();
-    for (let i = 0; i < 4; i += 1) {
+    const layers = compactDevice ? 2 : 4;
+    for (let i = 0; i < layers; i += 1) {
       const y = ((frameCount * (0.18 + i * 0.04) + i * 156) % (H + 120)) - 60;
       const mist = ctx.createLinearGradient(0, y, W, y + 38);
       mist.addColorStop(0, "rgba(45, 212, 191, 0)");
@@ -639,7 +644,7 @@
     ctx.ellipse(cx, py + PLAYER_H + 2, 15, 4.2, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = compactDevice ? 0 : 18;
     ctx.shadowColor = "rgba(94, 234, 212, 0.28)";
     ctx.strokeStyle = "rgba(94, 234, 212, 0.38)";
     ctx.lineWidth = 1.5;
@@ -700,7 +705,7 @@
 
     ctx.strokeStyle = "rgba(125, 211, 252, 0.92)";
     ctx.lineWidth = 1.6;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = compactDevice ? 0 : 10;
     ctx.shadowColor = "rgba(125, 211, 252, 0.5)";
     ctx.beginPath();
     ctx.moveTo(cx + f * 13, py + 11);
@@ -724,7 +729,7 @@
   function drawParticles() {
     for (const particle of particles) {
       ctx.globalAlpha = Math.min(1, particle.life / 40);
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = compactDevice ? 0 : 8;
       ctx.shadowColor = particle.color;
       ctx.fillStyle = particle.color;
       ctx.beginPath();
@@ -793,7 +798,7 @@
 
   function drawJadeBadge(x, y, w, h, fill, stroke) {
     ctx.save();
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = compactDevice ? 0 : 12;
     ctx.shadowColor = stroke;
     ctx.fillStyle = fill;
     roundRect(x, y, w, h, 8);
@@ -869,15 +874,6 @@
     area.remove();
   }
 
-  function initBest() {
-    try {
-      bestLayers = Math.max(0, Number(localStorage.getItem(STORAGE_KEY) || 0));
-    } catch {
-      bestLayers = 0;
-    }
-    bestScoreStart.textContent = String(bestLayers);
-  }
-
   document.addEventListener("keydown", (event) => {
     keys[event.key] = true;
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) event.preventDefault();
@@ -897,7 +893,6 @@
   window.addEventListener("orientationchange", setViewportHeight);
   window.visualViewport?.addEventListener("resize", setViewportHeight);
   window.visualViewport?.addEventListener("scroll", setViewportHeight);
-  initBest();
   resizeObserver();
   loadConfig();
 

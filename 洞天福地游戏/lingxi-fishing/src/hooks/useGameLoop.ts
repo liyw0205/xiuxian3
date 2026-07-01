@@ -24,6 +24,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const lastTimeRef = useRef<number>(0);
   const spacePressedRef = useRef<boolean>(false);
   const hookWentDeepRef = useRef<boolean>(false);
+  const caughtDuringRetrievalRef = useRef<boolean>(false);
 
   const setGameState = useGameStore((s) => s.setGameState);
   const setScore = useGameStore((s) => s.setScore);
@@ -74,11 +75,12 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       if (!ctx) return;
 
       const callbacks: EngineCallbacks = {
-        onScoreUpdate: (_baseScore, _combo, _depthBonus, totalScore, fish) => {
+        onScoreUpdate: (_baseScore, combo, _depthBonus, totalScore, fish) => {
           const state = useGameStore.getState();
+          caughtDuringRetrievalRef.current = true;
           setScore(state.score + totalScore);
           addCombo();
-          setLastCatch(totalScore, state.combo + 1);
+          setLastCatch(totalScore, combo);
           addCaughtFish({
             typeName: fish.type.name,
             typeNameEn: fish.type.nameEn,
@@ -95,24 +97,22 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       };
 
       const stateSnapshot = useGameStore.getState();
-      const combo = stateSnapshot.combo;
+      const combo = stateSnapshot.combo + 1;
       const timeLeft = updateScene(scene, dt, spacePressedRef.current, stateSnapshot.gameDuration, combo, callbacks);
 
-      // Track if hook went deep (below surface + margin)
-      if (scene.hook.y > scene.waterLevel + 20) {
+      const hookWentBelowSurface = scene.hook.y > scene.waterLevel + 20;
+      const hookReturnedToSurface = scene.hook.y <= scene.waterLevel + 5;
+
+      if (hookWentBelowSurface) {
         hookWentDeepRef.current = true;
       }
 
-      // Reset combo if hook returned to surface without catch
-      if (
-        hookWentDeepRef.current &&
-        scene.hook.y <= scene.waterLevel + 2 &&
-        !scene.hook.hasCatch
-      ) {
-        hookWentDeepRef.current = false;
-        if (useGameStore.getState().combo > 0) {
+      if (hookWentDeepRef.current && hookReturnedToSurface && !scene.hook.hasCatch) {
+        if (!caughtDuringRetrievalRef.current) {
           resetCombo();
         }
+        hookWentDeepRef.current = false;
+        caughtDuringRetrievalRef.current = false;
       }
 
       if (timeLeft <= 0) {
@@ -137,6 +137,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     resetScene(sceneRef.current);
 
     hookWentDeepRef.current = false;
+    caughtDuringRetrievalRef.current = false;
     setTimeLeft(useGameStore.getState().gameDuration);
     setStatusText('');
     lastTimeRef.current = performance.now();

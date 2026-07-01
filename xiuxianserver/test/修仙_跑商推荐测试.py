@@ -19,6 +19,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from 修仙.sql import XiuxianDB
 from 修仙.玩家.service import PlayerService
 from 修仙.贸易服务.service import TradeService
+from 修仙.common import business_day, ts
+from 修仙.rules import trade_fatigue_profit_rate
 
 
 def main() -> None:
@@ -59,6 +61,58 @@ def main() -> None:
             text = trade.recommend("trade_tester")
             assert text.count("导航 星陨墟") < 3, text
             assert "行情：" in text, text
+
+            with db.transaction() as conn:
+                market_state = trade._trade_market_state_conn(conn, "trade_tester")
+                fatigue_seed = max(1, market_state["player_soft_line"] // 2)
+                conn.execute(
+                    """
+                    INSERT INTO trade_records
+                    (client_id, action, item_id, quantity, effective_quantity, fatigue_quantity,
+                     total_price, fee, effective_profit, fatigue_profit, location_name, business_day, created_at)
+                    VALUES (?, 'sell', ?, ?, ?, ?, 1, 0, 1, 0, ?, ?, ?)
+                    """,
+                    (
+                        "trade_tester",
+                        options[0]["item_id"],
+                        market_state["player_soft_line"] + fatigue_seed,
+                        market_state["player_soft_line"],
+                        fatigue_seed,
+                        str(options[0]["target"]),
+                        business_day(),
+                        ts(),
+                    ),
+                )
+            fatigue_text = trade.recommend("trade_tester")
+            assert "商场购买" in fatigue_text, fatigue_text
+            assert "散商" in fatigue_text, fatigue_text
+            with db.transaction() as conn:
+                fatigue_state = trade._trade_market_state_conn(conn, "trade_tester")
+            fresh_fatigue_rate = trade_fatigue_profit_rate(0, fatigue_state["player_soft_line"])
+            current_fatigue_rate = trade_fatigue_profit_rate(
+                fatigue_state["player_fatigue_used"],
+                fatigue_state["player_soft_line"],
+            )
+            heavy_fatigue_rate = trade_fatigue_profit_rate(
+                fatigue_state["player_soft_line"] * 20,
+                fatigue_state["player_soft_line"],
+            )
+            assert 0.149 <= fresh_fatigue_rate <= 0.151
+            assert current_fatigue_rate < fresh_fatigue_rate
+            assert 0.079 <= heavy_fatigue_rate <= 0.081
+
+            original_trade_options_for_location = trade._trade_options_for_location
+
+            def no_current_location_options(client_id: str, player_row: dict, source: str, current: str) -> list[dict]:
+                if source == current:
+                    return []
+                return original_trade_options_for_location(client_id, player_row, source, current)
+
+            trade._trade_options_for_location = no_current_location_options  # type: ignore[method-assign]
+            global_text = trade.recommend("trade_tester")
+            assert "全图跑商推荐" in global_text, global_text
+            assert "当前城池暂无正收益路线" in global_text, global_text
+            assert "导航 " in global_text and "商场购买" in global_text, global_text
         finally:
             db.close()
 

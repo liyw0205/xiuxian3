@@ -181,7 +181,7 @@ def _render_duel(record: dict[str, Any], result: dict[str, Any], detail: bool) -
     ]
     settlement = [
         ("摘要", str(record.get("summary") or result.get("summary") or "无")),
-        ("武器经验", _duel_weapon_exp_text(result)),
+        ("成长收益", "无。切磋和决斗只结算胜负与押注，不产出人物或武器经验。"),
         ("最终状态", _duel_state_text(result)),
     ]
     battles = _duel_battle_card(result, detail)
@@ -202,7 +202,7 @@ def _render_robbery(record: dict[str, Any], result: dict[str, Any], detail: bool
     settlement = [
         ("掠得", str(record.get("loot_text") or "无")),
         ("仇恨", f"战前 {record.get('hate_before', 0)}｜消耗 {record.get('hate_used', 0)}"),
-        ("武器经验", _duel_weapon_exp_text(result)),
+        ("武器经验", _duel_weapon_exp_text(result) or "无"),
         ("摘要", str(result.get("summary") or "无")),
     ]
     battles = _duel_battle_card(result, detail)
@@ -280,6 +280,8 @@ def _duel_battle_card(result: dict[str, Any], detail: bool) -> str:
 
     actions = result.get("actions") if isinstance(result.get("actions"), list) else []
     detail_html = _actions_html(actions, "对手", detail, "对手")
+    weapon_exp = _duel_weapon_exp_text(result)
+    weapon_metric = _metric("武器经验", weapon_exp) if weapon_exp else ""
     return f"""
 <section class="battle" id="battle-1">
   <div class="battle-head">
@@ -292,7 +294,7 @@ def _duel_battle_card(result: dict[str, Any], detail: bool) -> str:
     {_metric("行动", f"{len(actions)} 次")}
     {_metric("胜者", _player_name(result.get("winner_id")))}
     {_metric("败者", _player_name(result.get("loser_id")))}
-    {_metric("武器经验", _duel_weapon_exp_text(result))}
+    {weapon_metric}
   </div>
   {detail_html}
 </section>"""
@@ -686,6 +688,8 @@ def _duel_weapon_exp_text(result: dict[str, Any]) -> str:
 
     left = int(result.get("left_weapon_exp", 0)) if int(result.get("left_weapon_id", 0) or 0) > 0 else 0
     right = int(result.get("right_weapon_exp", 0)) if int(result.get("right_weapon_id", 0) or 0) > 0 else 0
+    if left <= 0 and right <= 0:
+        return ""
     return f"{_player_name(result.get('left_id'))} +{left}｜{_player_name(result.get('right_id'))} +{right}"
 
 

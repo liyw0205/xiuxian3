@@ -12,9 +12,16 @@
       --muted: #756c5a;
       --panel: rgba(255, 250, 238, .86);
       --panel-strong: rgba(255, 250, 238, .95);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
 
     html,
     body {
@@ -31,13 +38,21 @@
         linear-gradient(120deg, rgba(58, 90, 72, .16), transparent 34%),
         linear-gradient(300deg, rgba(126, 73, 40, .16), transparent 38%),
         var(--paper-deep);
-      touch-action: none;
+      touch-action: manipulation;
+    }
+
+    input,
+    textarea {
+      -webkit-touch-callout: default;
+      -webkit-user-select: text;
+      user-select: text;
     }
 
     .app {
       position: relative;
       width: 100vw;
       height: 100vh;
+      height: 100dvh;
       padding: clamp(10px, 1.2vw, 16px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -62,6 +77,7 @@
       gap: 12px;
       align-items: center;
       z-index: 6;
+      touch-action: pan-y;
     }
 
     h1 {
@@ -113,6 +129,7 @@
       grid-template-columns: repeat(6, minmax(72px, 1fr));
       gap: 7px;
       align-items: stretch;
+      touch-action: pan-x;
     }
 
     .stat {
@@ -145,6 +162,7 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+      touch-action: pan-x;
     }
 
     .filters {
@@ -152,6 +170,7 @@
       gap: 6px;
       flex-wrap: wrap;
       justify-content: center;
+      touch-action: pan-x;
     }
 
     .filter {
@@ -210,6 +229,8 @@
       height: 100%;
       display: block;
       cursor: grab;
+      -webkit-user-drag: none;
+      touch-action: none;
     }
 
     #worldMap.dragging { cursor: grabbing; }
@@ -233,8 +254,12 @@
       bottom: 14px;
       z-index: 5;
       width: min(350px, calc(100vw - 28px));
+      max-height: min(420px, calc(100% - 28px));
+      overflow: auto;
       padding: 14px;
       background: var(--panel-strong);
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
     }
 
     .panel h2 {
@@ -271,6 +296,7 @@
     .line span {
       color: var(--muted);
       text-align: right;
+      overflow-wrap: anywhere;
     }
 
     .tip {
@@ -298,8 +324,11 @@
 
     @media (max-width: 680px) {
       .app {
+        position: fixed;
+        inset: 0;
         display: block;
         height: 100dvh;
+        width: 100vw;
         padding: 0;
       }
       .topbar {
@@ -307,11 +336,13 @@
         left: 6px;
         right: 6px;
         top: 6px;
+        z-index: 8;
         min-height: 0;
-        max-height: 34dvh;
-        padding: 7px;
-        gap: 5px;
-        overflow: hidden;
+        max-height: min(38dvh, 210px);
+        padding: 7px 8px;
+        gap: 6px;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
       }
       h1 { font-size: 17px; }
       .sub {
@@ -323,6 +354,7 @@
         gap: 5px;
         overflow-x: auto;
         scrollbar-width: none;
+        flex-wrap: nowrap;
       }
       .controls::-webkit-scrollbar,
       .filters::-webkit-scrollbar,
@@ -331,17 +363,18 @@
         flex-wrap: nowrap;
         justify-content: flex-start;
         overflow-x: auto;
+        min-width: 0;
       }
       .filter {
         flex: 0 0 auto;
-        height: 25px;
+        height: 28px;
         padding: 0 8px;
         font-size: 11px;
       }
       .zoom { flex: 0 0 auto; }
       .zoom button {
-        min-width: 30px;
-        height: 28px;
+        min-width: 32px;
+        height: 30px;
         padding: 0 8px;
       }
       .zoom-readout {
@@ -353,7 +386,37 @@
         inset: 0;
         border: 0;
       }
-      .panel { display: none; }
+      .panel {
+        display: block;
+        left: 8px;
+        right: 8px;
+        bottom: calc(var(--safe-bottom) + 8px);
+        width: auto;
+        max-height: min(34dvh, 250px);
+        padding: 10px 11px;
+      }
+      .panel h2 {
+        font-size: 15px;
+        line-height: 1.22;
+      }
+      .panel .kind {
+        margin-top: 4px;
+        font-size: 11px;
+      }
+      .panel .lines {
+        gap: 6px;
+        margin-top: 9px;
+        font-size: 12px;
+        line-height: 1.36;
+      }
+      .line {
+        display: grid;
+        grid-template-columns: 74px minmax(0, 1fr);
+        gap: 8px;
+      }
+      .line span {
+        text-align: left;
+      }
       .world-stats {
         grid-template-columns: repeat(6, minmax(58px, 1fr));
         gap: 4px;
@@ -372,13 +435,9 @@
         font-size: 9px;
       }
       .hud {
-        left: 10px;
-        bottom: 10px;
-        min-width: 0;
-        max-width: calc(100vw - 20px);
-        padding: 7px 9px;
-        font-size: 11px;
+        display: none;
       }
+      .tip { display: none !important; }
     }
   </style>
 </head>
@@ -427,44 +486,7 @@
   </main>
 
   <script>
-    let DATA = {
-      updatedAt: "2026-06-26 19:20",
-      cities: [
-        { type: "city", id: "city_tianshu", name: "天枢城", x: 0, y: 0, level: 1, build: 0, relic: 28, continent: "南赡部洲", region: "中土枢纽", specialties: "星官旧简、白契纸、旧朝钱" },
-        { type: "city", id: "city_qinglan", name: "青岚坊", x: 8, y: 22, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "灵竹山海", specialties: "风骨玉、听风纸、雨竹简" },
-        { type: "city", id: "city_chixia", name: "赤霞港", x: 31, y: -6, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "日出潮港", specialties: "晚潮珠、火纹贝、舶牙牌" },
-        { type: "city", id: "city_xuantie", name: "玄铁岭", x: -28, y: 12, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "西岭矿脉", specialties: "山铜契、黑矿票、老炉印" },
-        { type: "city", id: "city_wanyao", name: "万药谷", x: -18, y: 32, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "仙草谷地", specialties: "谷市筹、灵圃帖、青囊账" },
-        { type: "city", id: "city_yunmeng", name: "云梦泽", x: 18, y: -24, level: 2, build: 3893, relic: 89, continent: "南赡部洲", region: "南泽水府", specialties: "雾泽贝、蜃雾珠、水市牌" },
-        { type: "city", id: "city_liusha", name: "流沙海市", x: -35, y: -18, level: 1, build: 0, relic: 0, continent: "西牛贺洲", region: "流沙商海", specialties: "走沙晶、驼铃金、驼队牌" },
-        { type: "city", id: "city_hanshuang", name: "寒霜关", x: -3, y: 39, level: 1, build: 0, relic: 0, continent: "北俱芦洲", region: "北境雪关", specialties: "冷玉髓、雪关牒、霜市帖" },
-        { type: "city", id: "city_leize", name: "雷泽城", x: 29, y: 24, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "雷泽天池", specialties: "伏雷鼓、惊雷符、旧雷令" },
-        { type: "city", id: "city_bichao", name: "碧潮岛", x: 38, y: -32, level: 1, build: 0, relic: 0, continent: "东胜神洲", region: "东海离岛", specialties: "青潮珊、月汐珠、水府玉" },
-        { type: "city", id: "city_xingyun", name: "星陨墟", x: 5, y: -43, level: 1, build: 0, relic: 0, continent: "南赡部洲", region: "南荒星墟", specialties: "星砂瓶、陨碑拓、观星券" }
-      ],
-      realms: [
-        { type: "realm", id: "realm_taixu", name: "太虚秘境", x: -6, y: -49, desc: "动态映身秘境" }
-      ],
-      buyers: [
-        { type: "buyer", id: "buyer_wanshou", name: "万兽盟", x: -39, y: -12, desc: "兽类战利品" },
-        { type: "buyer", id: "buyer_fumodian", name: "伏魔殿", x: -31, y: 21, desc: "魔类战利品" },
-        { type: "buyer", id: "buyer_pojun", name: "破军营", x: 22, y: 36, desc: "兵类战利品" },
-        { type: "buyer", id: "buyer_zhenyaosi", name: "镇妖司", x: 4, y: 4, desc: "妖类战利品" },
-        { type: "buyer", id: "buyer_guishi", name: "鬼市", x: 34, y: -17, desc: "鬼类战利品" },
-        { type: "buyer", id: "buyer_longyuan", name: "龙渊阁", x: 41, y: -35, desc: "龙类战利品" }
-      ],
-      recycles: [
-        { type: "recycle", id: "recycle_gem", name: "琢玉楼", x: 17, y: 15, desc: "宝石回收" },
-        { type: "recycle", id: "recycle_book", name: "藏经阁", x: 3, y: 29, desc: "技能书回收" },
-        { type: "recycle", id: "recycle_weapon", name: "铸剑阁", x: -12, y: 18, desc: "武器回收" }
-      ],
-      sects: [
-        { type: "sect", id: "sect_1", name: "炸天帮", x: 6, y: 6 },
-        { type: "sect", id: "sect_4", name: "合欢宗", x: 5, y: 5 },
-        { type: "sect", id: "sect_5", name: "逍遥门", x: 12, y: 21 }
-      ],
-      events: []
-    };
+    let DATA = emptyMapData("正在读取地图数据");
 
     const ROUTES = [
       ["city_tianshu", "city_qinglan", "main"],
@@ -615,8 +637,42 @@
       pointers: new Map(),
       pinch: null,
       activeLayers: new Set(["city", "realm", "buyer", "recycle", "sect", "event", "player"]),
-      animationStarted: false
+      animationStarted: false,
+      dirty: true
     };
+
+    function emptyMapData(status = "") {
+      return {
+        updatedAt: "-",
+        status,
+        bounds: { min: -100, max: 100, unitPixels: 24 },
+        cities: [],
+        realms: [],
+        buyers: [],
+        recycles: [],
+        sects: [],
+        events: [],
+        player: null
+      };
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    function lineHtml(key, value) {
+      return `<div class="line"><b>${escapeHtml(key)}</b><span>${escapeHtml(value)}</span></div>`;
+    }
+
+    function requestDraw() {
+      state.dirty = true;
+    }
 
     function resizeCanvas() {
       const rect = canvas.getBoundingClientRect();
@@ -624,7 +680,7 @@
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw();
+      requestDraw();
     }
 
     function canvasSize() {
@@ -643,7 +699,8 @@
         recycles: Array.isArray(value.recycles) ? value.recycles : [],
         sects: Array.isArray(value.sects) ? value.sects : [],
         events: Array.isArray(value.events) ? value.events : [],
-        player: value.player && typeof value.player === "object" ? value.player : null
+        player: value.player && typeof value.player === "object" ? value.player : null,
+        status: value.status || ""
       };
     }
 
@@ -681,7 +738,7 @@
       document.getElementById("updatedAt").textContent = `更新时间：${DATA.updatedAt}`;
       renderStats();
       renderInfo();
-      draw();
+      requestDraw();
     }
 
     function unitPixels() {
@@ -1320,17 +1377,54 @@
     function drawCityInfluence(now) {
       if (!state.activeLayers.has("city")) return;
       ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
       for (const city of DATA.cities) {
         const p = worldToScreen(city);
-        const pulse = .7 + Math.sin(now * 1.4 + city.x * .1) * .08;
-        const radius = Math.max(12, (city.level + 1.5) * scale() * .42 * pulse);
+        const level = Math.max(1, Number(city.level) || 1);
+        const radius = level * scale();
+        const pulse = .5 + Math.sin(now * 1.35 + city.x * .09 + city.y * .07) * .5;
+        const glow = level > 1 ? "rgba(31, 134, 107, .22)" : "rgba(31, 134, 107, .16)";
+        const fill = level > 1 ? "rgba(31, 134, 107, .12)" : "rgba(31, 134, 107, .08)";
+        const fillSoft = level > 1 ? "rgba(31, 134, 107, .04)" : "rgba(31, 134, 107, .03)";
+
+        const area = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, Math.max(1, radius));
+        area.addColorStop(0, fill);
+        area.addColorStop(.68, fillSoft);
+        area.addColorStop(1, "rgba(31, 134, 107, 0)");
+        ctx.fillStyle = area;
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = city.level > 1 ? "rgba(31, 134, 107, .14)" : "rgba(31, 134, 107, .08)";
         ctx.fill();
-        ctx.strokeStyle = city.level > 1 ? "rgba(31, 134, 107, .28)" : "rgba(31, 134, 107, .15)";
-        ctx.setLineDash([4, 5]);
+
+        ctx.save();
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 14 + Math.min(12, level * .35);
+        ctx.strokeStyle = level > 1 ? "rgba(31, 134, 107, .42)" : "rgba(31, 134, 107, .30)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 9]);
+        ctx.lineDashOffset = -(now * (12 + level * .22));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.restore();
+
+        ctx.strokeStyle = level > 1 ? "rgba(31, 134, 107, .18)" : "rgba(31, 134, 107, .14)";
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([1, 9]);
+        ctx.lineDashOffset = now * (10 + level * .15);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * (1 + .05 * pulse), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.globalAlpha = .32 * (1 - pulse);
+        ctx.strokeStyle = level > 1 ? "rgba(31, 134, 107, .34)" : "rgba(31, 134, 107, .24)";
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * (.88 + .12 * pulse), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       ctx.restore();
     }
@@ -1540,7 +1634,7 @@
       state.centerX = before.x - (screenX - width / 2) / s;
       state.centerY = before.y + (screenY - height / 2) / s;
       clampCenter();
-      draw();
+      requestDraw();
       renderInfo();
     }
 
@@ -1554,7 +1648,7 @@
       state.centerY = 0;
       state.zoom = defaultZoom();
       state.selected = null;
-      draw();
+      requestDraw();
       renderInfo();
     }
 
@@ -1586,7 +1680,7 @@
         state.centerY = point.y;
         state.zoom = Math.max(state.zoom, 1);
       }
-      draw();
+      requestDraw();
       renderInfo();
     }
 
@@ -1595,23 +1689,36 @@
       if (!point) {
         const specialPointCount = DATA.realms.length + DATA.buyers.length + DATA.recycles.length;
         const usedLandmarkCount = DATA.cities.length + specialPointCount + DATA.sects.length + DATA.events.length;
+        const statusLine = DATA.status ? lineHtml("状态", DATA.status) : "";
+        const compact = window.matchMedia("(max-width: 680px)").matches;
+        const snapshotLines = compact
+          ? [
+              statusLine,
+              lineHtml("地标", usedLandmarkCount),
+              lineHtml("事件", DATA.events.length),
+              lineHtml("提示", "拖拽地图，点选地标查看详情")
+            ]
+          : [
+              statusLine,
+              lineHtml("已使用地标", usedLandmarkCount),
+              lineHtml("普通城池", DATA.cities.length),
+              lineHtml("太虚秘境", DATA.realms.length),
+              lineHtml("战利品收购", DATA.buyers.length),
+              lineHtml("纳戒回收", DATA.recycles.length),
+              lineHtml("宗门山门", DATA.sects.length),
+              lineHtml("活跃事件", DATA.events.length)
+            ];
         infoPanel.innerHTML = `
           <h2>世界快照</h2>
           <div class="kind">公开地理概览</div>
           <div class="lines">
-            <div class="line"><b>已使用地标</b><span>${usedLandmarkCount}</span></div>
-            <div class="line"><b>普通城池</b><span>${DATA.cities.length}</span></div>
-            <div class="line"><b>太虚秘境</b><span>${DATA.realms.length}</span></div>
-            <div class="line"><b>战利品收购</b><span>${DATA.buyers.length}</span></div>
-            <div class="line"><b>纳戒回收</b><span>${DATA.recycles.length}</span></div>
-            <div class="line"><b>宗门山门</b><span>${DATA.sects.length}</span></div>
-            <div class="line"><b>活跃事件</b><span>${DATA.events.length}</span></div>
+            ${snapshotLines.filter(Boolean).join("")}
           </div>
         `;
         return;
       }
 
-      const meta = TYPE_META[point.type];
+      const meta = TYPE_META[point.type] || { label: point.type || "未知地标" };
       const lines = [["坐标", displayPoint(point)]];
       if (point.type === "city") {
         lines.push(["洲域", point.continent]);
@@ -1644,10 +1751,10 @@
         lines.push(["说明", point.desc]);
       }
       infoPanel.innerHTML = `
-        <h2>${point.name}</h2>
-        <div class="kind">${meta.label}</div>
+        <h2>${escapeHtml(point.name || "-")}</h2>
+        <div class="kind">${escapeHtml(meta.label)}</div>
         <div class="lines">
-          ${lines.map(([key, value]) => `<div class="line"><b>${key}</b><span>${value}</span></div>`).join("")}
+          ${lines.map(([key, value]) => lineHtml(key, value)).join("")}
         </div>
       `;
     }
@@ -1666,8 +1773,8 @@
         tip.style.display = "none";
         return;
       }
-      const meta = TYPE_META[point.type];
-      tip.innerHTML = `<b>${point.name}</b><br>${meta.label}｜${displayPoint(point)}`;
+      const meta = TYPE_META[point.type] || { label: point.type || "未知地标" };
+      tip.innerHTML = `<b>${escapeHtml(point.name || "-")}</b><br>${escapeHtml(meta.label)}｜${escapeHtml(displayPoint(point))}`;
       tip.style.display = "block";
       const stageRect = stage.getBoundingClientRect();
       tip.style.left = `${clientX - stageRect.left}px`;
@@ -1739,16 +1846,35 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         applyMapData(await response.json());
       } catch (error) {
+        applyMapData(emptyMapData("地图数据暂时不可用，请稍后刷新。"));
         const node = document.getElementById("updatedAt");
-        if (node) node.textContent = `更新时间：${DATA.updatedAt}（离线兜底）`;
+        if (node) node.textContent = "更新时间：加载失败";
       }
     }
 
+    function installInteractionGuards() {
+      const allowTextSelection = target => (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
+      );
+      const prevent = event => {
+        if (allowTextSelection(event.target)) return;
+        event.preventDefault();
+      };
+      document.addEventListener("selectstart", prevent);
+      document.addEventListener("contextmenu", prevent);
+      document.addEventListener("dragstart", prevent);
+    }
+
     function setup() {
+      installInteractionGuards();
       applyMapData(DATA, false);
       document.getElementById("updatedAt").textContent = `更新时间：${DATA.updatedAt}`;
       resizeCanvas();
       resetView();
+      renderStats();
+      renderInfo();
       refreshMapData();
       setInterval(refreshMapData, 60000);
 
@@ -1805,13 +1931,13 @@
           state.centerX = state.drag.centerX - dx / s;
           state.centerY = state.drag.centerY + dy / s;
           clampCenter();
-          draw();
+          requestDraw();
           return;
         }
         const nearest = nearestPoint(event.clientX - rect.left, event.clientY - rect.top, 18);
         if (nearest?.id !== state.hovered?.id) {
           state.hovered = nearest;
-          draw();
+          requestDraw();
         }
         showTip(nearest, event.clientX, event.clientY);
       });
@@ -1838,7 +1964,7 @@
       canvas.addEventListener("pointerleave", () => {
         state.hovered = null;
         tip.style.display = "none";
-        draw();
+        requestDraw();
       });
 
       canvas.addEventListener("dblclick", event => {
@@ -1856,7 +1982,7 @@
           else state.activeLayers.add(layer);
           syncFilters();
           if (state.selected && state.selected.type !== "continent" && !state.activeLayers.has(state.selected.type)) state.selected = null;
-          draw();
+          requestDraw();
           renderInfo();
         });
       });
@@ -1868,7 +1994,17 @@
       if (state.animationStarted) return;
       state.animationStarted = true;
       const tick = () => {
-        draw();
+        const animated = Boolean(
+          state.hovered ||
+          state.selected ||
+          DATA.realms.length ||
+          DATA.events.length ||
+          (state.activeLayers.has("city") && DATA.cities.length)
+        );
+        if (state.dirty || animated) {
+          draw();
+          state.dirty = false;
+        }
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);

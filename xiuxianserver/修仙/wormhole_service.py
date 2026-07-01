@@ -1215,7 +1215,12 @@ class WormholeService(CoreService):
         panel.line(f"今日出现：**{opened_today}/{daily_limit}**｜近{WORMHOLE_ACTIVE_WINDOW_DAYS}天活跃：**{snapshot['active_count']}**人")
         panel.line(f"剩余约 **{left}** 分钟｜挑战冷却 {WORMHOLE_CHALLENGE_COOLDOWN_MINUTES} 分钟")
         text = panel.render()
-        return T.attach(text, f"发送：导航 {event['location_name']}，到达后发送：挑战虫洞")
+        location_name = str(event["location_name"])
+        return T.attach(
+            text,
+            f"发送：导航 {location_name}，到达后发送：挑战虫洞",
+            buttons=(f"导航 {location_name}", "挑战虫洞", "虫洞奖励"),
+        )
 
     @staticmethod
     def _event_metadata(event: dict[str, Any]) -> dict[str, Any]:

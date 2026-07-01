@@ -67,7 +67,7 @@ export const useGameStore = create<GameStore>((set) => ({
       gameToken: config.game_token,
       gameTokenExpiresAt: config.token_expires_at,
       gameDuration: Math.max(1, Number(config.config?.game_duration || 90)),
-      roundMinSeconds: Math.max(0, Number(config.config?.round_min_seconds || 10)),
+      roundMinSeconds: Math.max(0, Number(config.config?.round_min_seconds ?? 10)),
     }),
   setRound: (round) =>
     set({

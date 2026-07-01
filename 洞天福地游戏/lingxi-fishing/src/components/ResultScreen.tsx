@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Copy, Home, RotateCcw, Sparkles, Trophy } from 'lucide-react';
 import { prepareFishingRound, submitFishingResult, type FishingFinishResponse } from '@/api/dongtian';
+import FishIcon from '@/components/FishIcon';
 import { FISH_TYPES } from '@/game/constants';
 import { useGameStore } from '@/store/gameStore';
-
-const fishEmojiMap: Record<string, string> = {
-  clownfish: '🐠',
-  blueCrucian: '🐟',
-  goldfish: '✨',
-  pufferfish: '🐡',
-  swordfish: '⚔️',
-  shark: '🦈',
-  goldenDragon: '🐉',
-};
 
 export default function ResultScreen() {
   const {
@@ -136,52 +127,52 @@ export default function ResultScreen() {
   else if (score >= 250) rating = '🎣 稳竿道人';
 
   return (
-    <div className="absolute inset-0 z-20 overflow-y-auto overscroll-contain bg-slate-950/42 px-3 py-3 backdrop-blur-sm">
-      <div className="mx-auto flex min-h-full w-full max-w-2xl items-start justify-center py-1">
-        <div className="w-full rounded-lg border border-white/24 bg-slate-950/40 p-3 text-white shadow-[0_26px_90px_rgba(2,6,23,0.5)] backdrop-blur-md md:p-5">
-          <div className="space-y-3 text-center">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-300/20 text-amber-100 md:h-12 md:w-12">
+    <div className="absolute inset-0 z-20 grid overflow-hidden bg-slate-950/42 px-2 py-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:px-3 md:py-[max(0.75rem,env(safe-area-inset-top))] md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="mx-auto grid h-full min-h-0 w-full max-w-2xl content-center">
+        <div className="max-h-full overflow-hidden rounded-lg border border-white/24 bg-slate-950/40 p-2 text-white shadow-[0_26px_90px_rgba(2,6,23,0.5)] backdrop-blur-md md:p-5">
+          <div className="grid min-h-0 gap-1.5 text-center md:gap-3">
+          <div className="mx-auto hidden h-9 w-9 items-center justify-center rounded-full bg-amber-300/20 text-amber-100 md:flex md:h-12 md:w-12">
             <Trophy className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2.4} />
           </div>
 
           <div className="space-y-1">
             <h2
-              className="text-3xl font-black drop-shadow-[0_4px_0_rgba(8,47,73,0.65)] md:text-4xl"
+              className="text-xl font-black leading-none drop-shadow-[0_4px_0_rgba(8,47,73,0.65)] md:text-4xl"
               style={{ fontFamily: '"Fredoka", "Microsoft YaHei", sans-serif' }}
             >
               灵溪收竿
             </h2>
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-100/25 bg-amber-200/16 px-3 py-1 text-base font-black text-amber-100 md:text-lg">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-100/25 bg-amber-200/16 px-2.5 py-0.5 text-xs font-black text-amber-100 md:px-3 md:py-1 md:text-lg">
               <Sparkles className="h-4 w-4" />
               {rating}
             </div>
           </div>
 
-          <div className="rounded-lg border border-cyan-100/20 bg-cyan-950/26 p-3 md:p-4">
+          <div className="rounded-lg border border-cyan-100/20 bg-cyan-950/26 p-2 md:p-4">
             <div className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-100/72">总得分</div>
             <div
-              className="mt-1 text-5xl font-black leading-none text-amber-200 drop-shadow-[0_5px_0_rgba(146,64,14,0.42)] md:text-6xl"
+              className="mt-0.5 text-3xl font-black leading-none text-amber-200 drop-shadow-[0_5px_0_rgba(146,64,14,0.42)] md:mt-1 md:text-6xl"
               style={{ fontFamily: '"Fredoka", "Microsoft YaHei", sans-serif' }}
             >
               {score}
             </div>
-            <div className="mt-2 text-sm font-semibold text-cyan-50/70">共钓到 {caughtFish.length} 尾灵溪游鱼</div>
+            <div className="mt-0.5 text-xs font-semibold text-cyan-50/70 md:mt-1 md:text-sm">共钓到 {caughtFish.length} 尾灵溪游鱼</div>
           </div>
 
           {Object.keys(fishCountMap).length > 0 ? (
-            <div className="rounded-lg border border-white/14 bg-white/10 p-2.5 text-left md:p-3">
-              <div className="mb-2 text-center text-xs font-bold uppercase tracking-[0.2em] text-white/62">
+            <div className="rounded-lg border border-white/14 bg-white/10 p-2 text-left md:p-3">
+              <div className="mb-1.5 text-center text-xs font-bold uppercase tracking-[0.2em] text-white/62 md:mb-2">
                 钓获统计
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-1.5 md:gap-2">
                 {FISH_TYPES.filter((fishType) => fishCountMap[fishType.nameEn]).map((fishType) => {
                   const stat = fishCountMap[fishType.nameEn];
                   return (
                     <div
                       key={fishType.nameEn}
-                      className="flex min-h-12 items-center gap-2 rounded-lg border border-white/12 bg-slate-900/26 px-2.5 py-1.5 md:px-3 md:py-2"
+                      className="flex min-h-10 items-center gap-2 rounded-lg border border-white/12 bg-slate-900/26 px-2 py-1.5 md:min-h-12 md:px-3 md:py-2"
                     >
-                      <span className="text-lg leading-none md:text-xl">{fishEmojiMap[fishType.nameEn] || '🐟'}</span>
+                      <FishIcon fish={fishType} width={42} height={26} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-bold text-white">{stat.name}</div>
                         <div className="text-xs font-black text-amber-200">x{stat.count}</div>
@@ -193,13 +184,13 @@ export default function ResultScreen() {
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-white/14 bg-white/10 px-4 py-4 text-sm font-semibold text-white/72">
+            <div className="rounded-lg border border-white/14 bg-white/10 px-4 py-2 text-sm font-semibold text-white/72 md:py-3">
               灵溪空钩而返，下一片浪花还在等你。
             </div>
           )}
 
-          <div className="rounded-lg border border-emerald-100/18 bg-emerald-950/24 p-3 text-left md:p-4">
-            <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="rounded-lg border border-emerald-100/18 bg-emerald-950/24 p-2 text-left md:p-4">
+            <div className="mb-1.5 flex items-center justify-between gap-3 md:mb-2">
               <div className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-100/70">洞天回响</div>
               {finishResult && (
                 <span className="rounded-full bg-emerald-300/18 px-2.5 py-1 text-xs font-black text-emerald-100">
@@ -223,17 +214,17 @@ export default function ResultScreen() {
               </div>
             )}
             {finishResult && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-2">
+              <div className="space-y-1.5 md:space-y-3">
+                <div className="grid grid-cols-1 gap-1.5 md:gap-2">
                   <button
                     onClick={handleCopyCommand}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-emerald-100/22 bg-black/18 px-3 py-2 text-left transition hover:bg-white/10"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-emerald-100/22 bg-black/18 px-3 py-1.5 text-left transition hover:bg-white/10 md:py-2"
                   >
                     <span>
                       <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-100/60">
                         {copiedCommand ? '已复制兑换命令' : '发送给机器人'}
                       </span>
-                      <span className="mt-0.5 block break-all font-mono text-base font-black tracking-wide text-white md:text-lg">
+                      <span className="mt-0.5 block break-all font-mono text-sm font-black tracking-wide text-white md:text-lg">
                         洞天兑换 {finishResult.code}
                       </span>
                     </span>
@@ -241,7 +232,7 @@ export default function ResultScreen() {
                   </button>
                   <button
                     onClick={handleCopyCode}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-cyan-100/18 bg-white/[0.08] px-3 py-2 text-left transition hover:bg-white/[0.12]"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-cyan-100/18 bg-white/[0.08] px-3 py-1.5 text-left transition hover:bg-white/[0.12] md:py-2"
                   >
                     <span>
                       <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-100/60">
@@ -255,9 +246,9 @@ export default function ResultScreen() {
                   </button>
                 </div>
                 {(finishResult.reward_preview || []).length > 0 && (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-1 md:gap-2">
                     {finishResult.reward_preview?.map((line) => (
-                      <div key={line} className="rounded-md border border-white/10 bg-white/10 px-2.5 py-2 text-xs font-bold text-emerald-50/90">
+                      <div key={line} className="rounded-md border border-white/10 bg-white/10 px-2 py-1 text-xs font-bold leading-snug text-emerald-50/90 md:px-2.5 md:py-2">
                         {line}
                       </div>
                     ))}
@@ -267,10 +258,10 @@ export default function ResultScreen() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
               onClick={handleHome}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/18 bg-white/12 px-4 py-2.5 font-black text-white transition hover:bg-white/20"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/18 bg-white/12 px-4 py-2 text-sm font-black text-white transition hover:bg-white/20 md:min-h-11 md:py-2.5 md:text-base"
             >
               <Home className="h-4 w-4" strokeWidth={2.4} />
               主页
@@ -278,7 +269,7 @@ export default function ResultScreen() {
             <button
               onClick={handleRestart}
               disabled={restarting || Boolean(finishError && !finishResult)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 px-4 py-2.5 font-black text-slate-900 shadow-[0_14px_35px_rgba(251,146,60,0.28)] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-70"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 px-4 py-2 text-sm font-black text-slate-900 shadow-[0_14px_35px_rgba(251,146,60,0.28)] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-70 md:min-h-11 md:py-2.5 md:text-base"
             >
               <RotateCcw className="h-4 w-4" strokeWidth={2.4} />
               {finishError && !finishResult ? '请先结算本局' : restarting ? '开新局中' : '再来一局'}

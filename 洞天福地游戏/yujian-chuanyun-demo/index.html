@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>御剑穿云 Demo</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#091522" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="御剑穿云试玩"></canvas>
+
+    <main class="hud">
+      <section class="topbar">
+        <div>
+          <span>云门</span>
+          <strong id="score">0</strong>
+        </div>
+        <div class="title">
+          <b>御剑穿云</b>
+          <span id="state">按住御剑，松手下坠</span>
+        </div>
+        <div>
+          <span>护心</span>
+          <strong id="life">3</strong>
+        </div>
+      </section>
+      <button id="start" type="button">试飞一局</button>
+    </main>
+
+    <section class="result" id="result">
+      <div class="panel">
+        <p id="rank">云外初试</p>
+        <h1 id="final-score">0</h1>
+        <span id="final-line">再穿几道云门，剑光会更稳。</span>
+        <button id="again" type="button">再试一次</button>
+      </div>
+    </section>
+
+    <script src="../no-select-guard.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>

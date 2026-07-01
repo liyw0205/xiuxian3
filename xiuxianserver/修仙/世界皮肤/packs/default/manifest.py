@@ -3,7 +3,7 @@
 
 PACKAGE = {
     "package_format": 5,
-    "schema_version": 2026062901,
+    "schema_version": 2026070101,
     "skin_id": "default",
     "display_name": "默认修仙界",
     "version": "2026.06.27-wish.1",

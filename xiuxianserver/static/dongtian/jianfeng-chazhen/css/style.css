@@ -4,6 +4,7 @@
   background: #08111f;
   color: #eef8ff;
   line-height: 1.5;
+  --jianfeng-height: 100dvh;
 }
 
 * {
@@ -14,8 +15,10 @@ html,
 body {
   width: 100%;
   height: 100%;
+  min-height: var(--jianfeng-height);
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   touch-action: none;
 }
 
@@ -39,6 +42,27 @@ body::before {
   opacity: 0.42;
 }
 
+body::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 242, 168, 0.2), transparent 17rem),
+    linear-gradient(90deg, rgba(255, 83, 83, 0.3), transparent 30%, transparent 70%, rgba(255, 83, 83, 0.3));
+  opacity: 0;
+}
+
+body.miss-flash::after {
+  animation: miss-flare 0.46s ease-out both;
+}
+
+body.miss-flash canvas,
+body.miss-flash .shell {
+  animation: miss-shake 0.34s cubic-bezier(0.2, 0.9, 0.24, 1) both;
+}
+
 button {
   border: 0;
   font: inherit;
@@ -51,13 +75,14 @@ canvas {
   position: fixed;
   inset: 0;
   width: 100vw;
-  height: 100dvh;
+  height: var(--jianfeng-height);
 }
 
 .shell {
   pointer-events: none;
   position: fixed;
   inset: 0;
+  height: var(--jianfeng-height);
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -256,6 +281,12 @@ body.shift-cue .toast {
   animation: toast-pop 0.58s ease both;
 }
 
+body.miss-flash .toast.show {
+  color: #ffd4c9;
+  text-shadow: 0 0 18px rgba(255, 86, 86, 0.82), 0 5px 30px rgba(255, 184, 77, 0.56);
+  animation: toast-miss 0.64s ease both;
+}
+
 .fx-layer {
   pointer-events: none;
   position: fixed;
@@ -292,6 +323,7 @@ body.shift-cue .toast {
   pointer-events: none;
   position: fixed;
   inset: 0;
+  min-height: var(--jianfeng-height);
   display: grid;
   place-items: center;
   padding: 18px;
@@ -388,6 +420,25 @@ body.shift-cue .toast {
   }
 }
 
+@keyframes toast-miss {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.74) rotate(-2deg);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.22) rotate(2deg);
+  }
+  42% {
+    opacity: 1;
+    transform: translate(-50%, -54%) scale(1.02) rotate(-1deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -76%) scale(0.96) rotate(0deg);
+  }
+}
+
 @keyframes float-rise {
   0% {
     opacity: 0;
@@ -433,6 +484,40 @@ body.shift-cue .toast {
   }
   100% {
     transform: scale(1);
+  }
+}
+
+@keyframes miss-flare {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes miss-shake {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  15% {
+    transform: translate3d(-7px, 3px, 0);
+  }
+  31% {
+    transform: translate3d(6px, -4px, 0);
+  }
+  48% {
+    transform: translate3d(-5px, -2px, 0);
+  }
+  66% {
+    transform: translate3d(4px, 2px, 0);
+  }
+  82% {
+    transform: translate3d(-2px, 1px, 0);
   }
 }
 

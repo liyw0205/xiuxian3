@@ -7,7 +7,7 @@ import ResultScreen from '@/components/ResultScreen';
 import { useGameStore } from '@/store/gameStore';
 
 export default function GamePage() {
-  const { gameState } = useGameStore();
+  const { gameState, requestFinish } = useGameStore();
 
   useEffect(() => {
     const setViewportHeight = () => {
@@ -30,7 +30,7 @@ export default function GamePage() {
   }, []);
 
   return (
-    <div className="relative h-[var(--fishing-game-height)] min-h-[var(--fishing-game-height)] w-screen max-w-full overflow-hidden bg-sky-950">
+    <div className="relative h-[var(--fishing-game-height)] min-h-[var(--fishing-game-height)] w-screen max-w-full overflow-hidden overscroll-none bg-sky-950">
       <GameCanvas />
 
       {gameState === 'playing' && <GameHUD />}
@@ -39,9 +39,10 @@ export default function GamePage() {
 
       {/* Mobile touch control */}
       {gameState === 'playing' && (
-        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-10 -translate-x-1/2 md:hidden">
+        <div className="absolute bottom-0 left-0 right-0 z-10 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden">
+          <div className="mx-auto grid max-w-md grid-cols-[minmax(0,1fr)_auto] gap-2">
           <button
-            className="inline-flex select-none items-center gap-2 rounded-full border border-white/25 bg-slate-950/34 px-5 py-3 text-sm font-black text-white shadow-[0_12px_35px_rgba(2,6,23,0.28)] backdrop-blur-md active:bg-white/22"
+            className="inline-flex min-h-12 select-none items-center justify-center gap-2 rounded-lg border border-white/25 bg-slate-950/40 px-4 py-3 text-sm font-black text-white shadow-[0_12px_35px_rgba(2,6,23,0.28)] backdrop-blur-md active:scale-[0.99] active:bg-white/22"
             onTouchStart={(e) => {
               e.preventDefault();
               window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
@@ -54,6 +55,14 @@ export default function GamePage() {
             <Anchor className="h-4 w-4 text-cyan-100" strokeWidth={2.4} />
             按住下钩
           </button>
+          <button
+            type="button"
+            onClick={requestFinish}
+            className="inline-flex min-h-12 items-center justify-center rounded-lg border border-white/25 bg-slate-950/40 px-3 py-3 text-xs font-black text-white shadow-[0_12px_35px_rgba(2,6,23,0.28)] backdrop-blur-md active:scale-[0.99] active:bg-white/22"
+          >
+            收竿
+          </button>
+          </div>
         </div>
       )}
     </div>

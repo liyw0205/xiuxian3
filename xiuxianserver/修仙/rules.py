@@ -50,7 +50,6 @@ from .constants import (
     SPECIAL_SELL_SOFT_BASE,
     SPECIAL_SELL_SOFT_LEVEL_BONUS,
     TRADE_DAILY_PROFIT_MIN_RATE,
-    TRADE_DAILY_PLAYER_SOFT_MAX_SHARE,
     TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY,
     TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER,
     TRADE_DAILY_REWARD_MIN_NET,
@@ -59,6 +58,10 @@ from .constants import (
     TRADE_DAILY_REWARD_QUANTITY_SOFT_RATE,
     TRADE_DAILY_SOFT_BASE_QUANTITY,
     TRADE_DAILY_SOFT_PER_ACTIVE_QUANTITY,
+    TRADE_FATIGUE_MIN_PROFIT_RATE,
+    TRADE_FATIGUE_PRESSURE_FACTOR,
+    TRADE_FATIGUE_PROFIT_RATE,
+    TRADE_FATIGUE_SOFT_SHARE_MULTIPLIER,
     TRADE_PROFIT_GLOBAL_PRESSURE_WEIGHT,
     TRADE_PROFIT_PLAYER_PRESSURE_WEIGHT,
     TRADE_PROFIT_PRESSURE_FACTOR,
@@ -325,7 +328,11 @@ def trade_global_soft_line(active_count: int) -> int:
 
 
 def trade_player_soft_line(active_count: int, global_soft_line: int) -> int:
-    """按公平份额和最大占比计算个人普通跑商收益线。"""
+    """按平均份额计算个人商誉承载。
+
+    个人最多按全服平均份额的 1.5 倍享受正常收益；全服商机总池不扩容，
+    真实结算时还会同时受全服剩余量约束。
+    """
 
     active = max(1, int(active_count))
     total = max(1, int(global_soft_line))
@@ -333,8 +340,7 @@ def trade_player_soft_line(active_count: int, global_soft_line: int) -> int:
         return total
     fair_share = total / active
     by_fair_share = int(fair_share * TRADE_DAILY_PLAYER_SOFT_SHARE_MULTIPLIER)
-    by_max_share = int(total * TRADE_DAILY_PLAYER_SOFT_MAX_SHARE)
-    return max(TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY, min(by_fair_share, by_max_share))
+    return min(total, max(TRADE_DAILY_PLAYER_SOFT_MIN_QUANTITY, by_fair_share))
 
 
 def trade_daily_reward_thresholds(player_soft_line: int) -> tuple[int, int]:
@@ -350,6 +356,19 @@ def trade_daily_reward_thresholds(player_soft_line: int) -> tuple[int, int]:
         int(soft_line * TRADE_DAILY_REWARD_NET_SOFT_RATE * 1_000),
     )
     return min_quantity, min_net
+
+
+def trade_fatigue_profit_rate(player_fatigue_used: int, player_soft_line: int) -> float:
+    """按玩家今日散商成交量计算散商利润倍率。
+
+    散商仍然是商誉外兜底收益，不进入全服商机、每日奖励或热度；这里只按
+    当前玩家自己的散商量递减，避免勤快玩家无限刷低收益，也避免被别人拖累。
+    """
+
+    soft_line = max(1, int(player_soft_line) * TRADE_FATIGUE_SOFT_SHARE_MULTIPLIER)
+    pressure = max(0, int(player_fatigue_used)) / soft_line
+    rate = TRADE_FATIGUE_PROFIT_RATE / (1.0 + pressure * TRADE_FATIGUE_PRESSURE_FACTOR)
+    return max(TRADE_FATIGUE_MIN_PROFIT_RATE, min(TRADE_FATIGUE_PROFIT_RATE, rate))
 
 
 def weapon_recycle_single_cap(level: int) -> int:
@@ -520,6 +539,7 @@ __all__ = [
     "special_sell_price_rate",
     "special_sell_soft_line",
     "trade_daily_reward_thresholds",
+    "trade_fatigue_profit_rate",
     "trade_global_soft_line",
     "trade_player_soft_line",
     "trade_profit_rate",

@@ -96,6 +96,7 @@ from 修仙.洞天福地.lingxi_fishing import (
 from 修仙.洞天福地.lingquan_ten_drop import finish_lingquan_ten_drop, lingquan_ten_drop_config, start_lingquan_ten_drop
 from 修仙.洞天福地.service import DongtianService, dongtian_medicine_embryo_rate
 from 修仙.洞天福地.suixing_qieyu import finish_suixing_qieyu, start_suixing_qieyu, suixing_qieyu_config
+from 修仙.洞天福地.zhuiyuan_hundred_floor import finish_zhuiyuan_hundred_floor, start_zhuiyuan_hundred_floor, zhuiyuan_hundred_floor_config
 from 修仙.宗门.service import SectService
 from 修仙.纳戒.service import RingService
 from 修仙.保险箱.service import InsuranceBoxService
@@ -579,6 +580,10 @@ def _check_player(services: dict[str, object]) -> None:
     status_text = player.status("u1")
     _must_contain(status_text, "当前武器：")
     _must_contain(status_text, "青岚短剑")
+    _must_contain(status_text, "装备数值")
+    _must_contain(status_text, "装备等级：血气")
+    _must_contain(status_text, "镶嵌宝石：血气")
+    _must_contain(status_text, "宝石特效：闪避")
     assert "当前武器：未装备" not in status_text
     player.db.execute("UPDATE player_weapons SET equipped = 0 WHERE holder_id = ?", ("u1",))
     recovered_status_text = player.status("u1")
@@ -927,9 +932,19 @@ def _check_equipment(services: dict[str, object]) -> None:
         equipment.add_ring_conn(conn, "u1", "jucai zijing", 1)
         equipment.add_ring_conn(conn, "u1", "xuangui shi", 1)
         equipment.add_ring_conn(conn, "u1", "kaikongqi", 6)
-    _must_contain(equipment.list_equipment("u1"), "头部")
+    equipment_text = equipment.list_equipment("u1")
+    _must_contain(equipment_text, "头部")
+    assert equipment_text.find("头部") < equipment_text.find("左手") < equipment_text.find("右手")
+    _must_contain(equipment_text, "装备等级：")
+    _must_contain(equipment_text, "镶嵌宝石：")
+    _must_contain(equipment_text, "宝石特效：")
+    _must_contain(equipment_text, "<孔位>")
+    _must_contain(equipment_text, "<宝石>")
     _must_contain(equipment.upgrade("u1", "头部"), "升级成功")
     _must_contain(equipment.inlay("u1", "头部 1 护心玉"), "镶嵌成功")
+    head_holes = equipment.holes("u1", "头部")
+    _must_contain(head_holes, "<宝石升级 头部 1:升级1孔>")
+    _must_not_contain(head_holes, "<宝石升级 头部 2:升级2孔>")
     _must_contain(equipment.inlay("u1", "左手 2 聚财紫晶"), "镶嵌成功")
     _must_contain(equipment.inlay("u1", "头部 4 玄龟石"), "当前只开启到 3 号孔")
     _must_contain(ring.open_equipment_hole("u1", "头部"), "开孔成功")
@@ -1070,11 +1085,17 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(player.rename("u2", "青衫客"), "名称已经被使用")
     player.add_stones("u1", 10_000)
     player.add_stones("u2", 10_000)
+    u1_weapon_before = duel.db.fetch_one("SELECT weapon_id, exp FROM player_weapons WHERE holder_id = 'u1' AND equipped = 1")
+    u2_weapon_before = duel.db.fetch_one("SELECT weapon_id, exp FROM player_weapons WHERE holder_id = 'u2' AND equipped = 1")
     _must_contain(duel.duel("u1", "白衣客 1000"), "发起决斗")
     duel_result = duel.accept_duel("u2", "青衫客")
     _must_contain(duel_result, "决斗结算")
     _must_contain(duel_result, "决斗结束")
-    _must_contain(duel_result, "武器经验")
+    _must_not_contain(duel_result, "武器经验")
+    u1_weapon_after = duel.db.fetch_one("SELECT exp FROM player_weapons WHERE weapon_id = ?", (u1_weapon_before["weapon_id"],))
+    u2_weapon_after = duel.db.fetch_one("SELECT exp FROM player_weapons WHERE weapon_id = ?", (u2_weapon_before["weapon_id"],))
+    assert int(u1_weapon_after["exp"]) == int(u1_weapon_before["exp"])
+    assert int(u2_weapon_after["exp"]) == int(u2_weapon_before["exp"])
     duel_body = _payload_text(duel_result)
     assert "一、战斗明细" not in duel_body
     assert "技能：" not in duel_body
@@ -1089,7 +1110,7 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(detail_duel_result, "战斗日志")
     _must_contain(detail_duel_result, "zhandou-rizhi/duel")
     _must_contain(detail_duel_result, "detail=1")
-    _must_contain(detail_duel_result, "武器经验")
+    _must_not_contain(detail_duel_result, "武器经验")
     _must_contain(player.battle_log("u2", "关闭"), "简要")
 
     before = player.player("u1")["raw_stones"]  # type: ignore[index]
@@ -1106,9 +1127,12 @@ def _check_duel(services: dict[str, object]) -> None:
 
     _must_contain(duel.spar("u1", "白衣客"), "发起切磋")
     duel.db.execute("UPDATE players SET status = '探险中' WHERE client_id = 'u1'")
-    blocked_accept = duel.accept_spar("u2", "青衫客")
-    _must_contain(blocked_accept, "双方都需要处于空闲状态才能接受对战")
-    assert duel.db.fetch_one("SELECT 1 FROM duel_requests WHERE mode = 'spar' AND status = '等待'")
+    spar_result = duel.accept_spar("u2", "青衫客")
+    _must_contain(spar_result, "切磋结束")
+    _must_not_contain(spar_result, "武器经验")
+    assert not duel.db.fetch_one("SELECT 1 FROM duel_requests WHERE mode = 'spar' AND status = '等待'")
+
+    _must_contain(duel.spar("u1", "白衣客"), "发起切磋")
     pending_records = duel.records("u2")
     _must_contain(pending_records, "待处理对战请求")
     _must_contain(pending_records, "青衫客 向你发起切磋")
@@ -1116,6 +1140,10 @@ def _check_duel(services: dict[str, object]) -> None:
     _must_contain(pending_records, "拒绝切磋 青衫客")
     duel.db.execute("UPDATE players SET status = '空闲' WHERE client_id = 'u1'")
     _must_contain(duel.reject_spar("u2", "青衫客"), "已拒绝")
+
+    duel.db.execute("UPDATE players SET status = '休息中' WHERE client_id = 'u1'")
+    _must_contain(duel.duel("u1", "白衣客 100"), "双方都需要处于空闲状态")
+    duel.db.execute("UPDATE players SET status = '空闲' WHERE client_id = 'u1'")
 
     with duel.db.transaction() as conn:
         for index in range(1, 13):
@@ -1797,16 +1825,10 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
         stat = conn.execute(
             """
             SELECT
-                COALESCE(SUM(CASE WHEN action = 'sell' THEN quantity ELSE 0 END), 0) AS quantity,
-                COALESCE(SUM(
-                    CASE
-                        WHEN action = 'sell' THEN total_price - fee
-                        WHEN action = 'buy' THEN -(total_price + fee)
-                        ELSE 0
-                    END
-                ), 0) AS net_profit
+                COALESCE(SUM(effective_quantity), 0) AS quantity,
+                COALESCE(SUM(effective_profit), 0) AS net_profit
             FROM trade_records
-            WHERE client_id = ? AND business_day = ? AND action IN ('buy', 'sell')
+            WHERE client_id = ? AND business_day = ? AND action = 'sell'
             """,
             ("u1", business_day()),
         ).fetchone()
@@ -1818,13 +1840,16 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
             conn.execute(
                 """
                 INSERT INTO trade_records
-                (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-                VALUES (?, 'sell', ?, ?, ?, 0, ?, ?, ?)
+                (client_id, action, item_id, quantity, effective_quantity, fatigue_quantity,
+                 total_price, fee, effective_profit, fatigue_profit, location_name, business_day, created_at)
+                VALUES (?, 'sell', ?, ?, ?, 0, ?, 0, ?, 0, ?, ?, ?)
                 """,
                 (
                     "u1",
                     option["item_id"],
                     max(1, add_quantity),
+                    max(1, add_quantity),
+                    max(1, add_net),
                     max(1, add_net),
                     trade_target,
                     business_day(),
@@ -1844,6 +1869,7 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
     _must_contain(trade_curve_text, "利润倍率")
     _must_contain(trade_curve_text, "不限制买卖")
     _must_contain(trade_curve_text, "纯经济货物")
+    _must_contain(trade_curve_text, "散商倍率")
     old_livelihood_item = trade.item_def_by_name("城隍香")
     normal_item = trade.item_def_by_name("星官旧简")
     assert normal_item is not None
@@ -1856,10 +1882,21 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
         conn.execute(
             """
             INSERT INTO trade_records
-            (client_id, action, item_id, quantity, total_price, fee, location_name, business_day, created_at)
-            VALUES (?, 'sell', ?, ?, ?, 0, ?, ?, ?)
+            (client_id, action, item_id, quantity, effective_quantity, fatigue_quantity,
+             total_price, fee, effective_profit, fatigue_profit, location_name, business_day, created_at)
+            VALUES (?, 'sell', ?, ?, ?, 0, ?, 0, ?, 0, ?, ?, ?)
             """,
-            ("u1", normal_item["item_id"], market_state["player_soft_line"] * 8, 1, "星陨墟", business_day(), ts()),
+            (
+                "u1",
+                normal_item["item_id"],
+                market_state["player_soft_line"] * 8,
+                market_state["player_soft_line"] * 8,
+                1,
+                1,
+                "星陨墟",
+                business_day(),
+                ts(),
+            ),
         )
         trade.add_backpack_conn(conn, "u1", normal_item["item_id"], 1)
         conn.execute(
@@ -1876,7 +1913,7 @@ def _check_trade_and_treasure(services: dict[str, object]) -> None:
     assert hot_state["player_used"] == expected_normal_used
     hot_sell_text = trade.sell("u1", "星官旧简 1")
     _must_contain(hot_sell_text, "出售成功")
-    _must_contain(hot_sell_text, "利润倍率")
+    _must_contain(hot_sell_text, "散商低收益")
     pure_economy_text = treasure.info("u1", "星官旧简")
     _must_contain(pure_economy_text, "星官旧简")
     _must_contain(pure_economy_text, "归属：纯经济")
@@ -2199,6 +2236,31 @@ def _jianfeng_finish_payload(dongtian: DongtianService, payload: dict[str, Any])
     return result
 
 
+def _zhuiyuan_finish_payload(dongtian: DongtianService, payload: dict[str, Any]) -> dict[str, Any]:
+    """生成一份带服务端开局凭证、且已超过最短局时的坠渊结算数据。"""
+
+    config = zhuiyuan_hundred_floor_config(dongtian)
+    assert config["game_key"] == "zhuiyuan-hundred-floor"
+    assert config["game_token"]
+    round_info = start_zhuiyuan_hundred_floor(dongtian, {"gameToken": config["game_token"]})
+    reported_elapsed = max(0, int(payload.get("elapsedSeconds") or payload.get("elapsed_seconds") or 0))
+    elapsed_seconds = max(DONGTIAN_ROUND_MIN_SECONDS + 1, min(reported_elapsed, 90))
+    old_issued_at = ts(now() - timedelta(seconds=elapsed_seconds + 1))
+    dongtian.db.execute(
+        "UPDATE dongtian_rounds SET issued_at = ? WHERE session_id = ?",
+        (old_issued_at, round_info["session_id"]),
+    )
+    result = dict(payload)
+    result.update(
+        {
+            "gameToken": config["game_token"],
+            "sessionId": round_info["session_id"],
+            "roundToken": round_info["round_token"],
+        }
+    )
+    return result
+
+
 def _dongtian_request(cookies: dict[str, str] | None = None) -> Request:
     """构造最小 HTTP 请求，用来测试洞天启动 token cookie。"""
 
@@ -2230,6 +2292,7 @@ def _check_dongtian_refresh_token_lock(dongtian: DongtianService) -> None:
         ("辨灵试色", bianling_color_config),
         ("灵果凑十", lingguo_sum_ten_config),
         ("合丹炉", hedan_furnace_config),
+        ("坠渊百层", zhuiyuan_hundred_floor_config),
         ("碎星切玉", suixing_qieyu_config),
         ("剑锋插阵", jianfeng_chazhen_config),
     ):
@@ -2369,6 +2432,12 @@ def _check_dongtian(services: dict[str, object]) -> None:
             "<!doctype html><html><head><title>合丹炉</title></head><body>demo</body></html>",
             encoding="utf-8",
         )
+        zhuiyuan_dir = Path(temp_dir) / "zhuiyuan-demo"
+        zhuiyuan_dir.mkdir(parents=True)
+        (zhuiyuan_dir / "index.html").write_text(
+            "<!doctype html><html><head><title>坠渊百层</title></head><body>demo</body></html>",
+            encoding="utf-8",
+        )
         suixing_dir = Path(temp_dir) / "suixing-demo"
         suixing_dir.mkdir(parents=True)
         (suixing_dir / "index.html").write_text(
@@ -2394,6 +2463,8 @@ def _check_dongtian(services: dict[str, object]) -> None:
             _must_contain(entry_text, "/static/dongtian/bianling-demo/index.html")
             _must_contain(entry_text, "[合丹炉](")
             _must_contain(entry_text, "/static/dongtian/hedan-demo/index.html")
+            _must_contain(entry_text, "[坠渊百层](")
+            _must_contain(entry_text, "/static/dongtian/zhuiyuan-demo/index.html")
             _must_contain(entry_text, "[碎星切玉](")
             _must_contain(entry_text, "/static/dongtian/suixing-demo/index.html")
             _must_contain(entry_text, "[剑锋插阵](")
@@ -2563,6 +2634,28 @@ def _check_dongtian(services: dict[str, object]) -> None:
             furnace_retry = finish_hedan_furnace(dongtian, furnace_payload)
             assert furnace_retry["code"] == furnace_finish["code"]
             assert furnace_retry["reissued"] is True
+
+            zhuiyuan_payload = _zhuiyuan_finish_payload(
+                dongtian,
+                {
+                    "layers": 999,
+                    "score": 9999,
+                    "elapsedSeconds": 90,
+                    "deathReason": "timeout",
+                    "frameCount": 99999,
+                },
+            )
+            zhuiyuan_finish = finish_zhuiyuan_hundred_floor(dongtian, zhuiyuan_payload)
+            assert zhuiyuan_finish["game_key"] == "zhuiyuan-hundred-floor"
+            assert zhuiyuan_finish["game_title"] == "坠渊百层"
+            assert 0 < zhuiyuan_finish["accepted_score"] <= 3600
+            assert 0 < zhuiyuan_finish["accepted_layers"] <= 180
+            assert zhuiyuan_finish["elapsed_seconds"] <= 90
+            assert any(line.startswith("基础原石 +") for line in zhuiyuan_finish["reward_preview"])
+            assert not any(reward.get("key") in {"kaikongqi", "cuifengdan"} for reward in zhuiyuan_finish["rewards"])
+            zhuiyuan_retry = finish_zhuiyuan_hundred_floor(dongtian, zhuiyuan_payload)
+            assert zhuiyuan_retry["code"] == zhuiyuan_finish["code"]
+            assert zhuiyuan_retry["reissued"] is True
 
             suixing_payload = _suixing_finish_payload(
                 dongtian,
@@ -2744,7 +2837,9 @@ def _check_wormhole(services: dict[str, object]) -> None:
         conn.execute("DELETE FROM wormhole_notices")
         conn.execute("DELETE FROM wormhole_participants")
         conn.execute("DELETE FROM wormholes")
-    _must_contain(wormhole.status("u1"), "当前没有开启")
+    empty_wormhole_status = wormhole.status("u1")
+    _must_contain(empty_wormhole_status, "当前没有开启")
+    _must_not_contain(empty_wormhole_status, "<导航 ")
     event = wormhole._open_event("u1", "test", "天枢城")
     wormhole.db.execute(
         "UPDATE players SET location_name = ?, x = ?, y = ?, hp = max_hp, mp = max_mp, status = '探险中' WHERE client_id = ?",
@@ -2754,6 +2849,8 @@ def _check_wormhole(services: dict[str, object]) -> None:
     _must_contain(wormhole_status_text, "异界虫洞")
     _must_contain(wormhole_status_text, "世界平均水平")
     _must_contain(wormhole_status_text, "今日出现")
+    _must_contain(wormhole_status_text, f"<导航 {event['location_name']}>")
+    _must_contain(wormhole_status_text, "<挑战虫洞>")
     _must_not_contain(wormhole_status_text, "等级：")
     _must_contain(wormhole.ranking("u1"), "暂无挑战记录")
     _must_contain(wormhole.challenge("u1"), "行商化身")

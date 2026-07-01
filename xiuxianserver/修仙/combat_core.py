@@ -139,8 +139,12 @@ class CombatCore(CoreService):
             "actions": actions,
         }
 
-    def duel(self, left_id: str, right_id: str, write_log: bool = True) -> dict:
-        """两个玩家切磋；只算胜负，并返回逐次出手日志。"""
+    def duel(self, left_id: str, right_id: str, write_log: bool = True, *, grant_weapon_exp: bool = True) -> dict:
+        """两个玩家满状态模拟对战，并返回逐次出手日志。
+
+        切磋和押注决斗只用于测量和赌约结算，不产出成长收益；抢劫这类真实交互
+        仍可沿用同一套结算，并保留武器经验。
+        """
 
         left = self.player(left_id)
         right = self.player(right_id)
@@ -151,7 +155,16 @@ class CombatCore(CoreService):
         right_weapon = self.weapon_core.equipped_weapon(right_id)
         left_state = self._player_combat_state(left_id, left, left_weapon, hp=int(left["max_hp"]), mp=int(left["max_mp"]))
         right_state = self._player_combat_state(right_id, right, right_weapon, hp=int(right["max_hp"]), mp=int(right["max_mp"]))
-        return self._duel_from_states(left_id, right_id, left_state, right_state, left_weapon, right_weapon, write_log)
+        return self._duel_from_states(
+            left_id,
+            right_id,
+            left_state,
+            right_state,
+            left_weapon,
+            right_weapon,
+            write_log,
+            grant_weapon_exp=grant_weapon_exp,
+        )
 
     def duel_with_snapshot(self, attacker_id: str, defender_snapshot: dict, write_log: bool = False) -> dict:
         """真实玩家和快照玩家对战。
@@ -183,6 +196,7 @@ class CombatCore(CoreService):
             attacker_weapon,
             defender_weapon,
             write_log,
+            grant_weapon_exp=True,
         )
 
     def fight_secret_realm_actor(
@@ -256,6 +270,8 @@ class CombatCore(CoreService):
         left_weapon: dict | None,
         right_weapon: dict | None,
         write_log: bool,
+        *,
+        grant_weapon_exp: bool,
     ) -> dict:
         """用已经准备好的双方战斗状态结算玩家对战。"""
 
@@ -303,12 +319,12 @@ class CombatCore(CoreService):
         )
         left_weapon_exp = (
             self._weapon_exp_from_duel_actions(actions, "left", left_state, right_state, battle_factor=0.9)
-            if left_weapon
+            if grant_weapon_exp and left_weapon
             else 0
         )
         right_weapon_exp = (
             self._weapon_exp_from_duel_actions(actions, "right", right_state, left_state, battle_factor=0.9)
-            if right_weapon
+            if grant_weapon_exp and right_weapon
             else 0
         )
         if write_log:

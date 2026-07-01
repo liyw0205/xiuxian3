@@ -51,9 +51,12 @@
   let state = freshState();
   let display = freshDisplay();
   let impactEffects = [];
+  let missEffects = [];
   let breakSparks = [];
   let breakSlowUntil = 0;
   let corePulseUntil = 0;
+  let screenShakeUntil = 0;
+  let toastLockUntil = 0;
 
   function freshState() {
     return {
@@ -86,8 +89,10 @@
 
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
-    width = window.innerWidth;
-    height = window.innerHeight;
+    const viewport = window.visualViewport;
+    width = Math.max(1, Math.round(viewport?.width || window.innerWidth));
+    height = Math.max(320, Math.round(viewport?.height || window.innerHeight));
+    document.documentElement.style.setProperty("--jianfeng-height", `${height}px`);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     canvas.style.width = `${width}px`;
@@ -95,8 +100,8 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const narrow = width <= 560;
     radius = clamp(Math.min(width, height) * 0.18, narrow ? 72 : 82, narrow ? 112 : 132);
-    const topReserve = narrow ? 132 : 112;
-    const lowerReserve = narrow ? 132 : 156;
+    const topReserve = narrow ? 122 : 112;
+    const lowerReserve = narrow ? 118 : 156;
     const preferredY = height * (narrow ? 0.5 : 0.45);
     center = {
       x: width / 2,
@@ -161,7 +166,10 @@
     breakSlowUntil = 0;
     corePulseUntil = 0;
     impactEffects = [];
+    missEffects = [];
     breakSparks = [];
+    screenShakeUntil = 0;
+    toastLockUntil = 0;
     fxLayer.replaceChildren();
     copyBtn.disabled = true;
     settleBtn.disabled = false;
@@ -222,16 +230,19 @@
     const burst = remaining <= BURST_SECONDS;
     const insertAngle = normalize(90 - rotation);
     const collisionDistance = Math.max(6.2, 10.5 - state.formationsBroken * 0.06 - (burst ? 1.2 : 0));
-    const collided = state.swordAngles.some((angle) => angleDistance(angle, insertAngle) < collisionDistance);
-    if (collided) {
+    const collidedAngle = nearestSwordAngle(insertAngle, collisionDistance);
+    if (collidedAngle !== null) {
       state.misses += 1;
       state.combo = 0;
       state.score = Math.max(0, state.score - 55);
-      addFloatText("-55", "bad", center.x, center.y - radius * 0.35);
+      addMissEffect(insertAngle, collidedAngle);
+      screenShakeUntil = performance.now() + 420;
+      addFloatText("相冲 -55", "bad", center.x, center.y - radius * 0.35);
+      flashBody("miss-flash", 480);
       flashBody("hit-flash", 220);
       pulseNode(scoreNode.closest(".hud-block"));
       pulseNode(shieldsNode.closest("div"));
-      toast(state.misses >= MISS_LIMIT ? "护心碎裂" : "剑锋相冲");
+      toast(state.misses >= MISS_LIMIT ? "护心碎裂" : "剑锋相冲", 760);
       if (state.misses >= MISS_LIMIT) {
         endRound("mistake_limit");
       }
@@ -353,9 +364,13 @@
 
   function draw() {
     ctx.clearRect(0, 0, width, height);
+    const shake = screenShakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
     drawBackground();
     drawCore();
     drawBlade();
+    ctx.restore();
   }
 
   function drawBackground() {
@@ -428,6 +443,7 @@
 
     const now = performance.now();
     drawImpactEffects(now);
+    drawMissEffects(now);
     drawBreakSparks(now);
 
     for (const angle of state.swordAngles) {
@@ -450,15 +466,24 @@
     ctx.rotate((angle * Math.PI) / 180);
     ctx.strokeStyle = "rgba(238, 248, 255, 0.92)";
     ctx.lineWidth = 3;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.moveTo(radius - 4, 0);
-    ctx.lineTo(radius + 54, 0);
+    ctx.moveTo(radius + 54, 0);
+    ctx.lineTo(radius - 4, 0);
     ctx.stroke();
+
+    ctx.strokeStyle = "rgba(255, 224, 132, 0.72)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(radius + 43, -8);
+    ctx.lineTo(radius + 43, 8);
+    ctx.stroke();
+
     ctx.fillStyle = "#ffe082";
     ctx.beginPath();
-    ctx.moveTo(radius + 62, 0);
-    ctx.lineTo(radius + 48, -5);
-    ctx.lineTo(radius + 48, 5);
+    ctx.moveTo(radius - 18, 0);
+    ctx.lineTo(radius + 2, -6);
+    ctx.lineTo(radius + 2, 6);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -500,6 +525,16 @@
     });
   }
 
+  function addMissEffect(angle, hitAngle) {
+    const now = performance.now();
+    missEffects.push({
+      angle,
+      hitAngle,
+      born: now,
+      duration: 720,
+    });
+  }
+
   function drawImpactEffects(now) {
     impactEffects = impactEffects.filter((effect) => now - effect.born < effect.duration);
     for (const effect of impactEffects) {
@@ -515,6 +550,41 @@
       ctx.beginPath();
       ctx.moveTo(radius + 14, 0);
       ctx.lineTo(radius + 84 + progress * 24, 0);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawMissEffects(now) {
+    missEffects = missEffects.filter((effect) => now - effect.born < effect.duration);
+    for (const effect of missEffects) {
+      const progress = clamp((now - effect.born) / effect.duration, 0, 1);
+      const alpha = 1 - progress;
+      ctx.save();
+      ctx.rotate((effect.hitAngle * Math.PI) / 180);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = "#ff6b5c";
+      ctx.lineCap = "round";
+      ctx.lineWidth = 7 - progress * 2;
+      ctx.beginPath();
+      ctx.moveTo(radius - 18, -18 - progress * 12);
+      ctx.lineTo(radius + 80 + progress * 18, 22 + progress * 8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(radius - 16, 18 + progress * 8);
+      ctx.lineTo(radius + 78 + progress * 18, -22 - progress * 12);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 226, 132, ${0.78 * alpha})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(radius + 14, 0, 16 + progress * 52, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 76, 76, ${0.62 * alpha})`;
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + 10 + progress * 22, -0.16, 0.16);
       ctx.stroke();
       ctx.restore();
     }
@@ -611,7 +681,10 @@
     }
   }
 
-  function toast(text) {
+  function toast(text, lockMs = 0) {
+    const now = performance.now();
+    if (now < toastLockUntil && !lockMs) return;
+    if (lockMs) toastLockUntil = now + lockMs;
     toastNode.textContent = text;
     toastNode.classList.remove("show");
     void toastNode.offsetWidth;
@@ -642,6 +715,17 @@
     setTimeout(() => document.body.classList.remove(className), ms);
   }
 
+  function screenShakeOffset() {
+    const left = screenShakeUntil - performance.now();
+    if (left <= 0) return { x: 0, y: 0 };
+    const progress = clamp(left / 420, 0, 1);
+    const power = progress * progress;
+    return {
+      x: Math.sin(left * 0.09) * 9 * power,
+      y: Math.cos(left * 0.12) * 6 * power,
+    };
+  }
+
   function normalize(angle) {
     return ((angle % 360) + 360) % 360;
   }
@@ -649,6 +733,19 @@
   function angleDistance(a, b) {
     const diff = Math.abs(normalize(a) - normalize(b));
     return Math.min(diff, 360 - diff);
+  }
+
+  function nearestSwordAngle(targetAngle, maxDistance) {
+    let nearest = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const angle of state.swordAngles) {
+      const distance = angleDistance(angle, targetAngle);
+      if (distance < nearestDistance) {
+        nearest = angle;
+        nearestDistance = distance;
+      }
+    }
+    return nearestDistance < maxDistance ? nearest : null;
   }
 
   function escapeHtml(value) {
@@ -660,6 +757,9 @@
   }
 
   window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", resize);
+  window.visualViewport?.addEventListener("resize", resize);
+  window.visualViewport?.addEventListener("scroll", resize);
   canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     insertSword();

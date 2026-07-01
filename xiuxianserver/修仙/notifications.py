@@ -236,18 +236,12 @@ def _trade_reward_ready(client_id: str, database: Any, current: datetime) -> boo
     stat = database.fetch_one(
         """
         SELECT
-            COALESCE(SUM(CASE WHEN action = 'sell' THEN quantity ELSE 0 END), 0) AS quantity,
-            COALESCE(SUM(
-                CASE
-                    WHEN action = 'sell' THEN total_price - fee
-                    WHEN action = 'buy' THEN -(total_price + fee)
-                    ELSE 0
-                END
-            ), 0) AS net_profit
+            COALESCE(SUM(effective_quantity), 0) AS quantity,
+            COALESCE(SUM(effective_profit), 0) AS net_profit
         FROM trade_records
         WHERE client_id = ?
           AND business_day = ?
-          AND action IN ('buy', 'sell')
+          AND action = 'sell'
         """,
         (client_id, day),
     )

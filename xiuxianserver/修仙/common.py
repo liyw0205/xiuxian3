@@ -21,6 +21,7 @@ from .constants import (
     DEFAULT_WEIGHT_LIMIT,
     DIRECT_FLOW_RETENTION_DAYS,
     DONGTIAN_CODE_RETENTION_DAYS,
+    EQUIPMENT_MAX_HOLES,
     EQUIPMENT_SLOTS,
     FIXED_EQUIPMENT_SLOT_FACTORS,
     MAX_LEVEL,
@@ -1235,7 +1236,7 @@ class CoreService:
                 self.add_lifetime_stat_conn(conn, row["client_id"], stat_key, int(row["total"] or 0))
 
     def _rollup_trade_records_conn(self, conn: sqlite3.Connection, start_at: str, cutoff_at: str) -> None:
-        """汇总跑商次数和普通跑商净利润。"""
+        """汇总跑商次数和商誉内普通跑商净利润。"""
 
         rows = conn.execute(
             """
@@ -1243,13 +1244,7 @@ class CoreService:
                    COUNT(*) AS trade_count,
                    SUM(CASE WHEN action = 'sell' THEN 1 ELSE 0 END) AS trade_sell_count,
                    SUM(CASE WHEN action = 'buy' THEN 1 ELSE 0 END) AS trade_buy_count,
-                   SUM(
-                       CASE
-                           WHEN action = 'sell' THEN total_price - fee
-                           WHEN action = 'buy' THEN -(total_price + fee)
-                           ELSE 0
-                       END
-                   ) AS trade_net
+                   SUM(CASE WHEN action = 'sell' THEN effective_profit ELSE 0 END) AS trade_net
             FROM trade_records
             WHERE datetime(replace(created_at, 'T', ' ')) >= datetime(replace(?, 'T', ' '))
               AND datetime(replace(created_at, 'T', ' ')) < datetime(replace(?, 'T', ' '))
@@ -1900,45 +1895,13 @@ class CoreService:
         创建玩家时已经写入装备位，普通查询入口也会兜底补齐。
         """
 
-        bonuses: dict[str, float] = {
-            "max_hp_bonus": 0,
-            "max_mp_bonus": 0,
-            "defense_bonus": 0,
-            "dodge_bonus": 0,
-            "recover_bonus": 0,
-            "explore_bonus": 0,
-            "trade_bonus": 0,
-            "crit_resist_bonus": 0,
-        }
-
-        rows = conn.execute(
-            "SELECT slot, level FROM fixed_equipment WHERE client_id = ?",
-            (client_id,),
-        ).fetchall()
-        for row in rows:
-            level = int(row["level"])
-            factor = FIXED_EQUIPMENT_SLOT_FACTORS.get(row["slot"], 1.0)
-            bonuses["max_hp_bonus"] += int(level * 8 * factor)
-            bonuses["max_mp_bonus"] += int(level * 3 * factor)
-            bonuses["defense_bonus"] += int(level * 2 * factor)
-
-        inlays = conn.execute(
-            """
-            SELECT i.level, e.effect
-            FROM fixed_equipment_inlays i
-            JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
-            WHERE i.client_id = ?
-            """,
-            (client_id,),
-        ).fetchall()
-        for row in inlays:
-            level = max(1, int(row["level"]))
-            effect = load_json(row["effect"], {})
-            for key, value in effect.items():
-                if not isinstance(value, int | float):
-                    continue
-                bonus_key = "max_mp_bonus" if key == "mp_bonus" else key
-                bonuses[bonus_key] = bonuses.get(bonus_key, 0) + float(value) * level
+        bonuses = self._empty_equipment_bonus_map()
+        for source in (
+            self.fixed_equipment_level_bonuses_conn(conn, client_id),
+            self.fixed_equipment_gem_bonuses_conn(conn, client_id),
+        ):
+            for key, value in source.items():
+                bonuses[key] = bonuses.get(key, 0) + value
         physique = conn.execute(
             """
             SELECT d.effect
@@ -1968,6 +1931,90 @@ class CoreService:
         for key, cap in PERCENT_BONUS_CAPS.items():
             bonuses[key] = soft_cap_percent_bonus(float(bonuses.get(key, 0)), cap)
         return bonuses
+
+    @staticmethod
+    def _empty_equipment_bonus_map() -> dict[str, float]:
+        """生成装备和宝石展示共用的空加成表。"""
+
+        return {
+            "max_hp_bonus": 0,
+            "max_mp_bonus": 0,
+            "defense_bonus": 0,
+            "dodge_bonus": 0,
+            "recover_bonus": 0,
+            "explore_bonus": 0,
+            "trade_bonus": 0,
+            "crit_resist_bonus": 0,
+        }
+
+    def fixed_equipment_level_bonuses_conn(self, conn: sqlite3.Connection, client_id: str) -> dict[str, float]:
+        """只汇总固定装备等级提供的基础生存数值。"""
+
+        bonuses = self._empty_equipment_bonus_map()
+        rows = conn.execute(
+            "SELECT slot, level FROM fixed_equipment WHERE client_id = ?",
+            (client_id,),
+        ).fetchall()
+        for row in rows:
+            level = int(row["level"])
+            factor = FIXED_EQUIPMENT_SLOT_FACTORS.get(row["slot"], 1.0)
+            bonuses["max_hp_bonus"] += int(level * 8 * factor)
+            bonuses["max_mp_bonus"] += int(level * 3 * factor)
+            bonuses["defense_bonus"] += int(level * 2 * factor)
+        return bonuses
+
+    def fixed_equipment_gem_bonuses_conn(self, conn: sqlite3.Connection, client_id: str) -> dict[str, float]:
+        """只汇总已镶嵌宝石提供的直接数值和百分比特效。"""
+
+        bonuses = self._empty_equipment_bonus_map()
+        inlays = conn.execute(
+            """
+            SELECT i.level, e.effect
+            FROM fixed_equipment_inlays i
+            JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
+            WHERE i.client_id = ?
+            """,
+            (client_id,),
+        ).fetchall()
+        for row in inlays:
+            level = max(1, int(row["level"]))
+            effect = load_json(row["effect"], {})
+            for key, value in effect.items():
+                if not isinstance(value, int | float):
+                    continue
+                bonus_key = "max_mp_bonus" if key == "mp_bonus" else key
+                bonuses[bonus_key] = bonuses.get(bonus_key, 0) + float(value) * level
+        return bonuses
+
+    def fixed_equipment_bonus_breakdown(self, client_id: str) -> dict[str, object]:
+        """读取装备页和状态页需要的装备等级、孔位、宝石和加成明细。"""
+
+        self.db.ensure_fixed_equipment(client_id)
+        with self.db.transaction() as conn:
+            return self.fixed_equipment_bonus_breakdown_conn(conn, client_id)
+
+    def fixed_equipment_bonus_breakdown_conn(self, conn: sqlite3.Connection, client_id: str) -> dict[str, object]:
+        """事务内读取装备等级、孔位、宝石和加成明细。"""
+
+        rows = conn.execute(
+            "SELECT slot, level, hole_count FROM fixed_equipment WHERE client_id = ?",
+            (client_id,),
+        ).fetchall()
+        total_level = sum(int(row["level"]) for row in rows)
+        open_holes = sum(int(row["hole_count"]) for row in rows)
+        gem_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM fixed_equipment_inlays WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+        gem_count = int(gem_count_row["count"] if gem_count_row else 0)
+        return {
+            "total_level": total_level,
+            "open_holes": open_holes,
+            "max_holes": len(EQUIPMENT_SLOTS) * EQUIPMENT_MAX_HOLES,
+            "gem_count": gem_count,
+            "level_bonuses": self.fixed_equipment_level_bonuses_conn(conn, client_id),
+            "gem_bonuses": self.fixed_equipment_gem_bonuses_conn(conn, client_id),
+        }
 
     def ensure_daily_fortune(self, client_id: str) -> dict[str, Any]:
         """生成或读取今日气运。"""
@@ -2106,15 +2153,9 @@ class CoreService:
                 client_id,
                 "trade_net",
                 """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN action = 'sell' THEN total_price - fee
-                        WHEN action = 'buy' THEN -(total_price + fee)
-                        ELSE 0
-                    END
-                ), 0) AS total
+                SELECT COALESCE(SUM(effective_profit), 0) AS total
                 FROM trade_records
-                WHERE client_id = ? AND action IN ('buy', 'sell')
+                WHERE client_id = ? AND action = 'sell'
                 """,
                 (client_id,),
             ),

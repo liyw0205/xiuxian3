@@ -1,6 +1,7 @@
 import type { LingguoDifficulty, LingguoRoundResponse } from "../api/dongtian";
 
 const DRAG_PX = 12;
+const ACTION_LOCK_MS = 320;
 
 export interface FruitTheme {
   id: string;
@@ -127,6 +128,7 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
   let roundEndTime = 0;
   let timerRaf: number | null = null;
   let roundClosed = true;
+  let actionLocked = false;
   let pendingSettleTimer: ReturnType<typeof setTimeout> | undefined;
 
   let pointerId: number | null = null;
@@ -136,6 +138,8 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
   let dragActive = false;
   let currentEndCell: CellPos | null = null;
   let hideToastTimer: ReturnType<typeof setTimeout> | undefined;
+  let scorePulseTimer: ReturnType<typeof setTimeout> | undefined;
+  let timerUrgent = false;
 
   function difficulty(): LingguoDifficulty {
     return round!.difficulty;
@@ -258,6 +262,12 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
     const ratio = durationMs() > 0 ? left / durationMs() : 0;
     timerFillEl.style.transform = `scaleX(${ratio})`;
     timerLabelEl.textContent = formatRemain(left);
+    const urgent = left <= 15_000;
+    if (urgent !== timerUrgent) {
+      timerUrgent = urgent;
+      timerFillEl.classList.toggle("is-urgent", urgent);
+      timerLabelEl.classList.toggle("is-urgent", urgent);
+    }
     if (left <= 0) {
       timerRaf = null;
       onRoundTimeUp();
@@ -271,6 +281,9 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
     roundStartedAt = Date.now();
     roundEndTime = roundStartedAt + durationMs();
     timerFillEl.style.transform = "scaleX(1)";
+    timerFillEl.classList.remove("is-urgent");
+    timerLabelEl.classList.remove("is-urgent");
+    timerUrgent = false;
     timerLabelEl.textContent = formatRemain(durationMs());
     timerRaf = requestAnimationFrame(tickRoundTimer);
   }
@@ -342,6 +355,7 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
     onNewRound?.();
     stopRoundTimer();
     roundClosed = false;
+    actionLocked = false;
     theme = pick(FRUITS);
     forbidden = hardOn() ? randomDigit() : 0;
     score = 0;
@@ -377,6 +391,30 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
 
   function cellAt(row: number, col: number): HTMLElement | null {
     return boardEl.querySelector<HTMLElement>(`.cell[data-r="${row}"][data-c="${col}"]`);
+  }
+
+  function cellsInRect(top: number, bottom: number, left: number, right: number): HTMLElement[] {
+    const result: HTMLElement[] = [];
+    for (let row = top; row <= bottom; row++) {
+      for (let col = left; col <= right; col++) {
+        const el = cellAt(row, col);
+        if (el) result.push(el);
+      }
+    }
+    return result;
+  }
+
+  function pulseStats(): void {
+    for (const el of [scoreEl, clearedCellsEl, validClearsEl]) {
+      el.classList.remove("stat-bump");
+      void el.offsetWidth;
+      el.classList.add("stat-bump");
+    }
+    if (scorePulseTimer !== undefined) clearTimeout(scorePulseTimer);
+    scorePulseTimer = setTimeout(() => {
+      for (const el of [scoreEl, clearedCellsEl, validClearsEl]) el.classList.remove("stat-bump");
+      scorePulseTimer = undefined;
+    }, 380);
   }
 
   function renderBoard(): void {
@@ -496,27 +534,28 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
   }
 
   function tryClearRect(top: number, bottom: number, left: number, right: number): void {
-    if (roundClosed) return;
+    if (roundClosed || actionLocked) return;
     const sum = sumInRect(top, bottom, left, right);
+    const pickedCells = cellsInRect(top, bottom, left, right);
     if (sum !== sumTarget()) {
       showToast(`区域合计 ${sum}，需要恰好 ${sumTarget()}`, "bad");
-      shakeAllCells();
+      if (pickedCells.length > 0) shakeCells(pickedCells);
+      else shakeAllCells();
       return;
     }
     if (rectContainsForbidden(top, bottom, left, right)) {
       showToast(`这块里混入了禁用数字 ${forbidden}，不能消除`, "bad");
-      shakeAllCells();
+      shakeCells(pickedCells);
       return;
     }
+    actionLocked = true;
     const count = countInRect(top, bottom, left, right);
-    for (let row = top; row <= bottom; row++) {
-      for (let col = left; col <= right; col++) {
-        const el = cellAt(row, col);
-        if (el) el.classList.add("pop");
-      }
-    }
+    for (const el of pickedCells) el.classList.add("pop");
     setTimeout(() => {
-      if (roundClosed) return;
+      if (roundClosed) {
+        actionLocked = false;
+        return;
+      }
       for (let row = top; row <= bottom; row++) {
         for (let col = left; col <= right; col++) grid[row][col] = null;
       }
@@ -525,9 +564,22 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
       clearedCells += count;
       validClears += 1;
       updateStats();
+      pulseStats();
       showToast(`消除 ${count} 格，+${count} 分`, "good");
       renderBoard();
-    }, 300);
+      boardEl.classList.remove("board-success");
+      void boardEl.offsetWidth;
+      boardEl.classList.add("board-success");
+      setTimeout(() => boardEl.classList.remove("board-success"), 430);
+      actionLocked = false;
+    }, ACTION_LOCK_MS);
+  }
+
+  function shakeCells(cells: HTMLElement[]): void {
+    for (const el of cells) el.classList.add("shake");
+    setTimeout(() => {
+      for (const el of cells) el.classList.remove("shake");
+    }, 500);
   }
 
   function pointToCell(clientX: number, clientY: number): CellPos | null {
@@ -542,7 +594,7 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (roundClosed || (event.button !== undefined && event.button !== 0)) return;
+    if (roundClosed || actionLocked || (event.button !== undefined && event.button !== 0)) return;
     pointerId = event.pointerId;
     boardWrap.setPointerCapture(pointerId);
     startX = event.clientX;
@@ -554,7 +606,7 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
   }
 
   function onPointerMove(event: PointerEvent): void {
-    if (roundClosed || pointerId !== event.pointerId || !startCell) return;
+    if (roundClosed || actionLocked || pointerId !== event.pointerId || !startCell) return;
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (!dragActive && dx * dx + dy * dy > DRAG_PX * DRAG_PX) dragActive = true;
@@ -643,6 +695,7 @@ export function mountFruitGame(els: FruitGameElements): FruitGameApi {
       }
       stopRoundTimer();
       if (hideToastTimer !== undefined) clearTimeout(hideToastTimer);
+      if (scorePulseTimer !== undefined) clearTimeout(scorePulseTimer);
     },
   };
 }

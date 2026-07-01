@@ -809,6 +809,8 @@ def _check_mobile_map_layout_contract() -> None:
     assert "function defaultZoom()" in text, "网页地图需要集中维护默认缩放"
     assert "mobileView ? 2.25 : 1.42" in text, "移动端默认缩放不能退回全图缩略图"
     assert "setInterval(refreshMapData, 60000)" in text, "网页地图需要保持 60 秒自动刷新"
+    assert "const radius = level * scale()" in text, "网页地图城池增幅圈必须按城池等级显示真实半径"
+    assert 'state.activeLayers.has("city") && DATA.cities.length' in text, "网页地图城池增幅圈需要保持动画刷新"
 
 
 def _css_media_block(text: str, marker: str) -> str:

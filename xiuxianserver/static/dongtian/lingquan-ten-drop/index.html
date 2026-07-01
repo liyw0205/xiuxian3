@@ -2,82 +2,56 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>灵泉十滴</title>
   <style>
     :root {
       --app-height: 100dvh;
       color-scheme: dark;
       font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --panel: rgba(2, 12, 20, 0.38);
+      --line: rgba(207, 250, 254, 0.22);
+      --gold: #facc15;
       background: #081320;
     }
 
     * { box-sizing: border-box; }
     html, body {
       width: 100%;
-      min-height: 100%;
+      height: 100%;
       margin: 0;
       overflow: hidden;
-      background: radial-gradient(circle at 50% 18%, #2dd4bf 0%, #0f766e 26%, #0f172a 74%);
+      background:
+        radial-gradient(circle at 15% 14%, rgba(250, 204, 21, 0.24), transparent 25%),
+        radial-gradient(circle at 76% 18%, rgba(45, 212, 191, 0.36), transparent 30%),
+        linear-gradient(145deg, #0b1220 0%, #0f3f3d 48%, #07131f 100%);
     }
     body { touch-action: manipulation; }
 
     .game-shell {
-      min-height: var(--app-height);
-      width: 100%;
-      overflow-y: auto;
-      overscroll-behavior: contain;
+      height: var(--app-height);
+      width: 100vw;
+      max-width: 1120px;
+      margin: 0 auto;
+      overflow: hidden;
+      overscroll-behavior: none;
       display: grid;
-      place-items: center;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 12px;
       padding: max(12px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom));
       color: #ecfeff;
     }
 
-    .game-layout {
-      width: min(1040px, 100%);
-      display: grid;
-      grid-template-columns: minmax(280px, 520px) minmax(220px, 300px);
-      align-items: center;
-      justify-content: center;
-      gap: 18px;
-      transition: filter 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
-    }
-
-    body.modal-open .game-layout {
-      filter: blur(10px) saturate(0.78) brightness(0.72);
-      transform: scale(0.985);
-      opacity: 0.86;
-      pointer-events: none;
-    }
-
-    .board-wrap {
-      position: relative;
-      width: min(92vw, 520px);
-      aspect-ratio: 1;
-      border: 6px solid rgba(207, 250, 254, 0.74);
-      border-radius: 14px;
-      overflow: hidden;
-      background: rgba(8, 47, 73, 0.42);
-      box-shadow: 0 26px 90px rgba(2, 6, 23, 0.5), inset 0 0 34px rgba(255, 255, 255, 0.14);
-      backdrop-filter: blur(10px);
-    }
-
-    canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-      cursor: pointer;
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .side {
-      display: grid;
-      gap: 12px;
+    .hero {
       min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
 
     .title-block {
+      min-width: 0;
       text-align: left;
       text-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
     }
@@ -92,13 +66,90 @@
       margin: 8px 0 0;
       color: rgba(236, 254, 255, 0.82);
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.45;
       font-weight: 600;
+    }
+
+    .timer-card {
+      flex: 0 0 auto;
+      min-width: 94px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: var(--panel);
+      box-shadow: 0 16px 38px rgba(2, 6, 23, 0.24);
+      text-align: center;
+      backdrop-filter: blur(12px);
+    }
+    .timer-card span {
+      display: block;
+      color: #fef9c3;
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+    .timer-card small {
+      display: block;
+      margin-top: 3px;
+      color: rgba(207, 250, 254, 0.68);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .game-layout {
+      min-height: 0;
+      height: 100%;
+      width: min(1040px, 100%);
+      display: grid;
+      grid-template-columns: minmax(280px, 520px) minmax(220px, 300px);
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      transition: filter 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
+    }
+
+    body.modal-open .hero,
+    body.modal-open .game-layout {
+      filter: blur(10px) saturate(0.78) brightness(0.72);
+      transform: scale(0.985);
+      opacity: 0.86;
+      pointer-events: none;
+    }
+
+    .board-wrap {
+      position: relative;
+      justify-self: center;
+      width: min(68dvh, 54vw, 520px);
+      aspect-ratio: 1;
+      border: 6px solid rgba(207, 250, 254, 0.74);
+      border-radius: 14px;
+      overflow: hidden;
+      background: rgba(8, 47, 73, 0.42);
+      box-shadow: 0 26px 90px rgba(2, 6, 23, 0.5), inset 0 0 34px rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(10px);
+    }
+    .board-wrap.quake { animation: board-quake 220ms ease; }
+    .board-wrap.level-clear { animation: board-clear 520ms ease; }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: pointer;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .side {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
     }
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
     }
 
@@ -158,12 +209,13 @@
 
     .actions {
       display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
     }
     button {
       width: 100%;
       border: 0;
-      border-radius: 999px;
+      border-radius: 8px;
       padding: 12px 16px;
       font: inherit;
       font-size: 15px;
@@ -189,6 +241,7 @@
     }
 
     .message {
+      grid-column: 1 / -1;
       min-height: 58px;
       border: 1px solid rgba(207, 250, 254, 0.18);
       border-radius: 8px;
@@ -319,58 +372,176 @@
     }
     .modal-actions button[hidden] { display: none; }
 
+    @keyframes board-quake {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      22% { transform: translate3d(-3px, 2px, 0); }
+      48% { transform: translate3d(3px, -2px, 0); }
+      72% { transform: translate3d(-2px, -1px, 0); }
+    }
+
+    @keyframes board-clear {
+      0% { box-shadow: 0 26px 90px rgba(2, 6, 23, 0.5), inset 0 0 34px rgba(255, 255, 255, 0.14); }
+      45% { box-shadow: 0 20px 80px rgba(22, 163, 74, 0.34), 0 0 0 8px rgba(190, 242, 100, 0.18), inset 0 0 46px rgba(236, 254, 255, 0.34); }
+      100% { box-shadow: 0 26px 90px rgba(2, 6, 23, 0.5), inset 0 0 34px rgba(255, 255, 255, 0.14); }
+    }
+
     @media (max-width: 760px) {
+      .game-shell {
+        padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+        gap: 8px;
+      }
+      .hero {
+        min-height: 52px;
+        gap: 8px;
+      }
+      .title-block h1 { font-size: 26px; }
+      .title-block p {
+        max-width: 22em;
+        margin-top: 4px;
+        font-size: 12px;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .timer-card {
+        min-width: 78px;
+        padding: 6px 8px;
+      }
+      .timer-card span { font-size: 23px; }
+      .timer-card small { font-size: 10px; }
       .game-layout {
         grid-template-columns: 1fr;
-        gap: 12px;
+        grid-template-rows: minmax(0, 1fr) auto;
+        align-items: stretch;
+        justify-content: stretch;
+        gap: 8px;
       }
-      .side { width: min(92vw, 520px); }
-      .title-block { text-align: center; }
-      .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .board-wrap {
+        align-self: center;
+        width: min(calc(100vw - 20px), calc(var(--app-height) - 292px), 440px);
+        border-width: 4px;
+        border-radius: 12px;
+      }
+      .side {
+        width: 100%;
+        max-width: 440px;
+        justify-self: center;
+        gap: 7px;
+      }
+      .stats { gap: 6px; }
       .stat {
-        min-height: 58px;
+        min-height: 46px;
         padding: 8px 6px;
         text-align: center;
       }
       .stat span { font-size: 10px; }
-      .stat strong { font-size: 1.15rem; }
+      .stat strong { font-size: 1.1rem; }
+      .meter {
+        padding: 8px 10px;
+      }
+      .meter-row { font-size: 11px; }
+      .meter-track {
+        margin-top: 6px;
+        height: 8px;
+      }
+      .actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+      }
+      button {
+        min-height: 44px;
+        padding: 10px 8px;
+        font-size: 14px;
+      }
+      .message {
+        min-height: 34px;
+        padding: 7px 9px;
+        display: grid;
+        align-items: center;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .reward-preview { display: none; }
+      .modal {
+        align-items: end;
+        padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+      }
+      .modal-card {
+        width: 100%;
+        max-height: calc(var(--app-height) - 20px);
+        overflow: auto;
+        padding: 14px;
+      }
     }
 
     @media (max-height: 560px) and (orientation: landscape) {
       .game-shell {
-        place-items: start center;
-        padding-top: 8px;
+        padding: 8px max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
       }
-      .game-layout {
-        grid-template-columns: minmax(240px, 46vh) minmax(320px, 1fr);
-        align-items: start;
-        width: min(980px, 100%);
+      .hero {
+        min-height: 42px;
       }
-      .board-wrap { width: min(46vh, 420px); }
-      .title-block h1 { font-size: 1.75rem; }
+      .title-block h1 { font-size: 1.55rem; }
       .title-block p { display: none; }
-      .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .stat { min-height: 56px; }
+      .timer-card {
+        min-width: 72px;
+        padding: 5px 8px;
+      }
+      .timer-card span { font-size: 21px; }
+      .timer-card small { display: none; }
+      .game-layout {
+        grid-template-columns: minmax(220px, 66vh) minmax(250px, 320px);
+        grid-template-rows: 1fr;
+        align-items: center;
+        width: min(980px, 100%);
+        gap: 10px;
+      }
+      .board-wrap { width: min(66vh, 52vw, 360px); }
+      .stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .stat {
+        min-height: 46px;
+        padding: 6px;
+      }
+      .meter { padding: 8px; }
       .actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .message { grid-column: 1 / -1; }
+      .message { min-height: 34px; }
+    }
+
+    @media (max-width: 360px) {
+      .title-block h1 { font-size: 24px; }
+      .title-block p { font-size: 11px; }
+      .timer-card { min-width: 72px; }
+      .timer-card span { font-size: 21px; }
+      .board-wrap {
+        width: min(calc(100vw - 18px), calc(var(--app-height) - 286px), 360px);
+      }
     }
   </style>
 </head>
 <body>
   <main class="game-shell">
-    <section class="game-layout" aria-label="灵泉十滴">
+    <section class="hero" aria-label="灵泉十滴状态">
+      <div class="title-block">
+        <h1>灵泉十滴</h1>
+        <p>点化水珠，引动四向连锁。五分钟一局，可随时结算。</p>
+      </div>
+      <div class="timer-card">
+        <span id="timeDisplay">5:00</span>
+        <small>剩余时间</small>
+      </div>
+    </section>
+
+    <section class="game-layout" aria-label="灵泉十滴游戏">
       <div class="board-wrap">
         <canvas id="gameCanvas" width="480" height="480"></canvas>
       </div>
 
       <aside class="side">
-        <div class="title-block">
-          <h1>灵泉十滴</h1>
-          <p>点化水珠，引动四向连锁。五分钟一局，可随时结算本局。</p>
-        </div>
-
         <div class="stats">
-          <div class="stat"><span>时间</span><strong id="timeDisplay">5:00</strong></div>
           <div class="stat"><span>水滴</span><strong id="dropsDisplay">10</strong></div>
           <div class="stat"><span>关卡</span><strong id="levelDisplay">1</strong></div>
           <div class="stat"><span>分数</span><strong id="scoreDisplay">0</strong></div>
@@ -416,6 +587,7 @@
     </div>
   </main>
 
+<script src="../no-select-guard.js"></script>
   <script>
     const GAME_KEY = "lingquan-ten-drop";
     const COLS = 6;
@@ -426,6 +598,7 @@
 
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
+    const boardWrap = document.querySelector(".board-wrap");
     const timeDisplay = document.getElementById("timeDisplay");
     const dropsDisplay = document.getElementById("dropsDisplay");
     const levelDisplay = document.getElementById("levelDisplay");
@@ -453,6 +626,8 @@
     let bullets = [];
     let burstQueue = [];
     let floatingTexts = [];
+    let ripples = [];
+    let sparks = [];
     let level = 1;
     let dropsLeft = 10;
     let levelsCleared = 0;
@@ -555,6 +730,8 @@
       bullets = [];
       burstQueue = [];
       floatingTexts = [];
+      ripples = [];
+      sparks = [];
       isAnimating = false;
       currentChain = 0;
 
@@ -662,6 +839,7 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 4;
+      const nowTick = Date.now();
       for (let c = 0; c < COLS; c++) {
         for (let r = 0; r < ROWS; r++) {
           const x = c * CELL_SIZE;
@@ -671,10 +849,12 @@
           ctx.fill();
           ctx.strokeStyle = "rgba(207, 250, 254, 0.36)";
           ctx.stroke();
-          drawDrop(c, r, grid[c][r]);
+          drawDrop(c, r, grid[c][r], nowTick);
         }
       }
+      for (const ripple of ripples) drawRipple(ripple);
       for (const bullet of bullets) drawBullet(bullet.cx, bullet.cy);
+      for (const spark of sparks) drawSpark(spark);
       for (const text of floatingTexts) {
         ctx.globalAlpha = text.alpha;
         ctx.font = "900 24px Microsoft YaHei, sans-serif";
@@ -688,12 +868,13 @@
       }
     }
 
-    function drawDrop(c, r, size) {
+    function drawDrop(c, r, size, nowTick = Date.now()) {
       if (size <= 0 || size > 4) return;
       const cx = c * CELL_SIZE + CELL_SIZE / 2;
       const cy = r * CELL_SIZE + CELL_SIZE / 2;
-      const wobble = Math.sin(Date.now() / 160 + c * 7 + r) * 1.4;
-      const radius = [0, 11, 17, 23, 30][size] + wobble;
+      const wobble = Math.sin(nowTick / 160 + c * 7 + r) * 1.4;
+      const pulse = size === 4 ? Math.sin(nowTick / 95 + c + r) * 2.2 : 0;
+      const radius = [0, 11, 17, 23, 30][size] + wobble + pulse;
       const grad = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.38, 2, cx, cy, radius * 1.25);
       grad.addColorStop(0, "#ecfeff");
       grad.addColorStop(0.25, "#99f6e4");
@@ -730,6 +911,31 @@
       ctx.beginPath();
       ctx.arc(x, y, 7, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    function drawRipple(ripple) {
+      const progress = 1 - ripple.life / ripple.maxLife;
+      const radius = 12 + progress * 35;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, ripple.life / ripple.maxLife) * 0.78;
+      ctx.lineWidth = 3 + progress * 2;
+      ctx.strokeStyle = ripple.kind === "burst" ? "#fef08a" : "#a7f3d0";
+      ctx.beginPath();
+      ctx.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawSpark(spark) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, spark.life / spark.maxLife);
+      ctx.fillStyle = spark.color;
+      ctx.shadowColor = spark.color;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(spark.x, spark.y, spark.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
     function roundedRect(x, y, w, h, r) {
@@ -790,7 +996,22 @@
         if (text.life <= 0) floatingTexts.splice(i, 1);
       }
 
-      animating = bullets.length > 0 || burstQueue.length > 0;
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        ripples[i].life--;
+        if (ripples[i].life <= 0) ripples.splice(i, 1);
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const spark = sparks[i];
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vx *= 0.94;
+        spark.vy *= 0.94;
+        spark.life--;
+        if (spark.life <= 0) sparks.splice(i, 1);
+      }
+
+      animating = bullets.length > 0 || burstQueue.length > 0 || sparks.length > 0;
       if (isAnimating && !animating) checkWinLoss();
       isAnimating = animating;
       updateHUD();
@@ -808,6 +1029,9 @@
       currentChain++;
       totalBursts++;
       maxChain = Math.max(maxChain, currentChain);
+      pulseBoard(currentChain >= 5 ? "level-clear" : "quake");
+      spawnRipple(cx, cy, "burst", 32);
+      spawnSparks(cx, cy, 14 + Math.min(12, currentChain * 2));
       if (currentChain >= 3) {
         dropsLeft++;
         floatingTexts.push({ text: "+1", x: cx, y: cy - 8, alpha: 1, life: 60 });
@@ -820,8 +1044,11 @@
         levelsCleared++;
         level++;
         dropsLeft++;
+        pulseBoard("level-clear");
         setMessage("本关灵泉清净，余波回赠一滴。");
         initLevel();
+        spawnRipple(canvas.width / 2, canvas.height / 2, "burst", 42);
+        floatingTexts.push({ text: "清净", x: canvas.width / 2, y: canvas.height / 2, alpha: 1, life: 72 });
       } else if (dropsLeft <= 0) {
         setMessage("水滴已尽，正在结算本局。");
         finishRound("failed");
@@ -844,9 +1071,44 @@
       dropsLeft--;
       currentChain = 0;
       grid[c][r]++;
+      const cx = c * CELL_SIZE + CELL_SIZE / 2;
+      const cy = r * CELL_SIZE + CELL_SIZE / 2;
+      spawnRipple(cx, cy, "drop", 26);
+      floatingTexts.push({ text: "-1", x: cx, y: cy - 10, alpha: 1, life: 42 });
       if (grid[c][r] >= 5) burstQueue.push({ c, r });
       isAnimating = true;
       updateHUD();
+    }
+
+    function spawnRipple(x, y, kind, life) {
+      ripples.push({ x, y, kind, life, maxLife: life });
+      if (ripples.length > 18) ripples.splice(0, ripples.length - 18);
+    }
+
+    function spawnSparks(x, y, count) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.8 + Math.random() * 4.2;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 2 + Math.random() * 2.8,
+          color: Math.random() > 0.42 ? "#bef264" : "#67e8f9",
+          life: 24 + Math.floor(Math.random() * 18),
+          maxLife: 42,
+        });
+      }
+      if (sparks.length > 120) sparks.splice(0, sparks.length - 120);
+    }
+
+    function pulseBoard(className) {
+      if (!boardWrap) return;
+      boardWrap.classList.remove("quake", "level-clear");
+      void boardWrap.offsetWidth;
+      boardWrap.classList.add(className);
+      window.setTimeout(() => boardWrap.classList.remove(className), className === "level-clear" ? 540 : 240);
     }
 
     async function finishRound(reason) {

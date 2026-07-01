@@ -18,13 +18,40 @@
     }
 
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { display: grid; place-items: center; padding: 16px; }
-    main { width: min(620px, 100%); }
-    .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(141, 215, 255, .18), transparent 34%),
+        linear-gradient(180deg, #121924 0%, #0d121a 55%, #080b11 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+    main {
+      width: 100vw;
+      max-width: 620px;
+      height: 100dvh;
+      min-height: 0;
+      margin: 0 auto;
+      padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+      gap: 12px;
+      overflow: hidden;
+    }
+    .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
     h1 { margin: 0 0 4px; font-size: clamp(28px, 7vw, 42px); line-height: 1; letter-spacing: 0; }
     .sub { margin: 0; color: var(--muted); font-size: 14px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .stat { padding: 10px 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; text-align: center; }
     .stat b { display: block; font-size: 20px; color: var(--accent); }
     .stat span { color: var(--muted); font-size: 12px; }
@@ -35,6 +62,7 @@
       margin: 0 auto;
       aspect-ratio: 1 / 1;
       touch-action: manipulation;
+      place-self: center;
     }
     .cell {
       border: 1px solid rgba(255,255,255,.08);
@@ -42,8 +70,14 @@
       min-width: 0;
       min-height: 0;
       cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+      transition: transform .08s ease, filter .12s ease, box-shadow .12s ease;
     }
     .cell:active { transform: scale(.97); }
+    .cell.correct { transform: scale(.92); filter: saturate(1.45) brightness(1.18); box-shadow: 0 0 18px rgba(141, 215, 255, .28); }
+    .cell.miss { transform: scale(.94); filter: grayscale(.3) brightness(.8); box-shadow: 0 0 18px rgba(255, 140, 140, .26); }
+    .grid.input-locked .cell { cursor: wait; filter: saturate(.88) brightness(.92); }
     .empty {
       display: grid;
       place-items: center;
@@ -55,7 +89,7 @@
       padding: 24px;
       line-height: 1.7;
     }
-    .actions { display: flex; gap: 10px; margin-top: 12px; }
+    .actions { display: flex; gap: 10px; }
     button.action {
       border: 0;
       border-radius: 8px;
@@ -117,21 +151,73 @@
     .error { color: var(--bad); }
     .inline-status {
       min-height: 22px;
-      margin: 8px 0 0;
+      margin: 0;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.5;
       text-align: center;
+      display: grid;
+      align-items: center;
     }
 
-    @media (max-width: 460px) {
-      body { padding: 10px; align-items: start; }
-      .top { align-items: flex-start; flex-direction: column; }
-      .stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
-      .grid { gap: 4px; }
+    @media (hover: none) and (pointer: coarse), (max-width: 640px) {
+      main {
+        width: 100%;
+        height: 100%;
+        padding: max(8px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+        grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+        gap: 8px;
+      }
+      .top {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-items: center;
+        margin-bottom: 0;
+      }
+      h1 { font-size: clamp(25px, 8vw, 34px); }
+      .sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .stats { grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 0; }
+      .stat { padding: 7px 3px; border-radius: 7px; }
+      .stat b { font-size: clamp(16px, 5vw, 20px); }
+      .stat span { font-size: 11px; }
+      .grid {
+        width: min(calc(100vw - 20px), calc(100dvh - 214px));
+        max-width: 100%;
+        gap: 4px;
+        align-self: center;
+      }
       .cell { border-radius: 6px; }
-      .actions { flex-direction: column; }
-      .copy-actions { grid-template-columns: 1fr; }
+      .actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-top: 0; }
+      button.action { min-height: 50px; padding: 10px 12px; font-size: 15px; }
+      .inline-status { min-height: 32px; font-size: 12px; }
+      .copy-actions { grid-template-columns: 1fr 1fr; }
+      .result {
+        align-items: end;
+        padding: 12px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+      }
+      .result-card {
+        width: 100%;
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+        border-radius: 12px;
+      }
+    }
+
+    @media (max-height: 620px) {
+      main { gap: 6px; }
+      h1 { font-size: 24px; }
+      .sub { display: none; }
+      .stat { padding: 5px 3px; }
+      .stat b { font-size: 16px; }
+      .grid { width: min(calc(100vw - 16px), calc(100dvh - 166px)); gap: 3px; }
+      button.action { min-height: 44px; }
+    }
+
+    @media (max-width: 360px) {
+      .actions { gap: 5px; }
+      button.action { min-height: 46px; padding: 8px 6px; font-size: 13px; }
+      .stat span { font-size: 10px; }
+      .grid { width: min(calc(100vw - 18px), calc(100dvh - 204px)); }
     }
   </style>
 </head>
@@ -140,9 +226,8 @@
     <section class="top">
       <div>
         <h1>辨灵试色</h1>
-        <p class="sub">找出灵气偏色的一格，六十息后结算。</p>
+        <p class="sub">60 秒辨尽 52 阶灵色。</p>
       </div>
-      <button class="action secondary" id="restart" type="button" disabled>重开</button>
     </section>
 
     <section class="stats" aria-live="polite">
@@ -157,12 +242,14 @@
     <section class="actions">
       <button class="action" id="start" type="button" disabled>开局</button>
       <button class="action secondary" id="finish" type="button" disabled>结算本局</button>
+      <button class="action secondary" id="restart" type="button" disabled>重开</button>
     </section>
     <p class="inline-status" id="status">正在叩问洞天入口。</p>
 
     <section class="result" id="result" aria-live="polite"></section>
   </main>
 
+<script src="../no-select-guard.js"></script>
   <script>
     const API = "/xiuxian/dongtian/bianling-color";
     const state = {
@@ -176,7 +263,12 @@
       finished: false,
       duration: 60,
       minSettleSeconds: 10,
-      pendingFinishTimer: null
+      levelCap: 52,
+      mistakeCap: 10,
+      mistakePenaltyMs: 260,
+      correctAdvanceMs: 110,
+      pendingFinishTimer: null,
+      resolving: false
     };
 
     const els = {
@@ -208,6 +300,10 @@
         state.config = await request("/config", { method: "GET", headers: undefined });
         state.duration = Number(state.config.config?.game_duration || 60);
         state.minSettleSeconds = Number(state.config.config?.round_min_seconds || 10);
+        state.levelCap = Number(state.config.config?.level_cap || state.levelCap);
+        state.mistakeCap = Number(state.config.config?.mistake_cap || state.mistakeCap);
+        state.mistakePenaltyMs = Number(state.config.config?.mistake_penalty_ms || state.mistakePenaltyMs);
+        state.correctAdvanceMs = Number(state.config.config?.correct_advance_ms || state.correctAdvanceMs);
         els.start.disabled = false;
         els.restart.disabled = false;
         setStatus("洞天凭证已就绪。");
@@ -215,7 +311,6 @@
       } catch (err) {
         els.start.disabled = true;
         els.restart.disabled = true;
-        showError(err.message || "洞天入口暂时没有回应。");
         setStatus("洞天凭证获取失败，请稍后重进。");
       }
     }
@@ -243,14 +338,19 @@
         return;
       }
       state.stages = state.round.stages || [];
+      state.levelCap = Number(state.round.level_cap || state.config.config?.level_cap || state.stages.length || state.levelCap);
+      state.mistakeCap = Number(state.round.mistake_cap || state.config.config?.mistake_cap || state.mistakeCap);
+      state.mistakePenaltyMs = Number(state.round.mistake_penalty_ms || state.config.config?.mistake_penalty_ms || state.mistakePenaltyMs);
+      state.correctAdvanceMs = Number(state.round.correct_advance_ms || state.config.config?.correct_advance_ms || state.correctAdvanceMs);
       state.index = 0;
       state.mistakes = 0;
       state.startedAt = Date.now();
       state.finished = false;
+      state.resolving = false;
       els.start.disabled = true;
       els.restart.disabled = false;
       els.finish.disabled = false;
-      setStatus("找出灵气偏色的一格。");
+      setStatus(`60 秒内辨尽 ${state.levelCap} 阶灵色。`);
       renderStage();
       tick();
       clearInterval(state.timer);
@@ -260,7 +360,7 @@
     function renderStage() {
       const stage = state.stages[state.index];
       if (!stage) {
-        els.grid.innerHTML = '<div class="empty">本局灵色已经辨尽，等六十息归档。</div>';
+        els.grid.innerHTML = '<div class="empty">本局灵色已经辨尽，等待归档。</div>';
         els.grid.style.gridTemplateColumns = "1fr";
         updateStats();
         return;
@@ -281,15 +381,32 @@
     }
 
     function choose(index) {
-      if (!state.startedAt || state.finished) return;
+      if (!state.startedAt || state.finished || state.resolving) return;
       const stage = state.stages[state.index];
       if (!stage) return;
+      const cell = els.grid.children[index];
       if (index === stage.target_index) {
-        state.index += 1;
-        renderStage();
+        state.resolving = true;
+        els.grid.classList.add("input-locked");
+        cell?.classList.add("correct");
+        window.setTimeout(() => {
+          if (state.finished) return;
+          state.index += 1;
+          state.resolving = false;
+          els.grid.classList.remove("input-locked");
+          renderStage();
+        }, state.correctAdvanceMs);
       } else {
         state.mistakes += 1;
+        state.resolving = true;
+        els.grid.classList.add("input-locked");
+        cell?.classList.add("miss");
         updateStats();
+        window.setTimeout(() => {
+          cell?.classList.remove("miss");
+          state.resolving = false;
+          els.grid.classList.remove("input-locked");
+        }, state.mistakePenaltyMs);
       }
     }
 
@@ -311,9 +428,9 @@
     }
 
     function updateStats() {
-      els.level.textContent = String(state.index);
+      els.level.textContent = `${state.index}/${state.levelCap || state.stages.length || 0}`;
       els.layer.textContent = String(highestLayer());
-      els.mistakes.textContent = String(state.mistakes);
+      els.mistakes.textContent = `${state.mistakes}/${state.mistakeCap}`;
       els.time.textContent = String(Math.max(0, state.duration - elapsedSeconds()));
     }
 
@@ -329,6 +446,8 @@
         return;
       }
       state.finished = true;
+      state.resolving = false;
+      els.grid.classList.remove("input-locked");
       clearInterval(state.timer);
       els.start.disabled = true;
       els.restart.disabled = true;
@@ -377,6 +496,10 @@
 
     function showResult(issued) {
       const code = issued.code || "";
+      const acceptedLevels = Number(issued.levels_passed ?? state.index);
+      const acceptedLayer = Number(issued.highest_layer ?? highestLayer());
+      const acceptedMistakes = Number(issued.mistakes ?? state.mistakes);
+      const acceptedScore = Number(issued.accepted_score ?? 0);
       const rewards = (issued.reward_preview || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>本局没有生成可兑换奖励。</li>";
       els.start.disabled = false;
       els.restart.disabled = false;
@@ -386,7 +509,7 @@
       els.result.innerHTML = `
         <div class="result-card" role="dialog" aria-modal="true" aria-label="辨灵试色结算">
           <h2>辨灵收束</h2>
-          <p class="result-desc">层数 ${state.index}｜最高难层 ${highestLayer()}｜误触 ${state.mistakes}。兑换码十分钟内有效。</p>
+          <p class="result-desc">认可 ${acceptedScore} 分｜过 ${acceptedLevels} 层｜最高难层 ${acceptedLayer}｜误触 ${acceptedMistakes}。兑换码十分钟内有效。</p>
           <div class="code-label">洞天兑换码</div>
           <div class="code">${escapeHtml(code)}</div>
           <div class="command">洞天兑换 ${escapeHtml(code)}</div>

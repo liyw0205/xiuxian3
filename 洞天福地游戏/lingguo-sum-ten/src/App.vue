@@ -30,6 +30,7 @@ const timerFillRef = ref<HTMLElement | null>(null);
 const timerLabelRef = ref<HTMLElement | null>(null);
 
 let api: FruitGameApi | null = null;
+let stopViewportHeightSync: (() => void) | null = null;
 const config = ref<LingguoConfigResponse | null>(null);
 const round = ref<LingguoRoundResponse | null>(null);
 const loading = ref(true);
@@ -145,7 +146,27 @@ function playAgain(): void {
   void startRound(true);
 }
 
+function syncViewportHeight(): () => void {
+  const update = () => {
+    const height = Math.max(320, Math.round(window.visualViewport?.height ?? window.innerHeight));
+    document.documentElement.style.setProperty("--lingguo-game-height", `${height}px`);
+  };
+  const viewport = window.visualViewport;
+  update();
+  window.addEventListener("resize", update);
+  window.addEventListener("orientationchange", update);
+  viewport?.addEventListener("resize", update);
+  viewport?.addEventListener("scroll", update);
+  return () => {
+    window.removeEventListener("resize", update);
+    window.removeEventListener("orientationchange", update);
+    viewport?.removeEventListener("resize", update);
+    viewport?.removeEventListener("scroll", update);
+  };
+}
+
 onMounted(() => {
+  stopViewportHeightSync = syncViewportHeight();
   const boardEl = boardRef.value;
   const boardWrap = boardWrapRef.value;
   const selRect = selRectRef.value;
@@ -217,37 +238,23 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopViewportHeightSync?.();
+  stopViewportHeightSync = null;
   api?.destroy();
 });
 </script>
 
 <template>
-  <div class="min-h-[100dvh] max-w-[min(1180px,calc(100%-1rem))] mx-auto px-2 sm:px-3.5 pt-3 sm:pt-4 pb-6 sm:pb-8 box-border flex flex-col">
-    <header class="flex items-center justify-between gap-2 sm:gap-3 mb-3 lg:mb-4 shrink-0">
+  <div class="lingguo-app w-full max-w-[1180px] mx-auto px-2 sm:px-3.5 pt-2.5 sm:pt-4 pb-2 sm:pb-5 box-border flex flex-col overflow-hidden">
+    <header class="flex items-center justify-between gap-2 sm:gap-3 mb-2 lg:mb-4 shrink-0">
       <div class="min-w-0">
-        <p class="m-0 text-[0.72rem] sm:text-[0.8rem] text-[#94a8c4] tracking-[0.18em] uppercase">
+        <p class="m-0 text-[0.68rem] sm:text-[0.8rem] text-[#94a8c4] tracking-[0.18em] uppercase">
           Dongtian Game
         </p>
         <h1 class="app-title text-[1.35rem] sm:text-[1.75rem] lg:text-[2rem] font-bold m-0 leading-tight">
           灵果凑十
         </h1>
       </div>
-      <button
-        ref="newBtnHeaderRef"
-        type="button"
-        :disabled="loading || settling || needsSettleRetry"
-        class="lg:hidden shrink-0 min-h-11 whitespace-nowrap border-none py-2.5 px-3 rounded-lg text-[0.72rem] font-semibold cursor-pointer text-white bg-gradient-to-b from-[#5b73ff] via-[#4f6cf5] to-[#3d52d4] shadow-[0_2px_10px_rgba(99,102,241,0.4)] disabled:opacity-60"
-      >
-        新开一局
-      </button>
-      <button
-        ref="settleBtnHeaderRef"
-        type="button"
-        :disabled="loading || settling"
-        class="lg:hidden shrink-0 min-h-11 whitespace-nowrap border border-white/10 py-2.5 px-3 rounded-lg text-[0.72rem] font-semibold cursor-pointer text-[#e8eef5] bg-white/[0.08] disabled:opacity-60"
-      >
-        结算
-      </button>
     </header>
 
     <div v-if="bootError" class="app-panel rounded-xl p-4 mb-3 text-[#ffb3c1]">
@@ -255,7 +262,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="lingguo-layout flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch lg:items-start flex-1 min-h-0">
-      <aside class="lingguo-rules shrink-0 lg:w-[min(286px,32%)] order-3 lg:order-1 w-full">
+      <aside class="lingguo-rules hidden lg:block shrink-0 lg:w-[min(286px,32%)] order-3 lg:order-1 w-full">
         <div class="app-panel rounded-xl p-4 text-[0.84rem] leading-relaxed text-[#c8d5e8]">
           <p class="m-0">
             框选一块矩形，让格内数字合计
@@ -272,8 +279,8 @@ onBeforeUnmount(() => {
         </div>
       </main>
 
-      <aside class="lingguo-sidebar shrink-0 lg:w-[min(290px,32%)] flex flex-col gap-2.5 sm:gap-3 order-2 lg:order-3 w-full">
-        <div class="round-timer app-panel rounded-xl py-2 sm:py-3 px-3.5">
+      <aside class="lingguo-sidebar shrink-0 lg:w-[min(290px,32%)] flex flex-col gap-2 sm:gap-3 order-2 lg:order-3 w-full">
+        <div class="round-timer app-panel rounded-xl py-1.5 sm:py-3 px-3">
           <div class="round-timer__row">
             <span>剩余时间</span>
             <strong ref="timerLabelRef">2:30</strong>
@@ -283,33 +290,33 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2">
-          <div class="app-panel rounded-xl py-2 px-3">
+        <div class="grid grid-cols-3 gap-1.5 sm:gap-2">
+          <div class="app-panel rounded-xl py-1.5 sm:py-2 px-2.5 sm:px-3">
             <div class="app-muted text-[0.68rem] mb-1">得分</div>
             <div ref="scoreRef" class="text-[1.35rem] font-bold leading-none">0</div>
           </div>
-          <div class="app-panel rounded-xl py-2 px-3">
+          <div class="app-panel rounded-xl py-1.5 sm:py-2 px-2.5 sm:px-3">
             <div class="app-muted text-[0.68rem] mb-1">摘果</div>
             <div ref="clearedCellsRef" class="text-[1.35rem] font-bold leading-none">0</div>
           </div>
-          <div class="app-panel rounded-xl py-2 px-3">
+          <div class="app-panel rounded-xl py-1.5 sm:py-2 px-2.5 sm:px-3">
             <div class="app-muted text-[0.68rem] mb-1">成局</div>
             <div ref="validClearsRef" class="text-[1.35rem] font-bold leading-none">0</div>
           </div>
         </div>
 
-        <div class="app-panel rounded-xl py-3 px-3.5">
+        <div class="difficulty-panel app-panel rounded-xl py-2 sm:py-3 px-3.5">
           <div class="app-muted text-[0.7rem] mb-1">本局气象</div>
           <div ref="difficultyLabelRef" class="font-bold text-[1rem] text-[#e8eef5]">等待洞天</div>
           <div ref="difficultyDescRef" class="app-muted text-[0.74rem] mt-1 leading-snug">正在抽取本局难度。</div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2.5">
-          <div class="app-panel rounded-xl py-3 px-3.5">
+        <div class="detail-grid grid grid-cols-2 gap-2">
+          <div class="app-panel rounded-xl py-2 sm:py-3 px-3">
             <div class="app-muted text-[0.7rem] mb-1">禁用数字</div>
             <div ref="forbiddenRef" class="text-[1.45rem] font-bold leading-none text-[#94a8c4]">无</div>
           </div>
-          <div class="app-panel rounded-xl py-3 px-3.5">
+          <div class="app-panel rounded-xl py-2 sm:py-3 px-3">
             <div class="app-muted text-[0.7rem] mb-1">本局灵果</div>
             <div class="flex items-center gap-2 mt-1">
               <img ref="fruitImgRef" src="" alt="" width="34" height="34" class="w-[34px] h-[34px] object-contain drop-shadow-md" />
@@ -335,6 +342,25 @@ onBeforeUnmount(() => {
           结算本局
         </button>
       </aside>
+    </div>
+
+    <div class="mobile-actions lg:hidden grid grid-cols-2 gap-2 mt-2 shrink-0">
+      <button
+        ref="newBtnHeaderRef"
+        type="button"
+        :disabled="loading || settling || needsSettleRetry"
+        class="min-h-11 whitespace-nowrap border-none py-2.5 px-3 rounded-lg text-[0.8rem] font-semibold cursor-pointer text-white bg-gradient-to-b from-[#5b73ff] via-[#4f6cf5] to-[#3d52d4] shadow-[0_2px_10px_rgba(99,102,241,0.4)] disabled:opacity-60"
+      >
+        新开一局
+      </button>
+      <button
+        ref="settleBtnHeaderRef"
+        type="button"
+        :disabled="loading || settling"
+        class="min-h-11 whitespace-nowrap border border-white/10 py-2.5 px-3 rounded-lg text-[0.8rem] font-semibold cursor-pointer text-[#e8eef5] bg-white/[0.08] disabled:opacity-60"
+      >
+        结算本局
+      </button>
     </div>
   </div>
 

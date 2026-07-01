@@ -21,13 +21,13 @@ LINGXI_SCORE_CAP = 3600
 LINGXI_FISH_COUNT_CAP = 120
 LINGXI_GAME_DURATION_SECONDS = 90
 LINGXI_FISH_BASE_SCORE = {
-    "clownfish": 5,
-    "blueCrucian": 10,
-    "goldfish": 15,
-    "pufferfish": 20,
-    "swordfish": 40,
-    "shark": 75,
-    "goldenDragon": 130,
+    "clownfish": 10,
+    "blueCrucian": 20,
+    "goldfish": 30,
+    "pufferfish": 40,
+    "swordfish": 80,
+    "shark": 150,
+    "goldenDragon": 200,
 }
 LINGXI_RARE_FISH = {"shark", "goldenDragon"}
 

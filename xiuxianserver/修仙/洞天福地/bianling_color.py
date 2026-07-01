@@ -21,8 +21,12 @@ from .service import medicine_embryo_reward
 BIANLING_COLOR_KEY = "bianling-color"
 BIANLING_COLOR_TITLE = "辨灵试色"
 BIANLING_DURATION_SECONDS = 60
-BIANLING_LEVEL_CAP = 45
-BIANLING_MISTAKE_CAP = 20
+BIANLING_TARGET_SECONDS_PER_LEVEL = 1.15
+BIANLING_SERVER_LEVEL_SECONDS = 1.18
+BIANLING_LEVEL_CAP = int(BIANLING_DURATION_SECONDS / BIANLING_TARGET_SECONDS_PER_LEVEL)
+BIANLING_MISTAKE_CAP = 10
+BIANLING_MISTAKE_PENALTY_MS = 260
+BIANLING_CORRECT_ADVANCE_MS = 110
 BIANLING_SCORE_CAP = 1200
 
 
@@ -48,6 +52,9 @@ def bianling_color_config(service: DongtianIssuer, reuse_token: str | None = Non
             "game_duration": BIANLING_DURATION_SECONDS,
             "level_cap": BIANLING_LEVEL_CAP,
             "mistake_cap": BIANLING_MISTAKE_CAP,
+            "mistake_penalty_ms": BIANLING_MISTAKE_PENALTY_MS,
+            "correct_advance_ms": BIANLING_CORRECT_ADVANCE_MS,
+            "target_seconds_per_level": BIANLING_TARGET_SECONDS_PER_LEVEL,
             "score_cap": BIANLING_SCORE_CAP,
             "round_ttl_minutes": DONGTIAN_ROUND_TTL_MINUTES,
             "round_min_seconds": DONGTIAN_ROUND_MIN_SECONDS,
@@ -69,6 +76,8 @@ def start_bianling_color(service: DongtianIssuer, payload: dict[str, Any]) -> di
             "game_duration": BIANLING_DURATION_SECONDS,
             "level_cap": BIANLING_LEVEL_CAP,
             "mistake_cap": BIANLING_MISTAKE_CAP,
+            "mistake_penalty_ms": BIANLING_MISTAKE_PENALTY_MS,
+            "correct_advance_ms": BIANLING_CORRECT_ADVANCE_MS,
             "score_cap": BIANLING_SCORE_CAP,
             "stages": _stages_for_round(game_token, session_id, round_token),
         }
@@ -132,19 +141,19 @@ def _stages_for_round(game_token: str, session_id: str, round_token: str) -> lis
     rng = round_rng(BIANLING_COLOR_KEY, game_token, session_id, round_token, "stages")
     stages: list[dict[str, Any]] = []
     for level in range(1, BIANLING_LEVEL_CAP + 1):
-        size = min(9, 2 + level // 5)
+        size = min(9, 3 + (level - 1) // 6)
         layer = _layer_for_level(level)
-        diff = max(7, 44 - level - rng.randint(0, min(8, layer + 2)))
+        diff = max(6, 38 - int(level * 0.78) - rng.randint(0, min(10, layer + 3)))
         base = [rng.randint(66, 214), rng.randint(66, 214), rng.randint(66, 214)]
         target = list(base)
         channel = rng.randrange(3)
         direction = -1 if base[channel] + diff > 245 else 1
         target[channel] = max(22, min(245, target[channel] + direction * diff))
         # 给后段一点微弱串色，让它更像灵气偏移，不只是单通道亮暗。
-        if level >= 16:
+        if level >= 14:
             side_channel = (channel + 1 + rng.randrange(2)) % 3
             target[side_channel] = max(22, min(245, target[side_channel] - direction * max(3, diff // 4)))
-        if level >= 28:
+        if level >= 26:
             other_channel = rng.choice([item for item in (0, 1, 2) if item != channel])
             target[other_channel] = max(22, min(245, target[other_channel] + rng.choice((-1, 1)) * max(2, diff // 6)))
         stages.append(
@@ -186,10 +195,10 @@ def _bianling_color_rewards(result: BianlingColorResult) -> list[dict[str, Any]]
 
     if levels >= 6 or score >= 160:
         rewards.append(medicine_embryo_reward("yinmingcao" if score % 2 else "xueqidan"))
-    if levels >= 24 or score >= 720:
+    if levels >= 28 or score >= 720:
         rewards.append(medicine_embryo_reward("ningshenlu" if score % 2 else "huichunlu"))
-    if levels >= 32 and result.mistakes <= 4:
-        chance = min(240, 22 + score // 11 + max(0, 6 - result.mistakes) * 12)
+    if levels >= 40 and result.mistakes <= 3:
+        chance = min(240, 22 + score // 11 + max(0, 5 - result.mistakes) * 12)
         if _chance_per_10000(chance):
             rewards.append({"type": "wish_token", "quantity": 1})
     return rewards
@@ -212,14 +221,14 @@ def _sanitize_bianling_color_payload(
         elapsed_seconds = min(elapsed_seconds, max(0, int(server_elapsed_seconds)), BIANLING_DURATION_SECONDS)
 
     effective_seconds = max(DONGTIAN_ROUND_MIN_SECONDS, elapsed_seconds)
-    level_time_cap = min(BIANLING_LEVEL_CAP, int(effective_seconds / 1.35) + 3)
+    level_time_cap = min(BIANLING_LEVEL_CAP, int(effective_seconds / BIANLING_SERVER_LEVEL_SECONDS) + 2)
     levels = min(levels, level_time_cap)
     derived_layer = _layer_for_level(levels) if levels > 0 else 0
     reported_layer = max(0, _safe_int(payload.get("highestLayer") or payload.get("highest_layer")))
     highest_layer = min(derived_layer, reported_layer or derived_layer)
 
     speed_bonus = max(0, int((BIANLING_DURATION_SECONDS - elapsed_seconds) * 0.55))
-    raw_score = levels * 24 + highest_layer * 26 + speed_bonus - mistakes * 26
+    raw_score = levels * 22 + highest_layer * 24 + speed_bonus - mistakes * 38
     score = min(BIANLING_SCORE_CAP, max(0, raw_score))
     return BianlingColorResult(
         score=score,
@@ -236,7 +245,7 @@ def _layer_for_level(level: int) -> int:
     value = max(0, int(level))
     if value <= 0:
         return 0
-    return min(6, 1 + (value - 1) // 8)
+    return min(7, 1 + (value - 1) // 8)
 
 
 def _rgb_hex(channels: list[int]) -> str:

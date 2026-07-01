@@ -7,27 +7,27 @@ export default function GameHUD() {
   const minutes = Math.floor(timeLeft / 60);
   const seconds = Math.floor(timeLeft % 60);
   const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  const hasComboData = lastCatchCombo > 0;
+  const hasComboData = combo > 0 || lastCatchCombo > 0;
   const displayCombo = combo > 0 ? combo : lastCatchCombo;
   const comboMultiplier = displayCombo > 0 ? (1 + (displayCombo - 1) * 0.5).toFixed(1) : '1.0';
   const comboTitle = combo > 0 ? '当前连击' : '最近连击';
   const isUrgent = timeLeft <= 10;
 
   return (
-    <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 px-3 py-3 text-white md:px-6 md:py-4">
+    <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 px-2 py-[max(0.5rem,env(safe-area-inset-top))] text-white md:px-6 md:py-4">
       <div className="grid grid-cols-2 items-start gap-2 md:grid-cols-[minmax(152px,auto)_minmax(220px,1fr)_minmax(152px,auto)] md:gap-4">
-        <div className="flex min-w-[112px] items-center gap-2 rounded-lg border border-white/20 bg-slate-950/32 px-3 py-2 shadow-[0_12px_35px_rgba(2,6,23,0.22)] backdrop-blur-md md:min-w-[152px] md:px-4 md:col-start-1 md:row-start-1 md:justify-self-start">
+        <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/20 bg-slate-950/36 px-2.5 py-2 shadow-[0_12px_35px_rgba(2,6,23,0.22)] backdrop-blur-md md:min-w-[152px] md:px-4 md:col-start-1 md:row-start-1 md:justify-self-start">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-300/20 text-amber-200">
           <Trophy className="h-4 w-4" strokeWidth={2.5} />
         </span>
         <div className="min-w-0">
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/75">分数</div>
-          <div className="tabular-nums text-xl font-black leading-tight md:text-2xl">{score}</div>
+          <div className="truncate tabular-nums text-xl font-black leading-tight md:text-2xl">{score}</div>
         </div>
         </div>
 
         <div
-          className={`flex min-w-[112px] items-center justify-end gap-2 rounded-lg border px-3 py-2 shadow-[0_12px_35px_rgba(2,6,23,0.22)] backdrop-blur-md md:min-w-[152px] md:px-4 md:col-start-3 md:row-start-1 md:justify-self-end ${
+          className={`flex min-w-0 items-center justify-end gap-2 rounded-lg border px-2.5 py-2 shadow-[0_12px_35px_rgba(2,6,23,0.22)] backdrop-blur-md md:min-w-[152px] md:px-4 md:col-start-3 md:row-start-1 md:justify-self-end ${
             isUrgent
               ? 'animate-pulse border-red-200/35 bg-red-500/42'
               : 'border-white/20 bg-slate-950/32'
@@ -66,7 +66,7 @@ export default function GameHUD() {
           </div>
         )}
       </div>
-      <div className="mt-2 flex justify-center">
+      <div className="mt-2 hidden justify-center md:flex">
         <button
           type="button"
           onClick={requestFinish}
@@ -77,7 +77,7 @@ export default function GameHUD() {
       </div>
       {statusText && (
         <div className="mt-2 flex justify-center">
-          <div className="rounded-lg border border-amber-100/25 bg-amber-400/16 px-3 py-2 text-center text-xs font-bold text-amber-50 shadow-[0_12px_35px_rgba(2,6,23,0.18)] backdrop-blur-md md:text-sm">
+          <div className="max-w-[calc(100vw-1rem)] rounded-lg border border-amber-100/25 bg-amber-400/16 px-3 py-1.5 text-center text-xs font-bold leading-snug text-amber-50 shadow-[0_12px_35px_rgba(2,6,23,0.18)] backdrop-blur-md md:text-sm">
             {statusText}
           </div>
         </div>

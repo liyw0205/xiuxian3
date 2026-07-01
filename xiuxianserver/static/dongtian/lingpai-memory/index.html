@@ -18,35 +18,39 @@
       --bad: #ff8c8c;
       --card: #283646;
       --card-back: linear-gradient(145deg, #244556, #1a2936);
-      --app-height: 100dvh;
+      --board-cols: 4;
+      --board-rows: 6;
+      --board-ratio: .6667;
     }
 
     * { box-sizing: border-box; }
-    html, body {
+    html,
+    body {
       width: 100%;
       height: 100%;
-      min-height: 100%;
       margin: 0;
-      overflow: hidden;
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     body {
-      min-height: var(--app-height);
-      display: grid;
-      place-items: center;
-      padding: clamp(8px, 1.8vh, 16px);
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(119, 214, 178, .15), transparent 34%),
+        linear-gradient(180deg, #121a22 0%, #0d131a 58%, #080b11 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
       touch-action: manipulation;
     }
     main {
-      width: min(560px, calc(100vw - 20px));
-      height: calc(var(--app-height) - clamp(16px, 3.6vh, 32px));
-      max-height: 760px;
+      width: 100vw;
+      max-width: 620px;
+      height: 100dvh;
+      min-height: 0;
+      margin: 0 auto;
+      padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-      gap: clamp(6px, 1.1vh, 12px);
-      min-height: 0;
+      gap: 8px;
+      overflow: hidden;
     }
     .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; min-width: 0; }
     .top > div { min-width: 0; }
@@ -55,41 +59,78 @@
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(5px, 1vh, 8px); }
     .stat { min-height: 0; padding: clamp(6px, 1.2vh, 10px); border: 1px solid var(--line); background: var(--panel); border-radius: 8px; text-align: center; }
     .stat b { display: block; font-size: clamp(16px, 3vh, 20px); color: var(--accent); }
+    .stat b.warn { color: var(--accent-2); }
+    .stat b.danger { color: var(--bad); animation: statPulse .7s ease-in-out infinite; }
     .stat span { color: var(--muted); font-size: 12px; }
     .board {
-      width: min(100%, calc((var(--app-height) - 216px) * 0.9), 520px);
+      width: min(100%, calc((100dvh - 206px) * var(--board-ratio)), 460px);
       max-height: 100%;
       min-height: 0;
-      aspect-ratio: 1;
+      aspect-ratio: var(--board-ratio);
       align-self: center;
       justify-self: center;
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(var(--board-cols), minmax(0, 1fr));
+      grid-template-rows: repeat(var(--board-rows), minmax(0, 1fr));
       gap: clamp(4px, 1vh, 8px);
+      perspective: 900px;
     }
     .card {
+      position: relative;
+      isolation: isolate;
       width: 100%;
       min-width: 0;
       min-height: 0;
-      aspect-ratio: 1;
+      overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--card-back);
       color: var(--text);
-      font-size: clamp(16px, 3vh, 24px);
+      font-size: clamp(14px, 2.45vh, 22px);
       font-weight: 800;
       letter-spacing: 0;
       display: grid;
       place-items: center;
       cursor: pointer;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
-      transition: transform .14s ease, background .14s ease, border-color .14s ease;
+      transform: translateZ(0);
+      transition: transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
       touch-action: manipulation;
+      animation: cardDeal .28s cubic-bezier(.2, .8, .25, 1) both;
+      animation-delay: calc(var(--deal-index, 0) * 12ms);
+    }
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 10%;
+      z-index: -1;
+      border: 1px solid rgba(255,255,255,.11);
+      border-radius: 6px;
+      background:
+        linear-gradient(135deg, transparent 0 42%, rgba(255,255,255,.12) 43% 45%, transparent 46% 100%),
+        linear-gradient(45deg, transparent 0 42%, rgba(119,214,178,.18) 43% 45%, transparent 46% 100%);
+      opacity: .9;
     }
     .card:active { transform: scale(.97); }
-    .card.open { background: #f7ead4; color: #20242a; border-color: rgba(243,201,105,.72); }
-    .card.done { background: rgba(119,214,178,.18); border-color: rgba(119,214,178,.74); color: var(--accent); cursor: default; }
-    .actions { display: flex; gap: 10px; }
+    .card.open {
+      background: #f7ead4;
+      color: #20242a;
+      border-color: rgba(243,201,105,.72);
+      box-shadow: 0 10px 22px rgba(243,201,105,.13), inset 0 0 0 1px rgba(255,255,255,.16);
+      transform: translateY(-1px) scale(1.02);
+    }
+    .card.open::before { opacity: .16; }
+    .card.done {
+      background: rgba(119,214,178,.18);
+      border-color: rgba(119,214,178,.74);
+      color: var(--accent);
+      cursor: default;
+      box-shadow: 0 0 0 1px rgba(119,214,178,.18), inset 0 0 18px rgba(119,214,178,.08);
+    }
+    .card.reveal { animation: cardReveal .24s ease-out both; }
+    .card.matched { animation: cardMatched .42s ease-out both; }
+    .card.wrong { animation: cardWrong .34s ease-in-out both; border-color: rgba(255,140,140,.75); }
+    .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     button.action {
       border: 0;
       border-radius: 8px;
@@ -99,7 +140,6 @@
       padding: 12px 16px;
       min-height: 44px;
       cursor: pointer;
-      flex: 1;
     }
     button.action.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
     button.action:disabled { opacity: .55; cursor: not-allowed; }
@@ -116,7 +156,7 @@
     .result.show { display: grid; }
     .result-card {
       width: min(430px, 100%);
-      max-height: calc(var(--app-height) - 32px);
+      max-height: calc(100dvh - 32px);
       overflow-y: auto;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -160,22 +200,48 @@
       text-align: center;
     }
 
+    @keyframes cardDeal {
+      from { opacity: 0; transform: translateY(8px) scale(.92); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes cardReveal {
+      0% { transform: rotateY(0deg) scale(.94); }
+      48% { transform: rotateY(86deg) scale(1.02); }
+      100% { transform: rotateY(0deg) scale(1.02); }
+    }
+
+    @keyframes cardMatched {
+      0% { transform: scale(1.02); }
+      45% { transform: scale(1.12); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes cardWrong {
+      0%, 100% { transform: translateX(0) scale(1.02); }
+      22% { transform: translateX(-6px) scale(1.02); }
+      48% { transform: translateX(6px) scale(1.02); }
+      72% { transform: translateX(-3px) scale(1.02); }
+    }
+
+    @keyframes statPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+
     @media (max-width: 420px) {
-      body { padding: 8px; }
       main {
-        width: calc(100vw - 16px);
-        height: calc(var(--app-height) - 16px);
-        gap: 7px;
+        width: 100%;
+        height: 100%;
+        padding: max(8px, env(safe-area-inset-top)) 8px max(10px, env(safe-area-inset-bottom));
       }
       .top { align-items: center; }
       .stats { gap: 6px; }
       .stat { padding: 8px 4px; }
-      .board { gap: 6px; }
-      .copy-actions { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 340px) {
-      .actions { flex-direction: column; }
+      .board { width: min(100%, calc((100dvh - 235px) * var(--board-ratio))); gap: 6px; }
+      .actions { gap: 6px; }
+      button.action { padding: 10px 6px; font-size: 14px; }
+      .copy-actions { grid-template-columns: 1fr 1fr; }
     }
 
     @media (max-height: 640px) {
@@ -183,7 +249,25 @@
       .sub { display: none; }
       .stat { padding: 6px 4px; }
       button.action { min-height: 38px; padding: 8px 12px; }
+      .board { width: min(100%, calc((100dvh - 206px) * var(--board-ratio))); gap: 5px; }
       .inline-status { min-height: 18px; font-size: 12px; line-height: 1.35; }
+    }
+
+    @media (max-width: 340px) {
+      .actions { gap: 5px; }
+      button.action { min-height: 38px; padding: 8px 4px; font-size: 13px; }
+      .stat span { font-size: 11px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .card,
+      .card.reveal,
+      .card.matched,
+      .card.wrong,
+      .stat b.danger {
+        animation: none;
+        transition: none;
+      }
     }
   </style>
 </head>
@@ -192,15 +276,14 @@
     <section class="top">
       <div>
         <h1>灵牌记忆</h1>
-        <p class="sub">翻开相同灵牌，九十息内尽量归位。</p>
+        <p class="sub">90 秒内记住 12 对灵牌。</p>
       </div>
-      <button class="action secondary" id="restart" type="button" disabled>重开</button>
     </section>
 
     <section class="stats" aria-live="polite">
       <div class="stat"><b id="time">90</b><span>剩余</span></div>
-      <div class="stat"><b id="pairs">0/8</b><span>配对</span></div>
-      <div class="stat"><b id="flips">0</b><span>翻牌</span></div>
+      <div class="stat"><b id="pairs">0/12</b><span>配对</span></div>
+      <div class="stat"><b id="flips">0/64</b><span>翻牌</span></div>
     </section>
 
     <section class="board" id="board" aria-label="灵牌棋盘"></section>
@@ -208,12 +291,14 @@
     <section class="actions">
       <button class="action" id="start" type="button" disabled>开局</button>
       <button class="action secondary" id="finish" type="button" disabled>结算本局</button>
+      <button class="action secondary" id="restart" type="button" disabled>重开</button>
     </section>
     <p class="inline-status" id="status">正在叩问洞天入口。</p>
 
     <section class="result" id="result" aria-live="polite"></section>
   </main>
 
+<script src="../no-select-guard.js"></script>
   <script>
     const API = "/xiuxian/dongtian/lingpai-memory";
     const state = {
@@ -226,8 +311,11 @@
       startedAt: 0,
       timer: null,
       finished: false,
+      locked: false,
       duration: 90,
       minSettleSeconds: 10,
+      pairCount: 12,
+      flipCap: 64,
       pendingFinishTimer: null
     };
 
@@ -259,6 +347,8 @@
         state.config = await request("/config", { method: "GET", headers: undefined });
         state.duration = Number(state.config.config?.game_duration || 90);
         state.minSettleSeconds = Number(state.config.config?.round_min_seconds || 10);
+        state.pairCount = Number(state.config.config?.pair_count || state.pairCount);
+        state.flipCap = Number(state.config.config?.flip_cap || state.flipCap);
         els.start.disabled = false;
         els.restart.disabled = false;
         setStatus("洞天凭证已就绪。");
@@ -266,7 +356,6 @@
       } catch (err) {
         els.start.disabled = true;
         els.restart.disabled = true;
-        showError(err.message || "洞天入口暂时没有回应。");
         setStatus("洞天凭证获取失败，请稍后重进。");
       }
     }
@@ -294,15 +383,18 @@
         return;
       }
       state.cards = state.round.cards || [];
+      state.pairCount = Number(state.round.pair_count || state.config.config?.pair_count || state.pairCount);
+      state.flipCap = Number(state.round.flip_cap || state.config.config?.flip_cap || state.flipCap);
       state.open = [];
       state.matched = new Set();
       state.flips = 0;
+      state.locked = false;
       state.startedAt = Date.now();
       state.finished = false;
       els.start.disabled = true;
       els.restart.disabled = false;
       els.finish.disabled = false;
-      setStatus("翻开相同灵牌，尽量少翻错。");
+      setStatus(`记住 ${state.pairCount} 对灵牌，${state.flipCap} 次翻牌内归位。`);
       renderBoard();
       tick();
       clearInterval(state.timer);
@@ -311,36 +403,55 @@
 
     function renderBoard() {
       els.board.innerHTML = "";
-      for (const card of state.cards) {
+      applyBoardLayout();
+      state.cards.forEach((card, index) => {
         const btn = document.createElement("button");
         btn.className = "card";
         btn.type = "button";
         btn.dataset.id = card.id;
+        btn.style.setProperty("--deal-index", index);
         btn.textContent = "";
         btn.addEventListener("click", () => flip(card));
         els.board.appendChild(btn);
-      }
+      });
       refreshCards();
     }
 
     function flip(card) {
-      if (!state.startedAt || state.finished || state.matched.has(card.id)) return;
+      if (!state.startedAt || state.finished || state.locked || state.matched.has(card.id)) return;
+      if (state.flips >= state.flipCap) {
+        setStatus("翻牌次数已用尽，正在结算。");
+        finishGame("flip-cap");
+        return;
+      }
       if (state.open.some(item => item.id === card.id) || state.open.length >= 2) return;
       state.open.push(card);
       state.flips += 1;
       refreshCards();
+      animateCards([card.id], "reveal", 260);
       updateStats();
       if (state.open.length === 2) {
+        state.locked = true;
         const [a, b] = state.open;
         if (a.pair_id === b.pair_id) {
           state.matched.add(a.id);
           state.matched.add(b.id);
           state.open = [];
-          if (matchedPairs() >= 8) finishGame("completed");
+          state.locked = false;
+          refreshCards();
+          animateCards([a.id, b.id], "matched", 460);
+          updateStats();
+          if (matchedPairs() >= state.pairCount) finishGame("completed");
+          else if (state.flips >= state.flipCap) finishGame("flip-cap");
+          else setStatus(`已归位 ${matchedPairs()}/${state.pairCount} 对，继续记牌。`);
         } else {
+          animateCards([a.id, b.id], "wrong", 520);
+          setStatus("灵气不合，记住这两张的位置。");
           setTimeout(() => {
             state.open = [];
+            state.locked = false;
             refreshCards();
+            if (state.flips >= state.flipCap) finishGame("flip-cap");
           }, 520);
         }
       }
@@ -355,13 +466,15 @@
         btn.classList.toggle("open", isOpen && !isDone);
         btn.classList.toggle("done", isDone);
         btn.textContent = isOpen || isDone ? card.label : "灵";
-        btn.disabled = isDone || state.finished;
+        btn.setAttribute("aria-label", isOpen || isDone ? card.label : "未翻开的灵牌");
+        btn.disabled = isDone || state.finished || state.locked || (!isOpen && state.open.length >= 2);
       }
     }
 
     function tick() {
       const left = Math.max(0, state.duration - elapsedSeconds());
       els.time.textContent = String(left);
+      els.time.classList.toggle("danger", Boolean(state.startedAt && !state.finished && left <= 10));
       if (left <= 0 && state.startedAt && !state.finished) finishGame("timeout");
     }
 
@@ -375,9 +488,12 @@
     }
 
     function updateStats() {
-      els.pairs.textContent = `${matchedPairs()}/8`;
-      els.flips.textContent = String(state.flips);
+      els.pairs.textContent = `${matchedPairs()}/${state.pairCount}`;
+      els.flips.textContent = `${state.flips}/${state.flipCap}`;
       els.time.textContent = String(Math.max(0, state.duration - elapsedSeconds()));
+      const remainingFlips = state.flipCap - state.flips;
+      els.flips.classList.toggle("warn", remainingFlips <= 10 && remainingFlips > 4);
+      els.flips.classList.toggle("danger", remainingFlips <= 4 && state.startedAt && !state.finished);
     }
 
     async function finishGame(reason = "manual") {
@@ -393,6 +509,7 @@
       }
       state.finished = true;
       clearInterval(state.timer);
+      state.locked = true;
       els.finish.disabled = true;
       els.start.disabled = true;
       els.restart.disabled = true;
@@ -407,15 +524,16 @@
           matchedPairs: matchedPairs(),
           flipCount: state.flips,
           elapsedSeconds: elapsedSeconds(),
-          completed: matchedPairs() >= 8
+          completed: matchedPairs() >= state.pairCount
         };
         const issued = await request("/finish", { method: "POST", body: JSON.stringify(payload) });
         showResult(issued);
       } catch (err) {
         state.finished = false;
+        state.locked = false;
         els.finish.disabled = false;
         els.start.disabled = true;
-        els.restart.disabled = true;
+        els.restart.disabled = false;
         if (isTooEarlyError(err)) {
           setStatus(err.message || "本局结束过快，请稍后再结算。");
           refreshCards();
@@ -440,7 +558,12 @@
 
     function showResult(issued) {
       const code = issued.code || "";
+      const acceptedScore = Number(issued.accepted_score ?? 0);
+      const acceptedPairs = Number(issued.matched_pairs ?? matchedPairs());
+      const acceptedFlips = Number(issued.flip_count ?? state.flips);
+      const acceptedCompleted = Boolean(issued.completed ?? (acceptedPairs >= state.pairCount));
       const rewards = (issued.reward_preview || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>本局没有生成可兑换奖励。</li>";
+      state.locked = false;
       els.start.disabled = false;
       els.restart.disabled = false;
       els.finish.disabled = true;
@@ -449,7 +572,7 @@
       els.result.innerHTML = `
         <div class="result-card" role="dialog" aria-modal="true" aria-label="灵牌记忆结算">
           <h2>灵牌归位</h2>
-          <p class="result-desc">配对 ${matchedPairs()}/8｜翻牌 ${state.flips}。兑换码十分钟内有效。</p>
+          <p class="result-desc">认可 ${acceptedScore} 分｜配对 ${acceptedPairs}/${state.pairCount}｜翻牌 ${acceptedFlips}${acceptedCompleted ? "｜已归位" : ""}。兑换码十分钟内有效。</p>
           <div class="code-label">洞天兑换码</div>
           <div class="code">${escapeHtml(code)}</div>
           <div class="command">洞天兑换 ${escapeHtml(code)}</div>
@@ -485,6 +608,26 @@
     function clearResult() {
       els.result.className = "result";
       els.result.innerHTML = "";
+    }
+
+    function applyBoardLayout() {
+      const count = Math.max(1, state.cards.length || state.pairCount * 2);
+      const cols = 4;
+      const rows = Math.ceil(count / cols);
+      els.board.style.setProperty("--board-cols", cols);
+      els.board.style.setProperty("--board-rows", rows);
+      els.board.style.setProperty("--board-ratio", (cols / rows).toFixed(4));
+    }
+
+    function animateCards(ids, className, duration) {
+      for (const id of ids) {
+        const btn = els.board.querySelector(`[data-id="${id}"]`);
+        if (!btn) continue;
+        btn.classList.remove(className);
+        void btn.offsetWidth;
+        btn.classList.add(className);
+        window.setTimeout(() => btn.classList.remove(className), duration);
+      }
     }
 
     function escapeHtml(value) {

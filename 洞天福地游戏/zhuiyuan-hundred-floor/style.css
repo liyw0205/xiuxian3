@@ -161,12 +161,6 @@ body {
   transform: translateY(1px) scale(0.99);
 }
 
-.best-score-display {
-  color: rgba(148, 163, 184, 0.82);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .result-content {
   width: min(350px, 100%);
   max-height: calc(var(--app-height) - 36px);
@@ -293,21 +287,22 @@ body {
   #game-wrapper {
     width: 100vw;
     height: var(--app-height);
+    aspect-ratio: auto;
     border: 0;
     border-radius: 0;
     background:
       linear-gradient(90deg, rgba(6, 78, 59, 0.2), transparent 24%, transparent 76%, rgba(88, 28, 135, 0.16)),
       #070a15;
+    box-shadow: none;
   }
 
   #gameCanvas {
     position: absolute;
-    left: 50%;
-    top: 50%;
-    width: min(100vw, calc(var(--app-height) * 0.6667));
-    height: min(var(--app-height), calc(100vw * 1.5));
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 46px rgba(20, 184, 166, 0.12);
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    box-shadow: none;
   }
 
   .overlay {
@@ -367,15 +362,22 @@ body {
   }
 
   #touch-controls {
-    display: flex;
-    bottom: max(10px, env(safe-area-inset-bottom));
-    padding: 0 clamp(16px, 7vw, 30px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(12px, 4vw, 22px);
+    bottom: max(12px, env(safe-area-inset-bottom));
+    padding: 0 clamp(14px, 5vw, 24px);
   }
 
   .touch-btn {
-    width: clamp(58px, 17vw, 68px);
-    height: clamp(58px, 17vw, 68px);
-    font-size: 24px;
+    width: 100%;
+    height: clamp(86px, calc(var(--app-height) * 0.17), 128px);
+    border-radius: 18px;
+    border-color: rgba(125, 211, 252, 0.22);
+    background: rgba(15, 23, 42, 0.36);
+    box-shadow: inset 0 0 0 1px rgba(240, 253, 250, 0.06);
+    backdrop-filter: none;
+    font-size: clamp(30px, 9vw, 40px);
   }
 }
 
@@ -404,7 +406,6 @@ body {
   }
 
   .legend-item,
-  .best-score-display,
   .code-label {
     font-size: 11px;
   }
@@ -420,11 +421,12 @@ body {
 
   #touch-controls {
     bottom: max(7px, env(safe-area-inset-bottom));
+    gap: 10px;
+    padding: 0 12px;
   }
 
   .touch-btn {
-    width: 54px;
-    height: 54px;
-    font-size: 22px;
+    height: clamp(72px, calc(var(--app-height) * 0.16), 96px);
+    font-size: 28px;
   }
 }

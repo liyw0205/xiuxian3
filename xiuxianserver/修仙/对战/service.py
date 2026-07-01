@@ -606,7 +606,7 @@ class DuelService(CoreService):
             return T.hint("对方还没有创建用户。", "请对方先发送：创建用户 名称")
         if target_id == client_id:
             return T.hint("不能挑战自己。", "请输入其他玩家名称，或直接@对方。")
-        if player["status"] != "空闲" or target["status"] != "空闲":
+        if mode == "duel" and (player["status"] != "空闲" or target["status"] != "空闲"):
             return T.hint("双方都需要处于空闲状态。", "双方可先发送：修仙信息 查看状态，处理探险或休息后再挑战。")
         with self.db.transaction() as conn:
             self._expire_requests_conn(conn, client_id, target_id)
@@ -696,11 +696,12 @@ class DuelService(CoreService):
         request = self._waiting_request(client_id, from_id, mode)
         if not request:
             return T.hint("没有找到待接受的请求。", "确认对方名称是否正确，或让对方重新发起切磋/决斗。")
-        state_error = self._accept_state_error(client_id, from_id)
-        if state_error:
-            return state_error
+        if mode == "duel":
+            state_error = self._accept_state_error(client_id, from_id)
+            if state_error:
+                return state_error
 
-        result = self.combat_core.duel(from_id, client_id, write_log=False)
+        result = self.combat_core.duel(from_id, client_id, write_log=False, grant_weapon_exp=False)
         accepted = self._settle_accept_request(client_id, from_id, mode, request["duel_id"], result)
         if isinstance(accepted, str):
             return accepted
@@ -768,9 +769,10 @@ class DuelService(CoreService):
             if not request_row:
                 return T.hint("没有找到待接受的请求。", "可能已超时或被处理，请让对方重新发起。")
             request = dict(request_row)
-            state_error = self._accept_state_error(client_id, from_id)
-            if state_error:
-                return state_error
+            if mode == "duel":
+                state_error = self._accept_state_error(client_id, from_id)
+                if state_error:
+                    return state_error
 
             if mode == "duel" and not self._spend_accept_stake_conn(conn, client_id, from_id, request):
                 return T.hint(f"你的{currency_name()}不足，决斗已取消，发起人的冻结{currency_name()}已退回。", f"补足{currency_name()}后让对方重新发起决斗。")
@@ -785,7 +787,6 @@ class DuelService(CoreService):
             fee = self._pay_duel_winner_conn(conn, mode, request, result)
             record_id = self._write_duel_records_conn(conn, client_id, from_id, mode, request, result, fee)
             result["duel_record_id"] = record_id
-            self._write_duel_weapon_record_conn(conn, result)
         return request, fee
 
     def _spend_accept_stake_conn(self, conn, client_id: str, from_id: str, request: dict) -> bool:
@@ -871,37 +872,18 @@ class DuelService(CoreService):
 
         detail = (
             f"duel_id={request['duel_id']}, opponent={opponent_id}, "
-            f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}, "
-            f"weapon_exp={DuelService._duel_side_weapon_exp(client_id, result)}"
+            f"winner={result['winner_id'] or ''}, stake={request['stake']}, fee={fee}"
         )
         conn.execute(
             "INSERT INTO game_logs (client_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
             (client_id, action, detail, ts()),
         )
 
-    def _write_duel_weapon_record_conn(self, conn, result: dict) -> None:
-        """胜者武器累积一场对战胜绩，双方武器获得对战经验。"""
-
-        self._write_duel_weapon_exp_conn(conn, result)
-        if result.get("winner_id") == result.get("left_id"):
-            self.record_weapon_combat_conn(
-                conn,
-                result["left_id"],
-                int(result.get("left_weapon_id", 0)),
-                duel_win=True,
-                damage=int(result.get("left_highest_damage", 0)),
-            )
-        elif result.get("winner_id") == result.get("right_id"):
-            self.record_weapon_combat_conn(
-                conn,
-                result["right_id"],
-                int(result.get("right_weapon_id", 0)),
-                duel_win=True,
-                damage=int(result.get("right_highest_damage", 0)),
-            )
-
     def _write_duel_weapon_exp_conn(self, conn, result: dict) -> None:
-        """玩家对战结束后，双方真实持有的武器累计经验。"""
+        """真实对战结束后，双方真实持有的武器累计经验。
+
+        切磋和押注决斗是满状态模拟战，不调用这里；抢劫才会写入武器经验。
+        """
 
         self.add_weapon_exp_conn(
             conn,
@@ -946,25 +928,6 @@ class DuelService(CoreService):
             record_id=record_id,
             detail=combat_log_text.wants_detail(viewer),
         )
-
-    def _duel_weapon_exp_text(self, result: dict) -> str:
-        """展示对战双方本次武器经验。"""
-
-        left_id = str(result.get("left_id", ""))
-        right_id = str(result.get("right_id", ""))
-        left_exp = int(result.get("left_weapon_exp", 0)) if int(result.get("left_weapon_id", 0)) > 0 else 0
-        right_exp = int(result.get("right_weapon_exp", 0)) if int(result.get("right_weapon_id", 0)) > 0 else 0
-        return f"{self.format_player_name(left_id)} +{left_exp}｜{self.format_player_name(right_id)} +{right_exp}"
-
-    @staticmethod
-    def _duel_side_weapon_exp(client_id: str, result: dict) -> int:
-        """返回指定玩家在本次对战中的武器经验。"""
-
-        if client_id == str(result.get("left_id", "")) and int(result.get("left_weapon_id", 0)) > 0:
-            return int(result.get("left_weapon_exp", 0))
-        if client_id == str(result.get("right_id", "")) and int(result.get("right_weapon_id", 0)) > 0:
-            return int(result.get("right_weapon_exp", 0))
-        return 0
 
     def _parse_duel_message(self, message: str) -> tuple[str, int]:
         """解析决斗参数，返回对方 client_id 和押注金额。"""

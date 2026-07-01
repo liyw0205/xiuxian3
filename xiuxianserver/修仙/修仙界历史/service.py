@@ -633,15 +633,9 @@ class XiuxianHistoryService(CoreService):
             "trade_records",
             "client_id",
             """
-            SUM(
-                CASE
-                    WHEN action = 'sell' THEN total_price - fee
-                    WHEN action = 'buy' THEN -(total_price + fee)
-                    ELSE 0
-                END
-            )
+            SUM(CASE WHEN action = 'sell' THEN effective_profit ELSE 0 END)
             """,
-            "action IN ('buy', 'sell')",
+            "action = 'sell'",
         )
         if best_profit and int(best_profit["total"] or best_profit.get("net") or 0) > 0:
             total = int(best_profit.get("total") or best_profit.get("net") or 0)
@@ -1078,15 +1072,9 @@ class XiuxianHistoryService(CoreService):
         return self.db.fetch_one(
             """
             SELECT client_id,
-                   SUM(
-                       CASE
-                           WHEN action = 'sell' THEN total_price - fee
-                           WHEN action = 'buy' THEN -(total_price + fee)
-                           ELSE 0
-                       END
-                   ) AS net
+                   SUM(effective_profit) AS net
             FROM trade_records
-            WHERE action IN ('buy', 'sell')
+            WHERE action = 'sell'
               AND datetime(replace(created_at, 'T', ' ')) >= ?
               AND datetime(replace(created_at, 'T', ' ')) < ?
             GROUP BY client_id

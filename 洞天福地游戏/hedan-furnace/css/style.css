@@ -19,7 +19,7 @@
 html,
 body {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   margin: 0;
 }
 
@@ -31,6 +31,7 @@ body {
   color: var(--ink);
   font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   letter-spacing: 0;
+  overscroll-behavior: none;
   touch-action: manipulation;
 }
 
@@ -40,20 +41,26 @@ button {
 }
 
 .shell {
-  width: min(1120px, 100vw);
+  width: 100vw;
+  max-width: 1120px;
   height: 100dvh;
   margin: 0 auto;
   padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
 }
 
 .hero {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.title-block {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -74,7 +81,16 @@ h1 {
   line-height: 1;
 }
 
+.intro {
+  max-width: 30em;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .timer {
+  flex: 0 0 auto;
   min-width: 86px;
   padding: 8px 12px;
   border: 1px solid var(--line);
@@ -106,6 +122,7 @@ h1 {
 
 .board-wrap {
   min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
 }
@@ -288,6 +305,8 @@ h1 {
 
 .status {
   min-height: 44px;
+  display: grid;
+  align-items: center;
 }
 
 .settlement {
@@ -382,34 +401,145 @@ h1 {
 }
 
 @media (max-width: 760px) {
+  body {
+    background: linear-gradient(160deg, #e8efe8 0%, #f6f0e3 54%, #e6eef2 100%);
+  }
+
   .shell {
-    gap: 10px;
+    width: 100vw;
+    height: 100dvh;
+    padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+
+  .hero {
+    min-height: 52px;
+    gap: 8px;
+  }
+
+  .eyebrow {
+    margin-bottom: 1px;
+    font-size: 11px;
+  }
+
+  h1 {
+    font-size: 26px;
+  }
+
+  .intro {
+    max-width: 24em;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .timer {
+    min-width: 70px;
+    padding: 5px 8px;
+  }
+
+  .timer span {
+    font-size: 23px;
   }
 
   .game-shell {
+    min-height: 0;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, auto) auto;
-    gap: 10px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .board-wrap {
+    align-content: center;
   }
 
   .board {
-    width: min(86vw, 52dvh, 380px);
+    width: min(calc(100vw - 20px), calc(100dvh - 280px), 420px);
     gap: 7px;
     padding: 8px;
   }
 
   .side {
-    width: min(100%, 420px);
+    width: 100%;
+    max-width: 440px;
     justify-self: center;
+    gap: 7px;
   }
 
-  .actions {
-    grid-template-columns: 1fr;
+  .stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .stats div {
-    min-height: 56px;
-    padding: 8px;
+    min-height: 46px;
+    padding: 6px 4px;
+    text-align: center;
+    gap: 2px;
+  }
+
+  .stats span,
+  .furnace span {
+    font-size: 11px;
+  }
+
+  .stats strong {
+    font-size: 18px;
+  }
+
+  .furnace {
+    min-height: 46px;
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+
+  .furnace span {
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .furnace p,
+  .status {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .primary,
+  .ghost {
+    min-height: 46px;
+  }
+
+  .status {
+    min-height: 34px;
+  }
+
+  .settlement {
+    align-items: end;
+    padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+
+  .settlement-card {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    overflow: auto;
+    border-radius: 12px;
+  }
+
+  .copy-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -479,5 +609,29 @@ h1 {
 
   .copy-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 360px) {
+  .intro {
+    font-size: 11px;
+  }
+
+  .board {
+    width: min(calc(100vw - 18px), calc(100dvh - 286px), 360px);
+    gap: 6px;
+    padding: 7px;
+  }
+
+  .tile[data-tier="small"] {
+    font-size: 13px;
+  }
+
+  .tile[data-tier="medium"] {
+    font-size: 11px;
+  }
+
+  .tile[data-tier="large"] {
+    font-size: 10px;
   }
 }

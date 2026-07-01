@@ -1,4 +1,4 @@
-import { GameScene, Fish, Bubble, Seaweed } from './types';
+import { GameScene, Fish, FishType, Bubble, Seaweed } from './types';
 import { COLORS, HOOK_X_RATIO } from './constants';
 
 export function render(ctx: CanvasRenderingContext2D, scene: GameScene): void {
@@ -353,13 +353,26 @@ function drawBubbles(ctx: CanvasRenderingContext2D, bubbles: Bubble[]): void {
 
 function drawFishShape(ctx: CanvasRenderingContext2D, fish: Fish): void {
   const { x, y, type, direction, tailPhase } = fish;
+
+  drawFishIcon(ctx, type, x, y, 1, direction, tailPhase);
+}
+
+export function drawFishIcon(
+  ctx: CanvasRenderingContext2D,
+  type: FishType,
+  x: number,
+  y: number,
+  scale = 1,
+  direction: 1 | -1 = 1,
+  tailPhase = 0.8
+): void {
   const w = type.width;
   const h = type.height;
   const tailWag = Math.sin(tailPhase) * 6;
 
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(direction, 1);
+  ctx.scale(direction * scale, scale);
 
   if (type.glow) {
     ctx.shadowColor = '#FFE56E';
