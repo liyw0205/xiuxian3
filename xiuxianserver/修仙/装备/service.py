@@ -9,6 +9,8 @@ from ..common import (
     RING_CATEGORY_GEM,
     currency_name,
     fixed_equipment_label,
+    format_effect,
+    load_json,
     money,
     parse_name_level,
     ring_category_key,
@@ -41,18 +43,35 @@ class EquipmentService(CoreService):
             return error
         self.db.ensure_fixed_equipment(client_id)
         rows = self.db.fetch_all(
-            "SELECT * FROM fixed_equipment WHERE client_id = ? ORDER BY slot",
+            "SELECT * FROM fixed_equipment WHERE client_id = ?",
             (client_id,),
         )
-        bonuses = self.equipment_bonuses(client_id)
+        rows = self._sort_equipment_rows(rows)
+        breakdown = self.fixed_equipment_bonus_breakdown(client_id)
         panel = T.panel()
         panel.section("装备")
         for row in rows:
-            panel.line(f"{fixed_equipment_label(row)}｜**{row['level']}** 级｜孔位 **{row['hole_count']}/{EQUIPMENT_MAX_HOLES}**")
+            panel.line(
+                f"{fixed_equipment_label(row)}｜Lv**{row['level']}**｜孔位 **{row['hole_count']}/{EQUIPMENT_MAX_HOLES}**｜"
+                f"{self._slot_level_bonus_text(str(row['slot']), int(row['level']))}"
+            )
         panel.hr()
         panel.section("总加成")
-        panel.line(f"血气 +**{int(bonuses['max_hp_bonus'])}**｜" f"精神 +**{int(bonuses['max_mp_bonus'])}**｜" f"防御 +**{int(bonuses['defense_bonus'])}**")
-        return T.attach(panel.render(), "<升 左手><升 右手><升 左脚><升 右脚><升 头部><升 护甲><升 饰品>")
+        panel.lines(self._equipment_breakdown_lines(breakdown))
+        return T.attach(
+            panel.render(),
+            T.buttons(
+                "升 头部",
+                "升 左手",
+                "升 右手",
+                "升 左脚",
+                "升 右脚",
+                "升 饰品",
+                "升 护甲",
+                "孔位",
+                "宝石",
+            ),
+        )
 
     def upgrade(self, client_id: str, slot: str) -> str:
         """升级装备。"""
@@ -103,7 +122,7 @@ class EquipmentService(CoreService):
         hole_count = int(equipment["hole_count"]) if equipment else EQUIPMENT_DEFAULT_HOLES
         rows = self.db.fetch_all(
             """
-            SELECT i.hole_no, i.level, e.name
+            SELECT i.hole_no, i.level, e.name, e.effect
             FROM fixed_equipment_inlays i
             LEFT JOIN ring_item_defs e ON e.ring_item_id = i.gem_id
             WHERE i.client_id = ? AND i.slot = ?
@@ -111,7 +130,7 @@ class EquipmentService(CoreService):
             """,
             (client_id, slot),
         )
-        used = {row["hole_no"]: f"{row['name']} {row['level']}级" for row in rows}
+        used = {row["hole_no"]: self._inlay_detail_text(row) for row in rows}
         panel = T.panel()
         panel.section(f"{fixed_equipment_label(equipment) if equipment else slot}孔位")
         panel.line(f"孔位：**{hole_count}/{EQUIPMENT_MAX_HOLES}**")
@@ -120,20 +139,21 @@ class EquipmentService(CoreService):
                 panel.line(f"{index}：未开孔")
             else:
                 panel.line(f"{index}：{used.get(index, '空')}")
-        return T.attach(
-            panel.render(),
-            T.buttons(
-                f"宝石升级 {slot} 1:升级1孔",
-                f"宝石升级 {slot} 2:升级2孔",
-                f"宝石升级 {slot} 3:升级3孔",
-                f"宝石升级 {slot} 4:升级4孔",
-                f"宝石升级 {slot} 5:升级5孔",
-                f"宝石升级 {slot} 6:升级6孔",
-                f"宝石升级 {slot} 7:升级7孔",
-                f"宝石升级 {slot} 8:升级8孔",
-                f"宝石升级 {slot} 9:升级9孔",
-            ),
-        )
+        buttons = [f"宝石升级 {slot} {row['hole_no']}:升级{row['hole_no']}孔" for row in rows]
+        buttons.extend(["孔位", "宝石", "装备"])
+        return T.attach(panel.render(), T.buttons(*buttons))
+
+    @staticmethod
+    def _inlay_detail_text(row: dict) -> str:
+        """展示单个已镶嵌宝石的等级和当前等级效果。"""
+
+        level = max(1, int(row["level"]))
+        effect = load_json(row.get("effect"), {})
+        level_effect = {
+            key: value * level if isinstance(value, int | float) else value
+            for key, value in effect.items()
+        }
+        return f"{row['name']} {level}级｜{format_effect(level_effect)}"
 
     def _holes_overview(self, client_id: str) -> str:
         """查看七件装备的全部孔位。"""
@@ -172,10 +192,10 @@ class EquipmentService(CoreService):
             panel.line(self._hole_row(4, hole_count, gems))
             panel.line(self._hole_row(7, hole_count, gems))
 
-        bonuses = self.equipment_bonuses(client_id)
+        breakdown = self.fixed_equipment_bonus_breakdown(client_id)
         panel.hr()
         panel.section("总加成")
-        panel.line(f"血气 +**{int(bonuses['max_hp_bonus'])}**｜" f"精神 +**{int(bonuses['max_mp_bonus'])}**｜" f"防御 +**{int(bonuses['defense_bonus'])}**")
+        panel.lines(self._equipment_breakdown_lines(breakdown))
         return panel.render()
 
     def _hole_row(self, start: int, hole_count: int, gems: dict[int, str]) -> str:
@@ -390,6 +410,62 @@ class EquipmentService(CoreService):
         return self.db.fetch_one(
             "SELECT * FROM fixed_equipment WHERE client_id = ? AND slot = ?",
             (client_id, slot),
+        )
+
+    @staticmethod
+    def _sort_equipment_rows(rows: list[dict]) -> list[dict]:
+        """按设定装备位顺序展示。"""
+
+        order = {slot: index for index, slot in enumerate(EQUIPMENT_SLOTS)}
+        return sorted(rows, key=lambda row: order.get(str(row["slot"]), len(order)))
+
+    @staticmethod
+    def _slot_level_bonus_text(slot: str, level: int) -> str:
+        """展示单个装备位当前等级贡献的基础生存数值。"""
+
+        factor = FIXED_EQUIPMENT_SLOT_FACTORS.get(slot, 1.0)
+        hp = int(level * 8 * factor)
+        mp = int(level * 3 * factor)
+        defense = int(level * 2 * factor)
+        return f"血气 +{hp}｜精神 +{mp}｜防御 +{defense}"
+
+    def _equipment_breakdown_lines(self, breakdown: dict[str, object]) -> list[str]:
+        """格式化装备等级、镶嵌宝石和宝石特效明细。"""
+
+        level_bonuses = dict(breakdown.get("level_bonuses") or {})
+        gem_bonuses = dict(breakdown.get("gem_bonuses") or {})
+        return [
+            (
+                f"装备：总Lv **{int(breakdown.get('total_level') or 0)}**｜"
+                f"孔位 **{int(breakdown.get('open_holes') or 0)}/{int(breakdown.get('max_holes') or 0)}**｜"
+                f"宝石 **{int(breakdown.get('gem_count') or 0)}** 颗"
+            ),
+            f"装备等级：{self._flat_bonus_text(level_bonuses)}",
+            f"镶嵌宝石：{self._flat_bonus_text(gem_bonuses)}",
+            f"宝石特效：{self._percent_bonus_text(gem_bonuses)}",
+        ]
+
+    @staticmethod
+    def _flat_bonus_text(bonuses: dict) -> str:
+        """展示血气、精神、防御这类直接数值。"""
+
+        return (
+            f"血气 +{int(bonuses.get('max_hp_bonus') or 0)}｜"
+            f"精神 +{int(bonuses.get('max_mp_bonus') or 0)}｜"
+            f"防御 +{int(bonuses.get('defense_bonus') or 0)}"
+        )
+
+    @staticmethod
+    def _percent_bonus_text(bonuses: dict) -> str:
+        """展示宝石百分比特效。"""
+
+        trade_bonus = float(bonuses.get("trade_bonus") or 0)
+        return (
+            f"闪避 +{float(bonuses.get('dodge_bonus') or 0) * 100:.1f}%｜"
+            f"恢复 +{float(bonuses.get('recover_bonus') or 0) * 100:.1f}%｜"
+            f"探险 +{float(bonuses.get('explore_bonus') or 0) * 100:.1f}%｜"
+            f"跑商手续费 -{trade_bonus * 100:.1f}%｜"
+            f"抗暴 +{float(bonuses.get('crit_resist_bonus') or 0) * 100:.1f}%"
         )
 
 
